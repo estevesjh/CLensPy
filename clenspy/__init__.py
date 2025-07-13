@@ -15,7 +15,7 @@ from .lensing import LensingProfile
 
 __all__ = [
     "lensing",
-    "halo", 
+    "halo",
     "utils",
     "cosmology",
     "config",

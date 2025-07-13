@@ -12,11 +12,7 @@ import numpy as np
 from astropy.cosmology import FlatLambdaCDM
 
 
-def sigma_critical(
-    z_lens: float,
-    z_source: float,
-    cosmology: FlatLambdaCDM
-) -> float:
+def sigma_critical(z_lens: float, z_source: float, cosmology: FlatLambdaCDM) -> float:
     """
     Calculate the lensing critical surface density.
 
@@ -62,10 +58,10 @@ def sigma_critical(
     G = 4.302e-9 * u.Mpc / u.Msun * (u.km / u.s) ** 2  # Gravitational constant
 
     # Critical surface density
-    sigma_crit = (c ** 2 / (4 * np.pi * G)) * (D_s / (D_l * D_ls))
+    sigma_crit = (c**2 / (4 * np.pi * G)) * (D_s / (D_l * D_ls))
 
     # Convert to Msun/Mpc^2
-    sigma_crit = sigma_crit.to(u.Msun / u.Mpc ** 2)
+    sigma_crit = sigma_crit.to(u.Msun / u.Mpc**2)
 
     return sigma_crit.value
 
@@ -74,7 +70,7 @@ def comoving_to_theta(
     D_c: Union[float, np.ndarray],
     z: float,
     cosmology: FlatLambdaCDM,
-    unit: str = "arcmin"
+    unit: str = "arcmin",
 ) -> Union[float, np.ndarray]:
     """
     Convert comoving distance to angular separation.
@@ -129,7 +125,7 @@ def theta_to_comoving(
     theta: Union[float, np.ndarray],
     z: float,
     cosmology: FlatLambdaCDM,
-    unit: str = "arcmin"
+    unit: str = "arcmin",
 ) -> Union[float, np.ndarray]:
     """
     Convert angular separation to comoving distance.
@@ -200,7 +196,7 @@ def critical_density(z: float, cosmology: FlatLambdaCDM) -> float:
         Critical density in Msun/Mpc^3
     """
     rho_crit = cosmology.critical_density(z)
-    return rho_crit.to(u.Msun / u.Mpc ** 3).value
+    return rho_crit.to(u.Msun / u.Mpc**3).value
 
 
 def hubble_parameter(z: float, cosmology: FlatLambdaCDM) -> float:

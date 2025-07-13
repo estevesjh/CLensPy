@@ -63,7 +63,7 @@ class LensingProfile:
         concentration: float = 4.0,
         model: str = "NFW",
         include_2halo: bool = True,
-        z_source: float = 1.0
+        z_source: float = 1.0,
     ) -> None:
         self.cosmology = cosmology
         self.z_cluster = z_cluster
@@ -80,9 +80,7 @@ class LensingProfile:
         self._setup_halo_profile()
 
         # Calculate critical surface density using new cosmology utils
-        self._sigma_crit = sigma_critical(
-            self.z_cluster, self.z_source, self.cosmology
-        )
+        self._sigma_crit = sigma_critical(self.z_cluster, self.z_source, self.cosmology)
 
     def _validate_inputs(self) -> None:
         """Validate input parameters."""
@@ -109,15 +107,13 @@ class LensingProfile:
                 M200=self.m200,
                 c200=self.concentration,
                 z=self.z_cluster,
-                cosmology=self.cosmology  # Pass astropy cosmology directly
+                cosmology=self.cosmology,  # Pass astropy cosmology directly
             )
         else:
             msg = f"Model {self.model} not implemented"
             raise NotImplementedError(msg)
 
-    def delta_sigma(
-        self, R: Union[float, np.ndarray]
-    ) -> Union[float, np.ndarray]:
+    def delta_sigma(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
         Calculate excess surface density profile.
 
@@ -144,9 +140,7 @@ class LensingProfile:
 
         return delta_sigma
 
-    def surface_density(
-        self, R: Union[float, np.ndarray]
-    ) -> Union[float, np.ndarray]:
+    def surface_density(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
         Calculate surface density profile.
 
@@ -180,9 +174,7 @@ class LensingProfile:
         """
         return self.halo_profile.mean_surface_density(R)
 
-    def density_3d(
-        self, r: Union[float, np.ndarray]
-    ) -> Union[float, np.ndarray]:
+    def density_3d(self, r: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
         Calculate 3D density profile.
 
@@ -198,9 +190,7 @@ class LensingProfile:
         """
         return self.halo_profile.density_3d(r)
 
-    def shear(
-        self, R: Union[float, np.ndarray]
-    ) -> Union[float, np.ndarray]:
+    def shear(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
         Calculate tangential shear profile.
 
@@ -217,9 +207,7 @@ class LensingProfile:
         delta_sigma = self.delta_sigma(R)
         return delta_sigma / self._sigma_crit
 
-    def convergence(
-        self, R: Union[float, np.ndarray]
-    ) -> Union[float, np.ndarray]:
+    def convergence(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
         Calculate convergence profile.
 
@@ -236,9 +224,7 @@ class LensingProfile:
         sigma = self.surface_density(R)
         return sigma / self._sigma_crit
 
-    def fourier_profile(
-        self, k: Union[float, np.ndarray]
-    ) -> Union[float, np.ndarray]:
+    def fourier_profile(self, k: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
         Calculate Fourier transform of the density profile.
 
@@ -292,9 +278,7 @@ class LensingProfile:
 
         if np.any(large_scale_mask):
             # Very simplified power law for large scales
-            two_halo[large_scale_mask] = (
-                1e12 * (R[large_scale_mask] / 5.0) ** (-1.5)
-            )
+            two_halo[large_scale_mask] = 1e12 * (R[large_scale_mask] / 5.0) ** (-1.5)
 
         return two_halo if R.shape else two_halo[0]
 
@@ -308,17 +292,17 @@ class LensingProfile:
             Dictionary containing profile parameters and derived quantities
         """
         return {
-            'model': self.model,
-            'z_cluster': self.z_cluster,
-            'z_source': self.z_source,
-            'm200': self.m200,
-            'concentration': self.concentration,
-            'r200': self.halo_profile.r200,
-            'rs': self.halo_profile.rs,
-            'sigma_crit': self._sigma_crit,
-            'include_2halo': self.include_2halo,
-            'H0': self.cosmology.H0.value,
-            'Om0': self.cosmology.Om0
+            "model": self.model,
+            "z_cluster": self.z_cluster,
+            "z_source": self.z_source,
+            "m200": self.m200,
+            "concentration": self.concentration,
+            "r200": self.halo_profile.r200,
+            "rs": self.halo_profile.rs,
+            "sigma_crit": self._sigma_crit,
+            "include_2halo": self.include_2halo,
+            "H0": self.cosmology.H0.value,
+            "Om0": self.cosmology.Om0,
         }
 
     def __repr__(self) -> str:
