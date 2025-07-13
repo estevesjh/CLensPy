@@ -1,6 +1,6 @@
-# CLensPy
+# Cluster Lensing Python Package (CLensPy)
 
-**Modular Python package for galaxy cluster weak lensing analysis, inspired by Cluster Tool-Kit. Designed for large photometric surveys (DES/LSST) and reproducible cosmological science.**
+Modular Python package for galaxy cluster weak lensing analysis, inspired by Cluster Tool-Kit. Designed for large photometric surveys (DES/LSST) and reproducible cosmological science.
 
 ---
 
