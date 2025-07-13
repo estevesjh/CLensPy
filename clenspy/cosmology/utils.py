@@ -48,7 +48,8 @@ def sigma_critical(
     source, and between lens and source respectively.
     """
     if z_source <= z_lens:
-        msg = f"Source redshift ({z_source}) must be greater than lens redshift ({z_lens})"
+        msg = f"Source redshift ({z_source}) must be greater than"
+        msg += f" lens redshift ({z_lens})."
         raise ValueError(msg)
 
     # Angular diameter distances using astropy
