@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clenspy"
+version = "0.1.0"
+description = "A Python package for cluster gravitational lensing analysis"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Johnny H. Esteves", email = "johnny.udi@gmail.com"},
+]
+keywords = ["cosmology", "weak lensing", "dark matter", "astronomy", "astrophysics"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+dependencies = [
+    "numpy>=1.20.0",
+    "scipy>=1.7.0",
+    "matplotlib>=3.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+]
+mcmc = [
+    "emcee>=3.0.0",
+    "corner>=2.2.0",
+]
+all = ["clenspy[dev,mcmc]"]
+
+[project.urls]
+Homepage = "https://github.com/estevesjh/clenspy"
+Repository = "https://github.com/estevesjh/clenspy"
+Documentation = "https://clenspy.readthedocs.io"
+"Bug Tracker" = "https://github.com/estevesjh/clenspy/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["clenspy*"]
+
+[tool.setuptools.package-data]
+clenspy = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=clenspy --cov-report=html --cov-report=term-missing"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+select = ["E", "F", "B", "I"]
+ignore = []
+exclude = ["build", "dist", ".venv"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
