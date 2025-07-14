@@ -8,10 +8,11 @@ from dark matter halo profiles.
 from typing import Any, Dict, Union
 
 import numpy as np
-from astropy.cosmology import FlatLambdaCDM
+from astropy import cosmology
 
-from ..cosmology import sigma_critical
-from ..halo import NFWProfile
+from ..config import DEFAULT_COSMOLOGY
+from ..cosmology import PkGrid, sigma_critical
+from ..halo import NFWProfile, TwoHaloTerm, biasModel
 
 
 class LensingProfile:
@@ -35,6 +36,8 @@ class LensingProfile:
         Halo model type (default: "NFW")
     include_2halo : bool, optional
         Whether to include 2-halo term (default: True)
+    backend_2halo : str, optional
+        Backend for 2-halo term calculations (default: "camb")
     z_source : float, optional
         Source redshift for lensing calculations (default: 1.0)
 
@@ -57,21 +60,26 @@ class LensingProfile:
 
     def __init__(
         self,
-        cosmology: FlatLambdaCDM,
         z_cluster: float,
         m200: float,
+        cosmo: cosmology = DEFAULT_COSMOLOGY,
         concentration: float = 4.0,
         model: str = "NFW",
         include_2halo: bool = True,
+        backend_2halo: str = "camb",
         z_source: float = 1.0,
     ) -> None:
-        self.cosmology = cosmology
+        self.cosmo = cosmo
         self.z_cluster = z_cluster
         self.m200 = m200
         self.concentration = concentration
         self.model = model.upper()
         self.include_2halo = include_2halo
         self.z_source = z_source
+        self.omega_m = self.cosmo.Om0
+
+        rhocrit = self.cosmo.critical_density(z_cluster).to_value("Msun/Mpc^3")
+        self.rho_m = rhocrit * self.omega_m
 
         # Validate inputs
         self._validate_inputs()
@@ -79,8 +87,21 @@ class LensingProfile:
         # Initialize halo profile
         self._setup_halo_profile()
 
+        # Initialize CAMB Power Spectrum
+        if self.include_2halo:
+            self.kvec = np.logspace(-3, 1, 100)  # Example k-vector
+            bPk = PkGrid(cosmo=self.cosmo, backend=self.backend_2halo)
+            self.Pkvec = bPk(self.kvec, self.z_cluster)
+
         # Calculate critical surface density using new cosmology utils
         self._sigma_crit = sigma_critical(self.z_cluster, self.z_source, self.cosmology)
+
+        # Calculate halo bias if needed
+        if self.include_2halo:
+            self.bias_model = biasModel(
+                self.kvec, self.Pkvec, omega_m=self.cosmo.Om0, odelta=200
+            )
+            self.bias = self.bias_model.bias_at_M(self.m200)
 
     def _validate_inputs(self) -> None:
         """Validate input parameters."""
@@ -107,13 +128,21 @@ class LensingProfile:
                 M200=self.m200,
                 c200=self.concentration,
                 z=self.z_cluster,
-                cosmology=self.cosmology,  # Pass astropy cosmology directly
+                cosmo=self.cosmo,  # Pass astropy cosmology directly
+            )
+        elif self.include_2halo:
+            # Use TwoHaloTerm for 2-halo term calculations
+            self.two_halo_profile = TwoHaloTerm(
+                self.kvec,
+                self.Pkvec,
+                z=self.z_cluster,
+                cosmo=self.cosmo,  # Pass astropy cosmology directly
             )
         else:
             msg = f"Model {self.model} not implemented"
             raise NotImplementedError(msg)
 
-    def delta_sigma(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+    def deltasigmaR(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
         Calculate excess surface density profile.
 
@@ -128,19 +157,16 @@ class LensingProfile:
             Excess surface density in Msun/Mpc^2
         """
         # Get surface density and mean surface density
-        sigma = self.halo_profile.surface_density(R)
-        sigma_mean = self.halo_profile.mean_surface_density(R)
-
-        # Delta Sigma = <Sigma>(<R) - Sigma(R)
-        delta_sigma = sigma_mean - sigma
+        deltasigma = self.halo_profile.deltasigmaR(R)
 
         # Add 2-halo term if requested
         if self.include_2halo:
-            delta_sigma += self._delta_sigma_2halo(R)
+            deltasigma2h = self.rho_m * self.two_halo_profile.deltasigmaR(R)
+            deltasigma += self.bias*deltasigma2h
 
-        return delta_sigma
+        return deltasigma
 
-    def surface_density(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+    def sigmaR(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
         Calculate surface density profile.
 
@@ -154,25 +180,12 @@ class LensingProfile:
         float or array-like
             Surface density in Msun/Mpc^2
         """
-        return self.halo_profile.surface_density(R)
-
-    def mean_surface_density(
-        self, R: Union[float, np.ndarray]
-    ) -> Union[float, np.ndarray]:
-        """
-        Calculate mean surface density within radius R.
-
-        Parameters
-        ----------
-        R : float or array-like
-            Projected radius in Mpc
-
-        Returns
-        -------
-        float or array-like
-            Mean surface density in Msun/Mpc^2
-        """
-        return self.halo_profile.mean_surface_density(R)
+        sigma = self.halo_profile.sigmaR(R)
+        # If 2-halo term is included, add it to the surface density
+        if self.include_2halo:
+            sigma2h = self.rho_m * self.two_halo_profile.sigmaR(R)
+            sigma += self.bias * sigma2h  # Apply bias to 2-halo term
+        return sigma
 
     def density_3d(self, r: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
@@ -221,8 +234,31 @@ class LensingProfile:
         float or array-like
             Convergence (dimensionless)
         """
-        sigma = self.surface_density(R)
+        sigma = self.sigmaR(R)
         return sigma / self._sigma_crit
+
+    def reduced_shear(
+        self, R: Union[float, np.ndarray]
+    ) -> Union[float, np.ndarray]:
+        """
+        reduced_shear(R)
+        Returns the reduced shear as a function of cosmology,
+        radius, halo mass and the scale factors of the
+        source and the lens.
+        
+        .. math::
+           g_t (R) = \\frac{\\gamma(R)}{(1 - \\kappa(R))},
+
+        where :math:`\\gamma(R)` is the shear and :math:`\\kappa(R)` is the
+        convergence.
+
+        """
+        convergence = self.convergence(R)
+        if np.any(convergence >= 1.0):
+            raise ValueError("Convergence must be less than 1 for reduced shear calculation")   
+                        
+        shear = self.shear(R)
+        return shear / (1.0 - convergence)
 
     def fourier_profile(self, k: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
@@ -238,49 +274,15 @@ class LensingProfile:
         float or array-like
             Fourier profile u(k)
         """
-        # This is a placeholder for the Fourier profile calculation
-        # In practice, this would involve the Fourier transform of the NFW
         k = np.atleast_1d(k)
+        result = self.halo_profile.fourier(k)
 
-        # Simplified NFW Fourier profile (placeholder)
-        # Real implementation would use proper NFW Fourier transform
-        rs = self.halo_profile.rs
-        result = np.exp(-k * rs)  # Simplified exponential cutoff
+        if self.include_2halo:
+            # Add 2-halo term contribution
+            two_halo_result = self.Pkec
+            result += self.bias * two_halo_result
 
         return result if k.shape else result[0]
-
-    def _delta_sigma_2halo(
-        self, R: Union[float, np.ndarray]
-    ) -> Union[float, np.ndarray]:
-        """
-        Calculate 2-halo term contribution to delta sigma.
-
-        This is a placeholder for the 2-halo term calculation.
-        In practice, this would involve halo bias and matter power spectrum.
-
-        Parameters
-        ----------
-        R : float or array-like
-            Projected radius in Mpc
-
-        Returns
-        -------
-        float or array-like
-            2-halo term contribution in Msun/Mpc^2
-        """
-        # Placeholder: very simplified 2-halo term
-        R = np.atleast_1d(R)
-
-        # 2-halo term typically becomes important at large scales (R > few Mpc)
-        # and has a power-law dependence
-        two_halo = np.zeros_like(R)
-        large_scale_mask = R > 2.0  # Mpc
-
-        if np.any(large_scale_mask):
-            # Very simplified power law for large scales
-            two_halo[large_scale_mask] = 1e12 * (R[large_scale_mask] / 5.0) ** (-1.5)
-
-        return two_halo if R.shape else two_halo[0]
 
     def info(self) -> Dict[str, Any]:
         """
@@ -301,8 +303,8 @@ class LensingProfile:
             "rs": self.halo_profile.rs,
             "sigma_crit": self._sigma_crit,
             "include_2halo": self.include_2halo,
-            "H0": self.cosmology.H0.value,
-            "Om0": self.cosmology.Om0,
+            "H0": self.cosmo.H0.to_value("km/s/Mpc"),
+            "Om0": self.cosmo.Om0,
         }
 
     def __repr__(self) -> str:
@@ -312,6 +314,5 @@ class LensingProfile:
             f"z_cluster={self.z_cluster}, "
             f"m200={self.m200:.2e}, c={self.concentration})"
         )
-
 
 __all__ = ["LensingProfile"]
