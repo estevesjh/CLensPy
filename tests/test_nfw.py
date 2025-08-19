@@ -12,6 +12,102 @@ except ImportError:
 
 is_plot = False  # Set to True to enable plotting in tests
 
+class TestNFWProfile:
+    """Test NFW profile implementation."""
+    
+    def test_nfw_initialization(self):
+        """Test NFW profile initialization."""
+        M200 = 1e14  # Msun
+        c200 = 5.0
+        
+        nfw = NFWProfile(m200=M200, c200=c200)
+        
+        # Check that basic parameters are set
+        assert nfw.m200 == M200
+        assert nfw.c200 == c200
+        
+        # Check that derived parameters are calculated
+        assert hasattr(nfw, 'r200')
+        assert hasattr(nfw, 'rs')
+        assert hasattr(nfw, 'rho_s')
+        
+        # Basic sanity checks
+        assert nfw.r200 > 0
+        assert nfw.rs > 0
+        assert nfw.rho_s > 0
+        assert nfw.rs < nfw.r200  # Scale radius < virial radius
+    
+    def test_density_3d(self):
+        """Test 3D density profile."""
+        nfw = NFWProfile(m200=1e14, c200=5.0)
+        
+        r = np.array([0.1, 0.5, 1.0, 2.0])  # Mpc
+        rho = nfw.density(r)
+        
+        # Should return array of same length
+        assert len(rho) == len(r)
+        # All values should be positive and finite
+        assert np.all(rho > 0)
+        assert np.all(np.isfinite(rho))
+        # Density should decrease with radius
+        assert np.all(np.diff(rho) < 0)
+    
+    def test_surface_density(self):
+        """Test surface density profile."""
+        nfw = NFWProfile(m200=1e14, c200=5.0)
+        
+        R = np.array([0.1, 0.5, 1.0, 2.0])  # Mpc
+        sigma = nfw.sigmaR(R)
+        
+        # Should return array of same length
+        assert len(sigma) == len(R)
+        # All values should be positive and finite
+        assert np.all(sigma > 0)
+        assert np.all(np.isfinite(sigma))
+    
+    def test_deltasigma(self):
+        """Test mean surface density."""
+        nfw = NFWProfile(m200=1e14, c200=5.0)
+        
+        R = np.array([0.5, 1.0, 2.0])  # Mpc
+        deltasigma = nfw.deltasigmaR(R)
+
+        # Should return array of same length
+        assert len(deltasigma) == len(R)
+        # All values should be positive and finite
+        assert np.all(deltasigma > 0)
+        assert np.all(np.isfinite(deltasigma))
+
+    def test_surface_vs_mean_density(self):
+        """Test relationship between surface and mean surface density."""
+        nfw = NFWProfile(m200=1e14, c200=5.0)
+        
+        R = 1.0  # Mpc
+        sigma = nfw.sigmaR(R)
+        deltasigma = nfw.deltasigmaR(R)
+        sigma_mean = deltasigma + sigma
+        
+        # For NFW profiles, mean surface density is typically larger
+        # than surface density at most radii
+        assert sigma_mean > 0
+        assert sigma > 0
+    
+    def test_scalar_input(self):
+        """Test that scalar inputs work correctly."""
+        nfw = NFWProfile(m200=1e14, c200=5.0)
+        
+        r_scalar = 1.0
+        R_scalar = 1.0
+        
+        # These should return scalars, not arrays
+        rho = nfw.density(r_scalar)
+        sigma = nfw.sigmaR(R_scalar)
+        deltasigma = nfw.deltasigmaR(R_scalar)
+        
+        assert np.isscalar(rho)
+        assert np.isscalar(sigma)
+        assert np.isscalar(deltasigma)
+
 @pytest.mark.skipif(ccl is None, reason="pyccl not installed")
 @pytest.mark.parametrize("truncated", [False, True])
 def test_nfw_fourier_matches_pyccl(truncated):

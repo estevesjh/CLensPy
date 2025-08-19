@@ -30,6 +30,7 @@ classifiers = [
 dependencies = [
     "numpy>=1.20.0",
     "scipy>=1.7.0",
+    "astropy>=4.0.0",
     "matplotlib>=3.3.0",
 ]
 
@@ -37,8 +38,9 @@ dependencies = [
 dev = [
     "pytest>=6.0",
     "pytest-cov",
+    "pytest-benchmark",
     "black",
-    "flake8",
+    "ruff",
 ]
 mcmc = [
     "emcee>=3.0.0",
@@ -54,7 +56,7 @@ Documentation = "https://clenspy.readthedocs.io"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["clenspy*"]
+include = ["src/clenspy*"]
 
 [tool.setuptools.package-data]
 clenspy = ["py.typed"]
@@ -62,6 +64,9 @@ clenspy = ["py.typed"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=clenspy --cov-report=html --cov-report=term-missing"
+markers = [
+    "benchmark: marks tests as benchmark tests (deselect with '-m \"not benchmark\"')",
+]
 
 [tool.black]
 line-length = 88

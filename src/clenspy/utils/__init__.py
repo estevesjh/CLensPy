@@ -2,7 +2,7 @@
 Utility functions for coordinate transformations and mathematical operations.
 """
 
-from .decorators import default_rvals_z, time_method
+from .decorators import default_rvals_z, scalar_array_output, time_method
 from .integrate import (
     compute_sigma_grid,
     compute_sigma_leggauss,
@@ -17,6 +17,7 @@ __all__ = [
     "LogGridInterpolator",
     "default_rvals_z",
     "time_method",
+    "scalar_array_output",
     "compute_sigma_grid",
     "compute_sigma_leggauss",
     "compute_sigma_trapz_vectorized",

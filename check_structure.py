@@ -13,9 +13,9 @@ def check_structure():
     base_dir = "/Users/esteves/Documents/Projetos/CLensPy"
 
     expected_structure = {
-        "clenspy": ["__init__.py", "config.py"],
-        "clenspy/lensing": ["__init__.py", "profile.py", "boost.py", "miscentering.py"],
-        "clenspy/halo": [
+        "src/clenspy": ["__init__.py", "config.py"],
+        "src/clenspy/lensing": ["__init__.py", "profile.py", "boost.py", "miscentering.py"],
+        "src/clenspy/halo": [
             "__init__.py",
             "nfw.py",
             "bias.py",
@@ -23,8 +23,8 @@ def check_structure():
             "twohalo.py",
             "einasto.py",
         ],
-        "clenspy/cosmology": ["__init__.py", "utils.py", "pkgrid.py"],
-        "clenspy/utils": [
+        "src/clenspy/cosmology": ["__init__.py", "utils.py", "pkgrid.py"],
+        "sec/clenspy/utils": [
             "__init__.py",
             "decorators.py",
             "interpolate.py",
@@ -159,7 +159,7 @@ def format_file_size(size_bytes):
 def print_package_summary():
     """Print package structure summary."""
     print("\nPackage structure summary:")
-    print("├── clenspy/")
+    print("├── src/clenspy/")
     print("│   ├── lensing/          # Cosmology-dependent observables")
     print("│   │   ├── profile.py    # LensingProfile class")
     print("│   │   ├── boost.py      # Boost factor corrections")
@@ -346,8 +346,8 @@ def test_basic_functionality():
         # Test basic calculation
         R = np.array([0.5, 1.0, 2.0])  # Mpc
         try:
-            delta_sigma = profile.delta_sigma(R)
-            print(f"✅ delta_sigma calculation: {len(delta_sigma)} values computed")
+            delta_sigma = profile.deltaSigmaR(R)
+            print(f"✅ deltaSigmaR calculation: {len(delta_sigma)} values computed")
             print(f"   Values: {delta_sigma}")
         except Exception as e:
             print(f"⚠️  delta_sigma calculation failed: {e}")
@@ -355,7 +355,7 @@ def test_basic_functionality():
         # Test NFW Fourier profile if available
         try:
             k = np.array([0.1, 1.0, 10.0])
-            fourier_profile = profile.halo_profile.fourier_profile(k)
+            fourier_profile = profile.halo_profile.fourier(k)
             print(f"✅ NFW Fourier profile: {len(fourier_profile)} values computed")
         except AttributeError:
             print("⚠️  NFW Fourier profile method not implemented yet")

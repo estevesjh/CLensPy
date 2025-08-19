@@ -7,10 +7,10 @@ density profiles in weak lensing analysis.
 
 import numpy as np
 from astropy import cosmology
-from numpy import log as ln
 from scipy.special import sici
 
 from ..config import DEFAULT_COSMOLOGY
+from ..utils.decorators import scalar_array_output
 
 # from ..config import RHOCRIT
 RHOCRIT = 2.77536627e11  # Critical density in Msun/Mpc^3/h^2
@@ -50,16 +50,16 @@ class NFWProfile:
         self.rhom = rhoc * cosmo.Om0  # Msun/Mpc^3
 
         # Calculate r200 and rs
-        self.r200 = self._calc_r200(self.m200)  # (n_halo,)
+        self.r200 = self._calculateAtR200(self.m200)  # (n_halo,)
         self.rs = self.r200 / self.c200  # (n_halo,)
-        self.rho_s = self._calc_rhos(self.m200, self.c200)  # (n_halo,)
+        self.rho_s = self._calculateRhos(self.m200, self.c200)  # (n_halo,)
 
-    def _calc_r200(self, m200: np.ndarray | float) -> np.ndarray | float:
+    def _calculateAtR200(self, m200: np.ndarray | float) -> np.ndarray | float:
         """Calculate r200 [Mpc] for given m200 [Msun]."""
         m200 = np.asarray(m200)
         return (3 * m200 / (4 * np.pi * 200 * self.rhom)) ** (1.0 / 3.0)
 
-    def _calc_rhos(
+    def _calculateRhos(
         self, m200: np.ndarray | float, c200: np.ndarray | float
     ) -> np.ndarray | float:
         """Calculate NFW scale density rho_s [Msun/Mpc^3]."""
@@ -67,6 +67,7 @@ class NFWProfile:
         rho_s = m200 / (4 * np.pi * self.rs**3 * (np.log(1 + c200) - c200 / (1 + c200)))
         return rho_s
 
+    @scalar_array_output
     def density(self, r: np.ndarray | float) -> np.ndarray | float:
         """
         Calculate 3D density profile for NFW.
@@ -85,6 +86,7 @@ class NFWProfile:
         x = r / rs
         return rho_s / (x * (1 + x) ** 2)
 
+    @scalar_array_output
     def fourier(
         self, k: np.ndarray | float, truncated: bool = True
     ) -> np.ndarray | float:
@@ -129,7 +131,8 @@ class NFWProfile:
 
         return prof
 
-    def sigmaR(self, R: np.ndarray | float) -> np.ndarray | float:
+    @scalar_array_output
+    def sigma(self, R: np.ndarray | float) -> np.ndarray | float:
         """
         Projected surface density Σ(R) for NFW, in [Msun/Mpc^2].
 
@@ -147,10 +150,11 @@ class NFWProfile:
         rs = self.rs[..., None]
         rho_s = self.rho_s[..., None]
         Rs = R / rs
-        sigma = 2 * rs * rho_s * self._f_NFW(Rs)
+        sigma = 2 * rs * rho_s * self._fNfw(Rs)
         return sigma
 
-    def deltasigmaR(self, R: np.ndarray | float) -> np.ndarray | float:
+    @scalar_array_output
+    def deltaSigma(self, R: np.ndarray | float) -> np.ndarray | float:
         """
         Excess surface density ΔΣ(R) for NFW, in [Msun/Mpc^2].
 
@@ -168,11 +172,11 @@ class NFWProfile:
         rs = self.rs[..., None]
         rho_s = self.rho_s[..., None]
         x = R / rs
-        deltasigma = rs * rho_s * self._g_NFW(x)
+        deltasigma = rs * rho_s * self._gNfw(x)
         return deltasigma
 
     @staticmethod
-    def _f_NFW(x):
+    def _fNfw(x):
         """Projected NFW profile kernel f(x)."""
         x = np.array(x, dtype=float)
         result = np.zeros_like(x)
@@ -198,7 +202,7 @@ class NFWProfile:
         return result
 
     @staticmethod
-    def _g_NFW(x, eps=1e-9):
+    def _gNfw(x, eps=1e-9):
         """Mean enclosed projected NFW kernel g(x)."""
         x = np.array(x, dtype=float)
         res = np.zeros_like(x)

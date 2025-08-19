@@ -59,9 +59,9 @@ class TwoHaloTerm:
 
     Methods
     -------
-    build_all(R_vals=None, z=None, **sigma_kwargs):
+    buildAll(R_vals=None, z=None, **sigma_kwargs):
         Compute and cache all interpolators for ξ, Σ, ΔΣ.
-    xi_r(R_vals=None, z=None):
+    xi(R_vals=None, z=None):
         Compute or interpolate ξ(r, z) at given radii and redshifts.
     sigma_R(R_vals=None, z=None, **kwargs):
         Compute/interpolate Σ(R, z) on the current grid and integration method.
@@ -74,11 +74,11 @@ class TwoHaloTerm:
     >>> kvec = np.logspace(-3, 1, 100)  # Wavenumber grid
     >>> Pk = np.random.rand(100)  # Example power spectrum
     >>> zvec = np.array([0.0, 0.5, 1.0])  # Redshift grid
-    >>> two_halo = TwoHaloTerm(kvec, Pk, zvec=zvec).build_all()
+    >>> two_halo = TwoHaloTerm(kvec, Pk, zvec=zvec).buildAll()
     >>> R_vals = np.logspace(-2, 1, 50)  # Projected radius grid
-    >>> sigma = two_halo.sigma_R(R_vals, z=0.5)  # Compute Σ(R, z=0.5)
-    >>> deltasigma = two_halo.deltasigma_R(R_vals, z=0.5)  # Compute ΔΣ(R, z=0.5)
-    >>> xi = two_halo.xi_r(R_vals, z=0.5)
+    >>> sigma = two_halo.sigma(R_vals, z=0.5)  # Compute Σ(R, z=0.5)
+    >>> deltasigma = two_halo.deltasigma(R_vals, z=0.5)  # Compute ΔΣ(R, z=0.5)
+    >>> xi = two_halo.xi(R_vals, z=0.5)
     """
 
     def __init__(
@@ -103,18 +103,18 @@ class TwoHaloTerm:
         self.rmax_integral = rmax_integral
 
     @time_method
-    def build_all(self, R_vals=None, z=None, **sigma_kwargs):
+    def buildAll(self, R_vals=None, z=None, **sigma_kwargs):
         """
         Compute and cache ξ(r, z), Σ(R, z), ΔΣ(R, z) interpolators.
         """
-        self.xi_r(R_vals, z)
-        self.sigma_R(R_vals, z, **sigma_kwargs)
-        self.deltasigma_R(R_vals, z)
+        self.xi(R_vals, z)
+        self.sigma(R_vals, z, **sigma_kwargs)
+        self.deltaSigma(R_vals, z)
         return self
 
     @default_rvals_z
     @time_method
-    def xi_r(self, R_vals=None, z=None) -> np.ndarray:
+    def xi(self, R_vals=None, z=None) -> np.ndarray:
         """
         Compute or interpolate ξ(r, z) at given radii and redshifts.
         """
@@ -141,12 +141,12 @@ class TwoHaloTerm:
 
     @default_rvals_z
     @time_method
-    def sigma_R(self, R_vals=None, z=None, **kwargs) -> np.ndarray:
+    def sigma(self, R_vals=None, z=None, **kwargs) -> np.ndarray:
         """
         Compute/interpolate Σ(R, z) on the current grid and integration method.
         """
         if not hasattr(self, "xi_rz_interp"):
-            self.xi_r()
+            self.xi()
 
         if not hasattr(self, "sigma_rz_interp"):
             xi_func = lambda r, z_: self.xi_rz_interp(r, z_)
@@ -166,12 +166,12 @@ class TwoHaloTerm:
 
     @default_rvals_z
     @time_method
-    def deltasigma_R(self, R_vals=None, z=None, **kwargs) -> np.ndarray:
+    def deltaSigma(self, R_vals=None, z=None, **kwargs) -> np.ndarray:
         """
         Compute/interpolate ΔΣ(R, z) for the grid.
         """
         if not hasattr(self, "sigma_rz_interp"):
-            _ = self.sigma_R(**kwargs)
+            _ = self.sigma(**kwargs)
 
         if hasattr(self, "deltasigma_rz_interp"):
             return self.deltasigma_rz_interp(R_vals, z)

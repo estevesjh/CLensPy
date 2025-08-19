@@ -1,6 +1,26 @@
 import time
 from functools import wraps
 
+import numpy as np
+
+
+def scalar_array_output(method):
+    """Return a scalar for scalar input, ndarray otherwise."""
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        result = method(self, *args, **kwargs)
+
+        # Was the first positional argument scalar-like?
+        scalar_in = np.ndim(args[0]) == 0
+
+        if scalar_in:
+            # Accept numpy scalars, 0-D arrays or size-1 arrays
+            if isinstance(result, np.ndarray):
+                return result.squeeze().item()   # safe, future-proof
+            return float(result)                 # already a scalar
+        return result
+    return wrapper
+
 
 def default_rvals_z(method):
     """

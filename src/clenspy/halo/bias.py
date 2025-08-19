@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Halo bias models for relating halo abundance to matter density.
 """
@@ -17,7 +18,8 @@ class biasModel:
     of lagrangian radius R corresponding to a mass M of linear
     power-spectrum.
 
-    input:
+    Parameters:
+    -----------
         k : array, wavenumbers [h/Mpc]
         P : array, linear power-spectrum [(Mpc/h)^3]
         z : array, redshift
@@ -26,7 +28,7 @@ class biasModel:
     Example:
     --------
     bM = biasModel(k, P, omega_m=0.3)
-    bias = bM.bias_at_M(M, odelta=200)
+    bias = bM.bias_at_M(M)
     """
 
     def __init__(
@@ -34,7 +36,7 @@ class biasModel:
         k: np.ndarray,
         P: np.ndarray,
         cosmo: cosmology = DEFAULT_COSMOLOGY,
-        odelta=200,
+        odelta: int = 200,
     ):
         self.k = k
         self.P = P
@@ -43,7 +45,7 @@ class biasModel:
         self.odelta = odelta
         self.rhom = self.cosmo.critical_density(0).to_value("Msun/Mpc^3") * self.omega_m
 
-    def bias_at_M(self, M):
+    def biasAtM(self, M):
         """Compute the bias for a given mass M
 
         Based on Bias Tinker et al. 2010 Eqn 6
@@ -52,25 +54,17 @@ class biasModel:
         corresponding to a mass M [Msun/h] of linear power spectrum.
         """
         if not hasattr(self, "nu"):
-            self.nu = self.compute_nu(M)
+            self.nu = self.nuAtM(M)
 
-        bias = self.bias_at_nu(self.nu, odelta=self.odelta)
+        bias = self.biasAtNu(self.nu)
         return bias
 
-    # def nu_at_M(self, M):
-    #     """ Compute peak-height
-    #     https://cluster-toolkit.readthedocs.io/en/latest/api/cluster_toolkit.peak_height.html#cluster_toolkit.peak_height.nu_at_M
-
-    #     """
-    #     Nu0 = ct.peak_height.nu_at_M(M, self.k, self.P, self.omega_m)
-    #     return Nu0
-
-    def nu_at_M(self, M, deltac=1.686):
+    def nuAtM(self, M, deltac=1.686):
         """Compute peak-height ν = δ_c / σ(M)."""
-        sigma = self.sigma_M(M)
+        sigma = self.sigmaAtM(M)
         return deltac / sigma
 
-    def sigma_M(self, M):
+    def sigmaAtM(self, M):
         """
         Calculate σ(M) using mcfit.tophat_sigma for the linear power spectrum.
 
@@ -86,18 +80,21 @@ class biasModel:
         R = (3 * M / (4 * np.pi * self.rhom)) ** (1 / 3)
 
         # mcfit expects k in [h/Mpc], P in [(Mpc/h)^3], R in [Mpc/h]
-        sigma_of_R = mcfit.tophat_sigma(self.k)(self.P, R)
+        Rvec, var = mcfit.TophatVar(self.k, lowring=True)(self.P, extrap=True)
+        sigma_of_R = np.sqrt(np.interp(np.log10(R), np.log10(Rvec), var))
         return sigma_of_R
 
-    def bias_at_nu(self, nu):
+    def biasAtNu(self, nu):
         """Bias Tinker et a. 2010 Eqn 6"""
-        A, a, B, b, C, c = self.get_tinker_pars()
-        bias = self._bias_at_nu(nu, A, a, B, b, C, c, deltac=1.686)
+        A, a, B, b, C, c = self.getTinkerParams()
+        bias = self._biasAtNu(nu, A, a, B, b, C, c, deltac=1.686)
         return bias
 
-    def get_tinker_pars(self):
+    def getTinkerParams(self):
+        """Get Tinker et al. 2010 parameters for bias model."""
+        # Tinker et al. 2010 Eqn 6 parameters
+        # These are the best-fit parameters for delta=200
         y = np.log10(self.odelta)
-        # for delta=200
         tinker_best_fit = {
             "A": 1.0 + 0.24 * y * np.exp(-((4 / y) ** 4)),
             "a": 0.44 * y - 0.88,
@@ -108,7 +105,7 @@ class biasModel:
         }
         return [tinker_best_fit[col] for col in ["A", "a", "B", "b", "C", "c"]]
 
-    def _bias_at_nu(self, nu, A, a, B, b, C, c, deltac=1.686):
+    def _biasAtNu(self, nu, A, a, B, b, C, c, deltac=1.686):
         """Bias Tinker et a. 2010 Eqn 6"""
         res = 1.0 - A * nu**a / (nu**a + deltac**a)
         res += B * nu**b
