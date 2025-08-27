@@ -16,7 +16,7 @@ from ..utils.decorators import scalar_array_output
 RHOCRIT = 2.77536627e11  # Critical density in Msun/Mpc^3/h^2
 
 
-class NFWProfile:
+class NfwProfile:
     """
     Analytical NFW lensing profile for a single halo or a vector of halos.
 
@@ -154,7 +154,7 @@ class NFWProfile:
         return sigma
 
     @scalar_array_output
-    def deltaSigma(self, R: np.ndarray | float) -> np.ndarray | float:
+    def deltasigma(self, R: np.ndarray | float) -> np.ndarray | float:
         """
         Excess surface density ΔΣ(R) for NFW, in [Msun/Mpc^2].
 
@@ -233,14 +233,14 @@ class NFWProfile:
         return res
 
 
-__all__ = ["NFWProfile"]
+__all__ = ["NfwProfile"]
 
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import numpy as np
 
-    from clenspy.halo.nfw import NFWProfile
+    from clenspy.halo.nfw import NfwProfile
 
     is_truncated = True  # Set to False for full profile
 
@@ -269,7 +269,7 @@ if __name__ == "__main__":
     rs_ccl = mdef.get_radius(cosmo, m200, 1) / conc(cosmo, m200, 1)
 
     # 1.  clenspy NFW Fourier transform
-    nfw = NFWProfile(m200, c200)
+    nfw = NfwProfile(m200, c200)
     uk_clenspy = nfw.fourier(k, truncated=is_truncated)
     # nfw.rs = rs_ccl  # Use CCL's rs for consistency
 

@@ -90,26 +90,26 @@ class TwoHaloTerm:
         r_max: float = 120.0,
         r_min: float = 5e-2,
         method: str = "trapz",
-        n_points: int = 75,
+        n_points: int = 150,
         rmax_integral: float = 300,
     ) -> None:
-        self.kvec, self.Pk_grid, self.zvec = prepare_Pk_grid(kvec, Pk, zvec)
+        self.kvec, self.Pk_grid, self.zvec = prepare_pk_grid(kvec, Pk, zvec)
         self._kfine = np.logspace(-3.0, 5, n_grid)
         self._rfine = np.logspace(-3.0, np.log10(r_max), n_grid)
-        self.P_kz = LogGridInterpolator(self.kvec, self.zvec, self.Pk_grid)
+        self.p_kz = LogGridInterpolator(self.kvec, self.zvec, self.Pk_grid)
         self.reval = np.logspace(np.log10(r_min), np.log10(r_max), 100)
         self.method = method
         self.n_points = n_points
         self.rmax_integral = rmax_integral
 
     @time_method
-    def buildAll(self, R_vals=None, z=None, **sigma_kwargs):
+    def build_all(self, R_vals=None, z=None, **sigma_kwargs):
         """
         Compute and cache ξ(r, z), Σ(R, z), ΔΣ(R, z) interpolators.
         """
         self.xi(R_vals, z)
         self.sigma(R_vals, z, **sigma_kwargs)
-        self.deltaSigma(R_vals, z)
+        self.deltasigma(R_vals, z)
         return self
 
     @default_rvals_z
@@ -123,7 +123,7 @@ class TwoHaloTerm:
 
         def xi_at_z(args):
             iz, zval = args
-            Pk_at_z = self.P_kz.at_z(zval)
+            Pk_at_z = self.p_kz.at_z(zval)
             xi_res = pk_to_xi_fftlog(self._kfine, Pk_at_z(self._kfine), self._rfine)
             return iz, xi_res
 
@@ -144,6 +144,23 @@ class TwoHaloTerm:
     def sigma(self, R_vals=None, z=None, **kwargs) -> np.ndarray:
         """
         Compute/interpolate Σ(R, z) on the current grid and integration method.
+
+        Parameters
+        ----------
+        R_vals : np.ndarray, optional
+            Projected radius values to evaluate Σ(R, z). If None, uses internal
+            grid.
+        z : float or np.ndarray, optional
+            Redshift(s) to evaluate Σ(R, z). If None, uses internal zvec.
+        method : {'leggauss', 'trapz', 'quad_vec'}, optional
+            Numerical integration method for Σ(R, z). Default is the instance's
+            method.
+        n_points : int, optional
+            Number of points for numerical integration of Σ(R). Default is the 
+            instance's n_points.
+        rmax_integral : float, optional
+            Max radius for Abel integration. Default is the instance's 
+            `rmax_integral`.
         """
         if not hasattr(self, "xi_rz_interp"):
             self.xi()
@@ -166,7 +183,7 @@ class TwoHaloTerm:
 
     @default_rvals_z
     @time_method
-    def deltaSigma(self, R_vals=None, z=None, **kwargs) -> np.ndarray:
+    def deltasigma(self, R_vals=None, z=None, **kwargs) -> np.ndarray:
         """
         Compute/interpolate ΔΣ(R, z) for the grid.
         """
@@ -183,7 +200,7 @@ class TwoHaloTerm:
         return self.deltasigma_rz_interp(R_vals, z)
 
 
-def prepare_Pk_grid(
+def prepare_pk_grid(
     kvec: np.ndarray, Pk: np.ndarray, zvec: Optional[np.ndarray] = None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """

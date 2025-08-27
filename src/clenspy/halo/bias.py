@@ -10,7 +10,7 @@ from astropy import cosmology
 from ..config import DEFAULT_COSMOLOGY
 
 
-class biasModel:
+class BiasModel:
     """Compute the Bias Tinker et al. 2010 model
     for a given linear power-spectrum
 
@@ -45,7 +45,7 @@ class biasModel:
         self.odelta = odelta
         self.rhom = self.cosmo.critical_density(0).to_value("Msun/Mpc^3") * self.omega_m
 
-    def biasAtM(self, M):
+    def bias(self, M):
         """Compute the bias for a given mass M
 
         Based on Bias Tinker et al. 2010 Eqn 6
@@ -54,17 +54,17 @@ class biasModel:
         corresponding to a mass M [Msun/h] of linear power spectrum.
         """
         if not hasattr(self, "nu"):
-            self.nu = self.nuAtM(M)
+            self.nu = self.nu_at_mass(M)
 
-        bias = self.biasAtNu(self.nu)
+        bias = self.bias_at_nu(self.nu)
         return bias
 
-    def nuAtM(self, M, deltac=1.686):
+    def nu_at_mass(self, M, deltac=1.686):
         """Compute peak-height ν = δ_c / σ(M)."""
-        sigma = self.sigmaAtM(M)
+        sigma = self.sigma_tophat(M)
         return deltac / sigma
 
-    def sigmaAtM(self, M):
+    def sigma_tophat(self, M):
         """
         Calculate σ(M) using mcfit.tophat_sigma for the linear power spectrum.
 
@@ -84,13 +84,13 @@ class biasModel:
         sigma_of_R = np.sqrt(np.interp(np.log10(R), np.log10(Rvec), var))
         return sigma_of_R
 
-    def biasAtNu(self, nu):
+    def bias_at_nu(self, nu):
         """Bias Tinker et a. 2010 Eqn 6"""
-        A, a, B, b, C, c = self.getTinkerParams()
-        bias = self._biasAtNu(nu, A, a, B, b, C, c, deltac=1.686)
+        A, a, B, b, C, c = self.get_tinker_params()
+        bias = self._bias_at_nu(nu, A, a, B, b, C, c, deltac=1.686)
         return bias
 
-    def getTinkerParams(self):
+    def get_tinker_params(self):
         """Get Tinker et al. 2010 parameters for bias model."""
         # Tinker et al. 2010 Eqn 6 parameters
         # These are the best-fit parameters for delta=200
@@ -105,7 +105,7 @@ class biasModel:
         }
         return [tinker_best_fit[col] for col in ["A", "a", "B", "b", "C", "c"]]
 
-    def _biasAtNu(self, nu, A, a, B, b, C, c, deltac=1.686):
+    def _bias_at_nu(self, nu, A, a, B, b, C, c, deltac=1.686):
         """Bias Tinker et a. 2010 Eqn 6"""
         res = 1.0 - A * nu**a / (nu**a + deltac**a)
         res += B * nu**b

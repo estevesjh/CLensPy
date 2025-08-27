@@ -21,7 +21,7 @@ def expn_fast(nu, z):
     # TODO: Implement asymptotic expansion for large nu
     # TODO: Implement einasto power-spectrum (fourier)
 
-class Einasto:
+class EinastoProfile:
     """Class to represent an Einasto profile."""
     
     def __init__(self, alpha, rho_s, r_s, order=10):
@@ -98,7 +98,7 @@ class Einasto:
         """
         return 1 + self.n_index * (2 * self._k_vector - 1)
         
-    def sigmaR(self, R):
+    def sigma(self, R):
         """
         Compute the projected surface density Σ(R) 
         at projected radius R using the analytic series.
@@ -142,7 +142,7 @@ class Einasto:
         return result
 
 
-    def deltasigmaR(self, R):
+    def deltasigma(self, R):
         """
         Excess surface density ΔΣ(R) = Σ̄(<R) - Σ(R) for the Einasto profile,
         using the analytic expression

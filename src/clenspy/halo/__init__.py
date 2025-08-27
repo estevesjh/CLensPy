@@ -2,8 +2,8 @@
 Dark matter halo profiles and related functions.
 """
 
-from .bias import biasModel
-from .nfw import NFWProfile
+from .bias import BiasModel
+from .nfw import NfwProfile
 from .twohalo import TwoHaloTerm
 
-__all__ = ["NFWProfile", "TwoHaloTerm", "biasModel"]
+__all__ = ["NfwProfile", "TwoHaloTerm", "BiasModel"]
