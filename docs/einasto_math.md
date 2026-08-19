@@ -336,10 +336,18 @@ Table I to `atol=5e-5`.
     `R \sim 0.03-0.05\, h`, and effectively 0 (100% error) at `R=0.01h`.
   - `EinastoProfileV3` (Retana-Montenegro et al. 2012 case-1 series, a
     *separate* class - see below) is machine-precision accurate at *small*
-    `x=R/h` (down to `x=0.01`, no cancellation issue at all), but diverges
-    catastrophically beyond `x \sim 1-1.2` for small `n` (confirmed: `K=60,
-    200, 500, 2000` all give the *same wrong* answer at `x=3` for `n=0.5` -
-    a genuine finite radius of convergence, not under-truncation).
+    `x=R/h` (down to `x=0.01`, no cancellation issue at all), but gives
+    wrong answers beyond `x \sim 1-1.2` for small `n` (confirmed: `K=60,
+    200, 500, 2000` all give the *same wrong* answer at `x=3` for `n=0.5`).
+    A follow-up investigation ({doc}`einasto_series_investigation`) found
+    this is actually **two separable problems**: at `n=0.5` specifically it
+    is pure under-truncation (the default `J=5` second-track terms are far
+    too few - the first track is identically zero there, so the whole
+    series collapses onto a bare Taylor series of `e^{-x^2}` needing many
+    more terms), while a second, genuine finite-domain-of-validity issue
+    (more precision/terms provably does not help) sets in separately around
+    `x \sim 7-8` for `n=0.7`. See that document for the full breakdown and
+    the approved follow-up plan.
   - These two are complementary (small-`x` vs. large-`x` strengths); a
     hybrid dispatch between them is the likely fix, not yet implemented in
     the main `EinastoProfile` class.
