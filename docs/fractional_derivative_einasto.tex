@@ -1,0 +1,602 @@
+\documentclass{article}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+
+\geometry{margin=1in}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{remark}{Remark}
+\newcommand{\RL}{\mathrm{RL}}
+\newcommand{\EK}{\mathrm{EK}}
+\newcommand{\Res}{\operatorname{Res}}
+
+\title{The Projected Einasto Profile as a Weyl Fractional Integral}
+\author{Johnny H.~Esteves}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We demonstrate that the projected Einasto surface density $\Sigma(R)$ is
+\emph{exactly} a Weyl fractional integral of order $1/2$ acting on a stretched
+exponential. This single-operator identity unifies the two-track residue series
+of Retana-Montenegro et al.\ (2012): Track~1 (fractional powers $x^{k/n}$) and
+Track~2 (integer powers $x^{2k}$) emerge naturally as the left-pole and
+right-pole families of the Mellin--Barnes representation of the Weyl operator.
+The gamma-ratio coefficient $a_k$ is identified as the \emph{Weyl multiplier}
+--- the eigenvalue of the half-integral on the Mellin mode $\tau^{k/(2n)}$ ---
+while $\tilde{a}_k$ defines a Fox--Wright function
+${}_1\Psi_1[(n,-2n);(1/2,-1)|{-}\tau]$.
+\end{abstract}
+
+% ======================================================================
+\section{Setup and Notation}
+% ======================================================================
+
+Einasto density in dimensionless units ($\xi = r/h$):
+\begin{equation}\label{eq:rho}
+\rho(\xi) = \rho_0\,e^{-\xi^{1/n}},\qquad
+h = r_s/(2n)^n,\quad n = 1/\alpha.
+\end{equation}
+Projected (dimensionless) radius:
+\begin{equation}
+x = R/h,\qquad \tau \equiv x^2 = (R/h)^2.
+\end{equation}
+
+The Abel projection:
+\begin{equation}\label{eq:abel}
+\Sigma(R) = 2\int_R^\infty \frac{\rho(r)\,r\,dr}{\sqrt{r^2-R^2}}
+= 2\rho_0 h\int_x^\infty \frac{e^{-\xi^{1/n}}\,\xi\,d\xi}{\sqrt{\xi^2-x^2}}.
+\end{equation}
+
+% ======================================================================
+\section{Main Result: The Weyl Half-Integral Form}
+\label{sec:main}
+% ======================================================================
+
+\begin{theorem}[Exact operator form]\label{thm:main}
+The projected Einasto surface density is
+\begin{equation}\label{eq:main}
+\boxed{\;
+\Sigma(R) \;=\; \sqrt{\pi}\;\rho_0\,h \;\cdot\;
+\mathbf{W}^{-1/2}\!\left[e^{-\tau^{1/(2n)}}\right]\!(\tau)
+\;\bigg|_{\tau\,=\,x^2}
+\;}
+\end{equation}
+where $\mathbf{W}^{-\alpha}$ is the Weyl fractional integral of order $\alpha$:
+\begin{equation}\label{eq:weyl-def}
+\mathbf{W}^{-\alpha}f(\tau) \;\equiv\;
+\frac{1}{\Gamma(\alpha)}\int_\tau^\infty (t-\tau)^{\alpha-1}\,f(t)\,dt.
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+In \eqref{eq:abel}, substitute $t = \xi^2$
+(so $\xi = \sqrt{t}$, $d\xi = dt/(2\sqrt{t})$, and set $\tau = x^2$):
+\begin{align}
+\Sigma &= 2\rho_0 h\int_\tau^\infty
+  \frac{e^{-t^{1/(2n)}}\sqrt{t}}{\sqrt{t-\tau}}\;\frac{dt}{2\sqrt{t}}
+= \rho_0 h\int_\tau^\infty \frac{e^{-t^{1/(2n)}}}{\sqrt{t-\tau}}\,dt \notag\\
+&= \rho_0 h\;\Gamma({\textstyle\frac{1}{2}})\;
+   \mathbf{W}^{-1/2}\!\left[e^{-\tau^{1/(2n)}}\right]\!(\tau)
+= \sqrt{\pi}\,\rho_0 h\;\mathbf{W}^{-1/2}\!\left[e^{-\tau^{1/(2n)}}\right]\!(\tau).
+\qedhere
+\end{align}
+\end{proof}
+
+\begin{remark}[Convergence]
+The integral in \eqref{eq:main} converges absolutely for all $\tau \ge 0$:
+at $t\to\infty$ the stretched exponential $e^{-t^{1/(2n)}}$ decays faster than
+any power, killing the algebraic kernel $(t-\tau)^{-1/2}$.
+\end{remark}
+
+\begin{remark}[Physical interpretation]
+The Abel projection (line-of-sight integration through a spherical profile) is
+\emph{literally} a Weyl half-integral when expressed in the squared-radius
+variable $\tau = R^2/h^2$. The fractional order $\alpha = 1/2$ is dictated by
+the kernel $(r^2-R^2)^{-1/2}$ of the Abel transform.
+\end{remark}
+
+% ======================================================================
+\section{Mellin--Barnes Representation}
+\label{sec:mellin}
+% ======================================================================
+
+To evaluate $\mathbf{W}^{-1/2}[e^{-\tau^{1/(2n)}}]$ as a computable series,
+we use Mellin--Barnes technology.
+
+\subsection{Mellin transform of the Einasto density}
+\begin{equation}\label{eq:mellin-rho}
+\mathcal{M}\!\left[e^{-\tau^{1/(2n)}}\right]\!(s)
+= \int_0^\infty \tau^{s-1}\,e^{-\tau^{1/(2n)}}\,d\tau
+= 2n\,\Gamma(2ns),\qquad \Re(s)>0.
+\end{equation}
+(Substitution $u = \tau^{1/(2n)}$ gives
+$\int_0^\infty u^{2ns-1}e^{-u}\,du = \Gamma(2ns)$, times the Jacobian $2n$.)
+
+\subsection{Mellin--Barnes integral for the Weyl half-integral}
+
+Using the beta-function evaluation of the kernel convolution
+(valid for $\Re(s)>1/2$; see Appendix~\ref{app:kernel}):
+\begin{equation}\label{eq:MB}
+\mathbf{W}^{-1/2}\!\left[e^{-\tau^{1/(2n)}}\right]\!(\tau)
+= \frac{2n}{2\pi i}\int_{c-i\infty}^{c+i\infty}
+\frac{\Gamma(2ns)\;\Gamma(s-\tfrac{1}{2})}{\Gamma(s)}\;
+\tau^{1/2-s}\,ds,
+\qquad c > \tfrac{1}{2}.
+\end{equation}
+
+The integrand has two families of left-half-plane poles:
+\begin{enumerate}
+\item \textbf{Poles of $\Gamma(2ns)$} at $s = -k/(2n)$, \; $k=0,1,2,\ldots$
+\item \textbf{Poles of $\Gamma(s-1/2)$} at $s = 1/2-j$, \; $j=0,1,2,\ldots$
+\end{enumerate}
+Closing the contour to the left and collecting residues produces the two tracks.
+
+% ======================================================================
+\section{Track 1: The Weyl Multiplier}
+\label{sec:track1}
+% ======================================================================
+
+\subsection{Residue computation}
+
+At $s = -k/(2n)$ ($k \ge 1$; the $k=0$ term vanishes since $1/\Gamma(0)=0$):
+\begin{align}
+\Res_{s=-k/(2n)}\Gamma(2ns) &= \frac{1}{2n}\,\frac{(-1)^k}{k!},\\[4pt]
+\Gamma(s-{\textstyle\frac12})\big|_{s=-k/(2n)} &= \Gamma(-{\textstyle\frac{k}{2n}}-{\textstyle\frac12}),\\[4pt]
+\Gamma(s)\big|_{s=-k/(2n)} &= \Gamma(-{\textstyle\frac{k}{2n}}),\\[4pt]
+\tau^{1/2-s}\big|_{s=-k/(2n)} &= \tau^{k/(2n)+1/2}.
+\end{align}
+
+Combining (with the prefactor $2n$):
+\begin{equation}\label{eq:track1-term}
+\text{Track 1} = \sum_{k=1}^{\infty}
+\underbrace{\frac{\Gamma(-\tfrac{1}{2}-\tfrac{k}{2n})}
+{\Gamma(-\tfrac{k}{2n})}}_{\displaystyle m_k^{(W)}}
+\;\frac{(-1)^k}{k!}\;\tau^{k/(2n)+1/2}.
+\end{equation}
+
+\subsection{Identification as Weyl multiplier}
+
+\begin{proposition}[Weyl multiplier]\label{prop:multiplier}
+The gamma ratio
+\begin{equation}\label{eq:weyl-mult}
+m_k^{(W)} \;\equiv\; \frac{\Gamma(-\tfrac{1}{2}-\tfrac{k}{2n})}{\Gamma(-\tfrac{k}{2n})}
+\end{equation}
+is the \emph{Weyl multiplier of order $1/2$ at frequency $\mu = k/(2n)$} ---
+the eigenvalue of $\mathbf{W}^{-1/2}$ on the Mellin mode $\tau^\mu$, obtained
+by analytic continuation of the standard formula
+\begin{equation}
+\mathbf{W}^{-\alpha}[\tau^{-\mu}]
+= \frac{\Gamma(\mu-\alpha)}{\Gamma(\mu)}\,\tau^{\alpha-\mu}
+\qquad(\Re\,\mu > \Re\,\alpha > 0)
+\end{equation}
+to $\mu \mapsto -k/(2n)$ (i.e., growing modes $\tau^{k/(2n)}$).
+\end{proposition}
+
+\subsection{Connection to the coefficient $a_k$}
+
+Recalling $a_k = \frac{\Gamma(-3/2-k/(2n))}{\Gamma(-k/(2n))}\frac{(-1)^k}{k!}$
+from the $M_{\rm 2D}$ calculation, the $\Sigma$-coefficient is:
+\begin{equation}
+m_k^{(W)}\frac{(-1)^k}{k!}
+= \left(-\tfrac{3}{2}-\tfrac{k}{2n}\right)a_k
+= w_k^{(\Sigma)}\,a_k,
+\end{equation}
+confirming that the weight $w_k^{(\Sigma)} = -(3n+k)/(2n)$ is precisely the
+gamma recurrence $\Gamma(z+1)=z\Gamma(z)$ connecting the order-$1/2$ and
+order-$3/2$ Weyl multipliers --- equivalently, the semigroup property
+$\mathbf{W}^{-3/2} = \mathbf{W}^{-1}\circ\mathbf{W}^{-1/2}$.
+
+\subsection{In the original variable $x$}
+
+Since $\tau^{k/(2n)+1/2} = x^{k/n+1}$:
+\begin{equation}\label{eq:track1-x}
+\text{Track 1}
+= \sum_{k=1}^K m_k^{(W)}\,\frac{(-1)^k}{k!}\,x^{k/n+1}
+= x\sum_{k=1}^K m_k^{(W)}\,\frac{(-1)^k}{k!}\,x^{k/n}.
+\end{equation}
+The base series $\sum_{k\ge1}\frac{(-1)^k}{k!}x^{k/n} = e^{-x^{1/n}}-1$
+is ``dressed'' mode-by-mode by the Weyl multiplier $m_k^{(W)}$.
+
+% ======================================================================
+\section{Track 2: The Fox--Wright Function}
+\label{sec:track2}
+% ======================================================================
+
+\subsection{Residue computation}
+
+At $s = 1/2-j$ ($j = 0,1,2,\ldots$):
+\begin{align}
+\Gamma(2ns)\big|_{s=1/2-j} &= \Gamma(n-2nj),\\[4pt]
+\Res_{s=1/2-j}\Gamma(s-{\textstyle\frac12}) &= \frac{(-1)^j}{j!},\\[4pt]
+\Gamma(s)\big|_{s=1/2-j} &= \Gamma({\textstyle\frac12}-j),\\[4pt]
+\tau^{1/2-s}\big|_{s=1/2-j} &= \tau^j.
+\end{align}
+
+Combining:
+\begin{equation}\label{eq:track2-series}
+\text{Track 2} = 2n\sum_{j=0}^{\infty}
+\frac{\Gamma(n-2nj)}{\Gamma(\tfrac{1}{2}-j)}\;\frac{(-1)^j}{j!}\;\tau^j
+= 2n\sum_{j=0}^J \tilde{a}_j\,\tau^j.
+\end{equation}
+
+\subsection{Fox--Wright representation}
+
+This is a Fox--Wright generalized hypergeometric function:
+\begin{equation}\label{eq:fox-wright}
+\boxed{\;
+\text{Track 2} = 2n\;{}_1\Psi_1\!\left[
+\begin{array}{c}(n,\,-2n)\\({\textstyle\frac12},\,-1)\end{array}
+\;\bigg|\;-\tau\right],
+\;}
+\end{equation}
+where the Fox--Wright function is defined by
+\begin{equation}
+{}_p\Psi_q\!\left[
+\begin{array}{c}(a_1,A_1),\ldots,(a_p,A_p)\\
+(b_1,B_1),\ldots,(b_q,B_q)\end{array}\;\bigg|\;z\right]
+\equiv \sum_{k=0}^\infty
+\frac{\prod_{i=1}^p\Gamma(a_i+A_i k)}
+     {\prod_{j=1}^q\Gamma(b_j+B_j k)}\;\frac{z^k}{k!}.
+\end{equation}
+
+\begin{remark}[Super-factorial convergence]
+Since $|A_1|+|B_1| = 2n+1 > 1$, the Fox--Wright series converges
+super-factorially: the ratio of consecutive terms decays as
+$\sim(2n)^{-2n}\,k^{-2n}$. In practice, $J=5$ gives $<10^{-15}$ for
+$\tau\lesssim100$.
+\end{remark}
+
+\subsection{Why Track 2 is not a standard fractional integral}
+
+A standard Erd\'elyi--Kober operator $\mathcal{K}^{\alpha}_{\gamma,\sigma}$
+of the second kind has eigenvalue
+$\Gamma(-\gamma-k/\sigma-\alpha)/\Gamma(-\gamma-k/\sigma)$ on the mode
+$\tau^k$. Matching to $\Gamma(n-2nk)/\Gamma(1/2-k)$ requires simultaneously:
+\[
+-\gamma-k/\sigma = {\textstyle\frac12}-k
+\quad\Longrightarrow\quad \sigma=1,\;\gamma=-{\textstyle\frac12},
+\]
+and
+\[
+-\alpha-\gamma-k/\sigma = n-2nk
+\quad\Longrightarrow\quad n-2nk = -\alpha+{\textstyle\frac12}-k,
+\]
+which forces $2n=1$ (i.e., $n=1/2$). For general $n\neq 1/2$, Track~2
+\emph{cannot} be expressed as a single Erd\'elyi--Kober fractional integral of
+an elementary function. It is intrinsically a Fox--Wright special function,
+reflecting the incommensurability between the Einasto stretch exponent $1/(2n)$
+and the unit spacing of the projection-kernel poles.
+
+% ======================================================================
+\section{Unified Fractional-Calculus Formula}
+\label{sec:unified}
+% ======================================================================
+
+Combining \eqref{eq:track1-term} and \eqref{eq:track2-series}:
+\begin{equation}\label{eq:full-series}
+\Sigma(R) = \sqrt{\pi}\,\rho_0\,h\left[
+\sum_{k=1}^K m_k^{(W)}\,\frac{(-1)^k}{k!}\,x^{k/n+1}
+\;+\; 2n\;{}_1\Psi_1\!\left[
+\genfrac{}{}{0pt}{}{(n,-2n)}{({\scriptstyle\frac12},-1)}
+\;\bigg|\;{-}x^2\right]
+\right],
+\end{equation}
+which is the two-track evaluation of the single operator identity
+\eqref{eq:main}.
+
+\subsection{Interpretation of the two tracks}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.6}
+\begin{tabular}{lcc}
+\toprule
+& \textbf{Track 1} & \textbf{Track 2}\\
+\midrule
+Pole family & $\Gamma(2ns)$ at $s=-k/(2n)$ & $\Gamma(s-1/2)$ at $s=1/2-j$\\
+Modes & $\tau^{k/(2n)+1/2} = x^{k/n+1}$ & $\tau^j = x^{2j}$\\
+Multiplier & $m_k^{(W)} = \Gamma(-\frac12-\frac{k}{2n})/\Gamma(-\frac{k}{2n})$ & $\Gamma(n-2nj)/\Gamma(\frac12-j)$\\
+Origin & Weyl eigenvalue (projection) & Mellin transform of density\\
+Special function & Dressed Taylor series & Fox--Wright ${}_1\Psi_1$\\
+Convergence & Factorial ($K\sim60$) & Super-factorial ($J\sim5$)\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Hierarchy of lensing quantities}
+
+All projected moments arise from Weyl integrals of increasing order:
+\begin{equation}\label{eq:hierarchy}
+\begin{aligned}
+\Sigma &= \sqrt\pi\,\rho_0 h\;\cdot\;\mathbf{W}^{-1/2}[e^{-\tau^{1/(2n)}}](\tau),\\
+\bar\Sigma &= \sqrt\pi\,\rho_0 h\;\cdot\;\tau^{-1}\,\mathbf{W}^{-3/2}[e^{-\tau^{1/(2n)}}](\tau),\\
+\Delta\Sigma &= \bar\Sigma - \Sigma
+= \sqrt\pi\,\rho_0 h\left[\tau^{-1}\mathbf{W}^{-3/2}-\mathbf{W}^{-1/2}\right]
+[e^{-\tau^{1/(2n)}}](\tau).
+\end{aligned}
+\end{equation}
+The semigroup property $\mathbf{W}^{-3/2}=\mathbf{W}^{-1}\circ\mathbf{W}^{-1/2}$
+produces the rational weight factors $w_k$ of the v3 implementation via the
+gamma recurrence $\Gamma(z+1)=z\Gamma(z)$.
+
+% ======================================================================
+\section{Step-by-Step Derivation of the Operator Equivalence}
+\label{sec:derivation}
+% ======================================================================
+
+We now demonstrate in full detail the equivalence between the residue series
+and the fractional-operator form.
+
+\subsection{Step 1: Abel transform in squared-radius variable}
+
+Starting from
+\[
+\Sigma = 2\rho_0 h\int_x^\infty
+\frac{e^{-\xi^{1/n}}\xi}{\sqrt{\xi^2-x^2}}\,d\xi,
+\]
+set $t=\xi^2$, $\tau=x^2$:
+\[
+\Sigma = \rho_0 h\int_\tau^\infty
+\frac{e^{-t^{1/(2n)}}}{\sqrt{t-\tau}}\,dt
+= \rho_0 h\,\sqrt\pi\;\mathbf{W}^{-1/2}[e^{-t^{1/(2n)}}](\tau).
+\]
+
+\subsection{Step 2: Mellin--Barnes representation}
+
+Insert the inverse Mellin transform of $e^{-t^{1/(2n)}}$:
+\[
+e^{-t^{1/(2n)}} = \frac{1}{2\pi i}\int_{c'-i\infty}^{c'+i\infty}
+2n\,\Gamma(2ns)\,t^{-s}\,ds,\qquad c'>0.
+\]
+Exchange with the $t$-integral (justified by absolute convergence):
+\[
+\mathbf{W}^{-1/2}[e^{-t^{1/(2n)}}](\tau)
+= \frac{2n}{2\pi i}\int \Gamma(2ns)\;
+\underbrace{\frac{1}{\sqrt\pi}\int_\tau^\infty(t-\tau)^{-1/2}t^{-s}dt}_{
+  = \tau^{1/2-s}\,\Gamma(s-1/2)/\Gamma(s)}\;ds.
+\]
+
+\subsection{Step 3: Kernel evaluation}
+
+The inner integral (for $\Re(s)>1/2$):
+\[
+\frac{1}{\sqrt\pi}\int_\tau^\infty\frac{t^{-s}}{\sqrt{t-\tau}}\,dt
+\;\overset{t=\tau u}{=}\;
+\frac{\tau^{1/2-s}}{\sqrt\pi}\int_1^\infty(u-1)^{-1/2}u^{-s}\,du
+= \frac{\tau^{1/2-s}}{\sqrt\pi}\,B({\textstyle\frac12},s-{\textstyle\frac12})
+= \frac{\Gamma(s-\frac12)}{\Gamma(s)}\,\tau^{1/2-s}.
+\]
+
+\subsection{Step 4: Close contour and collect residues}
+
+The Mellin--Barnes integrand
+\[
+\mathcal{I}(s) = \frac{\Gamma(2ns)\,\Gamma(s-\tfrac12)}{\Gamma(s)}\,\tau^{1/2-s}
+\]
+has poles at:
+\begin{itemize}
+\item $s=-k/(2n)$ from $\Gamma(2ns)$, contributing Track~1;
+\item $s=1/2-j$ from $\Gamma(s-1/2)$, contributing Track~2.
+\end{itemize}
+The denominator $\Gamma(s)$ has no poles for $s>0$ and merely provides the
+weight at the other poles.
+
+\paragraph{Track 1 ($k\ge1$):}
+\[
+2n\,\Res_{s=-k/(2n)}\mathcal{I}
+= 2n\cdot\frac{(-1)^k}{2n\,k!}\cdot
+\frac{\Gamma(-\frac{k}{2n}-\frac12)}{\Gamma(-\frac{k}{2n})}\,\tau^{k/(2n)+1/2}
+= m_k^{(W)}\frac{(-1)^k}{k!}\,\tau^{k/(2n)+1/2}.
+\]
+
+\paragraph{Track 2 ($j\ge0$):}
+\[
+2n\,\Res_{s=1/2-j}\mathcal{I}
+= 2n\cdot\frac{\Gamma(n-2nj)}{\Gamma(\frac12-j)}\,\frac{(-1)^j}{j!}\,\tau^j
+= 2n\,\tilde{a}_j\,\tau^j.
+\]
+
+\subsection{Step 5: Map back to $x$}
+
+With $\tau=x^2$: $\tau^{k/(2n)+1/2}=x^{k/n+1}$ and $\tau^j=x^{2j}$, recovering
+\[
+\Sigma(R) = \sqrt\pi\,\rho_0 h\left[
+\sum_{k=1}^K m_k^{(W)}\frac{(-1)^k}{k!}\,x^{k/n+1}
++ 2n\sum_{j=0}^J\tilde{a}_j\,x^{2j}\right]
+\]
+which is identical to the v3 formula (Eq.~14 of \texttt{einasto\_proj\_density\_v3.tex}).
+
+% ======================================================================
+\section{Riemann--Liouville Interpretation of the Multiplier}
+\label{sec:RL}
+% ======================================================================
+
+The Weyl multiplier has a dual Riemann--Liouville interpretation via analytic
+continuation. The RL fractional integral satisfies
+\begin{equation}
+I^{\mu}[\tau^\beta]
+= \frac{\Gamma(\beta+1)}{\Gamma(\beta+\mu+1)}\,\tau^{\beta+\mu}.
+\end{equation}
+Setting $\beta = -k/(2n)-1$ and $\mu=1/2$:
+\begin{equation}
+I^{1/2}[\tau^{-k/(2n)-1}]
+= \frac{\Gamma(-k/(2n))}{\Gamma(-k/(2n)+\frac12)}\,\tau^{-k/(2n)-1/2}.
+\end{equation}
+By the reflection formula,
+$\Gamma(-k/(2n))/\Gamma(-k/(2n)+1/2)$ is related to $m_k^{(W)}$ via:
+\begin{equation}
+m_k^{(W)} = \frac{\Gamma(-\frac12-\frac{k}{2n})}{\Gamma(-\frac{k}{2n})}
+= -\frac{1}{(\frac12+\frac{k}{2n})}
+\cdot\frac{\Gamma(\frac12-\frac{k}{2n})}{\Gamma(-\frac{k}{2n})},
+\end{equation}
+linking the Weyl (right-sided) and RL (left-sided) pictures through the
+complementary formula. The Weyl interpretation is canonical because the Abel
+projection integrates from $R$ to $\infty$ (right-sided).
+
+\subsection{Fractional order for each lensing quantity}
+
+From the general projected moment
+$M_p(R) = \int_0^R\Sigma(R')R'^{p+1}dR'$:
+\begin{equation}
+\mu_p = \frac{2p+3}{2} = \frac12 + (p+1),
+\end{equation}
+confirming:
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+Quantity & $p$ & Fractional order $\mu_p$ & Weyl multiplier\\
+\midrule
+$\Sigma$ & $-1$ & $1/2$ &
+  $\Gamma(-\frac12-\frac{k}{2n})/\Gamma(-\frac{k}{2n})$\\
+$M_{\rm 2D}$ & $0$ & $3/2$ &
+  $\Gamma(-\frac32-\frac{k}{2n})/\Gamma(-\frac{k}{2n})$\\
+$\int\Sigma R'^2 dR'$ & $1$ & $5/2$ &
+  $\Gamma(-\frac52-\frac{k}{2n})/\Gamma(-\frac{k}{2n})$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ======================================================================
+\section{Compact Notation and the Target Form}
+\label{sec:compact}
+% ======================================================================
+
+Define the \textbf{Weyl dressing operator} $\hat{\mathcal{W}}^{1/2}_n$ by its
+action on the Taylor modes of $e^{-\tau^{1/(2n)}}$ in the variable $\tau$:
+\begin{equation}
+\hat{\mathcal{W}}^{1/2}_n\!\left[\tau^{k/(2n)}\right]
+\equiv m_k^{(W)}\,\tau^{k/(2n)+1/2}
+= \frac{\Gamma(-\frac12-\frac{k}{2n})}{\Gamma(-\frac{k}{2n})}\,\tau^{k/(2n)+1/2}.
+\end{equation}
+This is the restriction of $\mathbf{W}^{-1/2}$ to the ``left-pole'' subspace.
+Then:
+\begin{equation}\label{eq:compact}
+\boxed{\;
+\Sigma(R) = \sqrt\pi\,\rho_0 h\left[
+\hat{\mathcal{W}}^{1/2}_n\!\left(e^{-\tau^{1/(2n)}}-1\right)
+\;+\; 2n\;{}_1\Psi_1\!\left[
+\genfrac{}{}{0pt}{}{(n,-2n)}{(\frac12,-1)}
+\;\bigg|\;{-}\tau\right]
+\right]_{\tau=x^2}
+\;}
+\end{equation}
+where the first term encodes the cusp/core shape (Track~1, fractional powers)
+and the second term encodes the large-scale geometric projection (Track~2,
+integer powers).
+
+The single-operator form remains the most compact:
+\begin{equation}\label{eq:most-compact}
+\Sigma(R) = \sqrt\pi\,\rho_0 h\;\cdot\;\mathbf{W}^{-1/2}\!\left[e^{-\tau^{1/(2n)}}\right]\!(x^2).
+\end{equation}
+
+\begin{remark}[On the user's target form]
+One might seek a decomposition
+$\Sigma \sim D^{\alpha_1}(e^{-x^{1/n}}-1) + D^{\alpha_2}(e^{-x^{2}})$
+with simple RL or Caputo derivatives in the variable $x$. This is not achievable
+for general $n$ because:
+\begin{enumerate}
+\item The Weyl multiplier $m_k^{(W)}$ is a function of $k/(2n)$, not of $k/n$
+  (the natural Taylor parameter of $e^{-x^{1/n}}$). The mismatch factor $2$
+  comes from the squaring $\tau=x^2$ and cannot be absorbed into a single RL
+  derivative.
+\item Track~2's multiplier $\Gamma(n-2nj)/\Gamma(1/2-j)$ mixes the Einasto
+  dilation $2n$ with the unit-spaced projection poles, requiring a Fox--Wright
+  (not hypergeometric) special function.
+\end{enumerate}
+The natural variable for fractional-operator expressions is $\tau=x^2$
+(the squared projected radius), not $x$ itself.
+\end{remark}
+
+% ======================================================================
+\section{$\Delta\Sigma$ and Operator Stability}
+\label{sec:ds}
+% ======================================================================
+
+The excess surface density:
+\begin{equation}
+\Delta\Sigma = \bar\Sigma - \Sigma
+= \sqrt\pi\,\rho_0 h\left[
+\tau^{-1}\mathbf{W}^{-3/2} - \mathbf{W}^{-1/2}\right]
+[e^{-\tau^{1/(2n)}}](\tau).
+\end{equation}
+
+The semigroup property $\mathbf{W}^{-3/2}=\mathbf{W}^{-1}\circ\mathbf{W}^{-1/2}$
+means:
+\begin{equation}
+\Delta\Sigma = \sqrt\pi\,\rho_0 h\left[
+\tau^{-1}\mathbf{W}^{-1} - \mathbf{I}\right]\circ
+\mathbf{W}^{-1/2}[e^{-\tau^{1/(2n)}}](\tau),
+\end{equation}
+where $\mathbf{I}$ is the identity. The operator
+$[\tau^{-1}\mathbf{W}^{-1}-\mathbf{I}]$ annihilates constants (since
+$\mathbf{W}^{-1}[c]=c\tau$ gives $\tau^{-1}\cdot c\tau - c = 0$), which is
+the operator-theoretic reason why $\tilde{w}_0^{(\Delta\Sigma)}=0$ and the
+formula is numerically stable at small radii.
+
+% ======================================================================
+\section{Summary}
+% ======================================================================
+
+\begin{enumerate}
+\item The projected Einasto density is \emph{exactly}
+$\Sigma = \sqrt\pi\,\rho_0 h\,\mathbf{W}^{-1/2}[e^{-\tau^{1/(2n)}}](x^2)$
+--- one Weyl half-integral, one stretched exponential.
+\item The fractional order $\alpha=1/2$ is universal (geometry of the Abel
+kernel), independent of the Einasto index~$n$.
+\item The coefficient $a_k$ (up to a gamma recurrence) is the Weyl multiplier
+$m_k^{(W)}=\Gamma(-1/2-k/(2n))/\Gamma(-k/(2n))$: the ``spectral weight'' of
+the half-integral at Mellin frequency $k/(2n)$.
+\item $\tilde{a}_k$ defines a Fox--Wright function ${}_1\Psi_1$, arising from
+the density's Mellin poles. It is not reducible to a single standard fractional
+operator for $n\neq 1/2$.
+\item $\Delta\Sigma$'s numerical stability is the operator statement that
+$[\tau^{-1}\mathbf{W}^{-1}-\mathbf{I}]$ kills constants.
+\end{enumerate}
+
+% ======================================================================
+\appendix
+\section{Kernel Integral via Beta Function}
+\label{app:kernel}
+% ======================================================================
+
+For $\Re(s)>1/2$:
+\begin{align}
+\int_\tau^\infty(t-\tau)^{-1/2}\,t^{-s}\,dt
+&\overset{t=\tau u}{=}
+\tau^{1/2-s}\int_1^\infty (u-1)^{-1/2}u^{-s}\,du \notag\\
+&\overset{v=1/u}{=}
+\tau^{1/2-s}\int_0^1 (1/v-1)^{-1/2}v^s\,\frac{dv}{v^2} \notag\\
+&= \tau^{1/2-s}\int_0^1 v^{s-3/2}(1-v)^{-1/2}\,dv \notag\\
+&= \tau^{1/2-s}\,B(s-{\textstyle\frac12},{\textstyle\frac12})
+= \tau^{1/2-s}\,\frac{\sqrt\pi\;\Gamma(s-\frac12)}{\Gamma(s)}.
+\end{align}
+
+% ======================================================================
+\begin{thebibliography}{9}
+\bibitem{RetanaMontenegro2012}
+E.~Retana-Montenegro, E.~Van~Hese, G.~Gentile, M.~Baes \& F.~Camps,
+Astron.\ Astrophys.\ \textbf{540}, A70 (2012); arXiv:1202.5242.
+
+\bibitem{Kilbas2006}
+A.\,A.~Kilbas, H.\,M.~Srivastava \& J.\,J.~Trujillo,
+\textit{Theory and Applications of Fractional Differential Equations},
+Elsevier (2006), Chapters~1--2, 35.
+
+\bibitem{Kiryakova1994}
+V.~Kiryakova,
+\textit{Generalized Fractional Calculus and Applications},
+Longman/Wiley (1994), \S1.1 (Erd\'elyi--Kober operators).
+
+\bibitem{FoxWright}
+C.~Fox, Trans.\ Amer.\ Math.\ Soc.\ \textbf{98}, 395 (1961);
+E.\,M.~Wright, J.~London Math.\ Soc.\ \textbf{10}, 286 (1935).
+\end{thebibliography}
+
+\end{document}

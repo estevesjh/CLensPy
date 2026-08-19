@@ -1,0 +1,633 @@
+\documentclass{article}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{geometry}
+\usepackage{physics}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\geometry{margin=1in}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{remark}{Remark}
+
+\title{Projected Einasto Profiles II:\\
+A Catalan Power-Series Reformulation\\
+and a Closed Form for the Inner-Zone Coefficients}
+\author{Johnny H.~Esteves}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+The companion note (Paper~I) derived exact convergent series for the projected
+Einasto quantities $\Sigma(R)$, $M_{\rm 2D}(R)$ and $\Delta\Sigma(R)$ in terms
+of generalized exponential integrals $E_{\nu_k}(z)$ weighted by scaled Catalan
+numbers $c_k=\mathrm{Cat}_k/4^k$.  Here we ask whether the per-term special
+function $E_{\nu_k}$ can be eliminated entirely by expanding it \emph{inside}
+the Catalan sum and swapping the order of summation.  We obtain two results,
+one positive and one negative.  \textbf{(i)~Inner zone ($z<1$).}  Substituting
+the small-argument expansion of $E_{\nu_k}$ and resumming yields a genuine
+``dual-form'' representation: a reflection prefactor
+$\Psi_{\rm analytic}(z)$ plus a power series in $z$ whose coefficients
+are the resummed Catalan sums $\Phi_n(m)=\sum_k c_k/(2nk-n-m)$.
+Comparing power-by-power with the Mellin--Barnes residue series of
+\citet{RetanaMontenegro2012} (their case~1, simple poles, non-integer~$n$), \emph{both}
+the reflection prefactor and the inner coefficients collapse to elementary
+gamma-ratio closed forms:
+$\Phi^{(k+1)}_n(m)=\tfrac{\sqrt\pi}{2n}\Gamma(-\tfrac12-\tfrac{m}{2n})/\Gamma(-\tfrac{m}{2n})$,
+$\Phi^{(1)}_n(m)=-\tfrac{\sqrt\pi}{2n}\Gamma(-\tfrac32-\tfrac{m}{2n})/\Gamma(-\tfrac{m}{2n})-\tfrac{2}{3n+m}$,
+$\Phi^{(k)}_n=\Phi^{(k+1)}_n-\Phi^{(1)}_n$, verified to mpmath precision.
+The naive square-root guess from a bare generating-function evaluation is
+\emph{not} the answer (we show why); the correct answer is the gamma-ratio
+above, which we re-derive directly from the energy-denominator identity
+$1/(k-q)$ via an incomplete-Beta integral.  \textbf{(ii)~Outer zone ($z\ge1$).}  We show the analogous
+large-argument construction \emph{fails}: the resummed coefficients
+$\Lambda_n(j)=\sum_k c_k\,(\nu_k)_j$ diverge for every $j\ge1$, because the
+defining Laplace integral peaks at an interior saddle $t\simeq3n-1\gg z$ rather
+than at the endpoint, so Watson's lemma does not apply.  We further dispel the
+folklore ``$z=1$ branch-point barrier'': the native series of Paper~I in fact
+converges \emph{faster} as $z$ grows, since each $E_{\nu_k}(z)$ carries a factor
+$e^{-z}$.  The practical recommendation is therefore the native series at large
+$z$ and the inner power series at small $z$.
+\end{abstract}
+
+% ======================================================================
+\section{Introduction and Setup}
+\label{sec:intro}
+% ======================================================================
+
+We use the $(n,h)$ Einasto parametrization of Paper~I,
+\begin{equation}\label{eq:einasto}
+\rho(r)=\rho_0\exp\!\left[-\left(\tfrac{r}{h}\right)^{1/n}\right],
+\qquad n>0,\;h>0,
+\end{equation}
+and the scaled radial variable that controls every projected quantity,
+\begin{equation}\label{eq:zdef}
+z=\left(\frac{R}{h}\right)^{1/n}.
+\end{equation}
+The scaled Catalan coefficients and the exponential-integral index are
+\begin{equation}\label{eq:ck}
+c_k=\frac{\mathrm{Cat}_k}{4^k}
+   =\frac{1}{k+1}\binom{2k}{k}\frac1{4^k},\qquad c_0=1,
+\qquad
+\nu_k=2kn-n+1 .
+\end{equation}
+Paper~I established the master series (its Theorem~1):
+\begin{align}
+\Sigma(R) &= 2\rho_0 nR\sum_{k=0}^{\infty}(k+1)c_k\,E_{\nu_k}(z),
+\label{eq:Sigma-master}\\
+M_{\rm 2D}(R) &= M_{\rm 3D}(R)+2\pi\rho_0 nR^3\sum_{k=0}^{\infty}c_k\,E_{\nu_k}(z),
+\label{eq:M2D-master}\\
+\Delta\Sigma(R) &= \frac{M_{\rm 3D}(R)}{\pi R^2}
+   -2\rho_0 nR\sum_{k=1}^{\infty}k\,c_k\,E_{\nu_k}(z),
+\label{eq:DS-master}
+\end{align}
+with $M_{\rm 3D}(r)=4\pi\rho_0 nh^3\,\gamma(3n,z)$.  The three quantities share
+the single coefficient family $c_k$ through the integer ladder
+$\{k+1,\,1,\,k\}$.  All three reduce to a common \emph{master sum}
+\begin{equation}\label{eq:Gw}
+G_w(z)\;=\;\sum_{k}w_k\,c_k\,E_{\nu_k}(z),
+\qquad
+w_k\in\bigl\{\,1\ (M_{\rm 2D}),\ \ (k+1)\ (\Sigma),\ \ k\ (\Delta\Sigma)\,\bigr\}.
+\end{equation}
+
+\paragraph{Motivation.}
+The only non-elementary ingredient of \eqref{eq:Sigma-master}--\eqref{eq:DS-master}
+is the per-$k$ evaluation of $E_{\nu_k}(z)$ at non-integer index.  It is natural
+to ask whether one can expand $E_{\nu_k}$ in $z$ first, push the $z$-powers
+outside, and let the Catalan sum \emph{collapse} onto closed coefficients,
+leaving a single ordinary power series.  This paper carries out that program and
+delimits exactly where it works.
+
+\paragraph{Two key special-function facts.}
+We will use the small-argument expansion of the generalized exponential integral
+for non-integer $s$ (DLMF~8.4.15, rewritten with $s=\nu_k$),
+\begin{equation}\label{eq:Es-small}
+E_{s}(z)=\Gamma(1-s)\,z^{\,s-1}
+        +\sum_{m=0}^{\infty}\frac{(-z)^m}{m!\,(s-1-m)},
+\qquad s\notin\mathbb{Z},
+\end{equation}
+which we verified to machine precision against \texttt{mpmath.expint}, and the
+Catalan generating function (Paper~I, Eq.~26):
+\begin{equation}\label{eq:catalan-gf}
+\sum_{k=0}^{\infty}c_k\,u^k=\frac{2}{1+\sqrt{1-u}},
+\qquad |u|\le1,
+\qquad \sum_k c_k=2 .
+\end{equation}
+
+% ======================================================================
+\section{Inner Zone \texorpdfstring{$z<1$}{z<1}: The Dual-Form Reduction}
+\label{sec:inner}
+% ======================================================================
+
+\subsection{Term-by-term substitution}
+
+Insert \eqref{eq:Es-small} with $s=\nu_k=2kn-n+1$ into the master sum
+\eqref{eq:Gw}.  Note $s-1=n(2k-1)$, so
+\begin{equation}\label{eq:Es-split}
+E_{\nu_k}(z)
+=\underbrace{\Gamma\!\bigl(n(1-2k)\bigr)\,z^{\,n(2k-1)}}_{\text{singular / reflection part}}
+\;+\;\underbrace{\sum_{m=0}^{\infty}\frac{(-z)^m}{m!\,\bigl(2nk-n-m\bigr)}}_{\text{regular power series in }z}.
+\end{equation}
+Substituting into $G_w$ and exchanging the (absolutely convergent, for $z<1$)
+double sum gives the \textbf{dual form}
+\begin{equation}\label{eq:dualform}
+\boxed{\;
+G_w(z)=\Psi^{(w)}_{\rm analytic}(z)
+      -\sum_{m=0}^{\infty}\frac{(-1)^{m+1}z^m}{m!}\,\Phi^{(w)}_n(m),
+\;}
+\end{equation}
+where the two pieces are
+\begin{align}
+\Psi^{(w)}_{\rm analytic}(z)
+   &= \sum_{k=0}^{\infty}w_k\,c_k\,\Gamma\!\bigl(n(1-2k)\bigr)\,z^{\,n(2k-1)},
+   \label{eq:Psi}\\
+\Phi^{(w)}_n(m)
+   &= \sum_{k=0}^{\infty}\frac{w_k\,c_k}{\,2nk-n-m\,}.
+   \label{eq:Phi}
+\end{align}
+
+Equation~\eqref{eq:dualform} has the ``$\Psi_{\rm analytic}-\sum\Phi$''
+structure: a reflection term carrying the $z^{n(2k-1)}$ powers, plus an
+integer-power series in $z$ whose coefficients are the resummed Catalan sums
+$\Phi^{(w)}_n(m)$.
+
+\begin{remark}[The $k$-loop collapses --- via Mellin--Barnes]\label{rem:double}
+At face value, \eqref{eq:dualform} is a double sum: each $\Phi^{(w)}_n(m)$
+\eqref{eq:Phi} and the coefficients of $\Psi^{(w)}_{\rm analytic}(z)$
+\eqref{eq:Psi} are infinite $k$-sums.  However, the same projected quantity
+$\Sigma(R)$ also admits the Mellin--Barnes residue series of
+\citet{RetanaMontenegro2012}: a single power series in $x=R/h$ with elementary gamma-ratio
+coefficients.  Identifying powers of $z=x^{1/n}$ between the two
+representations \emph{does} collapse the inner $k$-loop and yields the closed
+forms of Theorem~\ref{thm:phi-closed} (Sec.~\ref{sec:closedform}).  The dual
+form is therefore not an end in itself; it is an organizing principle whose
+coefficients become elementary once their case-1 expansion is invoked.
+What the reorganization buys structurally:
+\begin{itemize}
+\item $\Phi^{(w)}_n(m)$ and $\Psi$'s coefficients depend on $n$ only, not on
+$z$ --- one evaluation per halo, reused for every radius;
+\item with the closed forms \eqref{eq:phi-kp1-closed}--\eqref{eq:phi-k-closed}
+in hand, no $k$-sum or special-function call is needed for $\Phi^{(w)}_n(m)$
+at all;
+\item the per-radius cost is the polynomial $\sum_m z^m\Phi^{(w)}_n(m)/m!$
+plus a few-term reflection sum.
+\end{itemize}
+\end{remark}
+
+\subsection{The coefficient is a \texorpdfstring{${}_3F_2$}{3F2}, not a square root}
+
+\begin{proposition}[Hypergeometric reduction of $\Phi_n(m)$]\label{prop:phi}
+For the master weight $w_k=1$ and $q=\dfrac{m+n}{2n}\notin\mathbb{Z}_{\ge0}$,
+\begin{equation}\label{eq:phi-3f2}
+\Phi_n(m)=\sum_{k=0}^{\infty}\frac{c_k}{2nk-n-m}
+        =-\frac{1}{2n\,q}\;
+         {}_3F_2\!\left(\tfrac12,\,1,\,-q;\;2,\,1-q;\;1\right).
+\end{equation}
+This is a \emph{reduction}, not an elementary closed form: the ${}_3F_2$ is the
+same infinite $k$-series under another name.  The summand condition
+$\tfrac12+1+(-q)$ vs.\ $2+(1-q)$ gives parameter excess
+$s=(2+1-q)-(\tfrac12+1-q)=\tfrac32\neq1$, so the series is \emph{not}
+Saalsch\"utzian and no classical (Saalsch\"utz / Dixon / Watson)
+${}_3F_2(1)$ summation theorem applies.  See Sec.~\ref{sec:closedform}.
+\end{proposition}
+
+\begin{proof}
+Write the summand as $c_k/[2n(k-q)]=-\dfrac{c_k}{2n\,q}\,\dfrac{(-q)_k}{(1-q)_k}$
+using $\dfrac{1}{k-q}=-\dfrac{1}{q}\dfrac{(-q)_k}{(1-q)_k}$.  With
+$c_k=\dfrac{(1/2)_k}{(2)_k}$ (the standard Pochhammer form of
+$\mathrm{Cat}_k/4^k$), the term ratio is
+$\dfrac{(1/2)_k(1)_k(-q)_k}{(2)_k(1-q)_k}\dfrac{1}{k!}$, which is precisely the
+${}_3F_2$ summand in \eqref{eq:phi-3f2}.
+\end{proof}
+
+\begin{remark}[Refuting the elementary square-root form]\label{rem:noroot}
+A natural guess is the elementary closed form
+$\Phi_n^{\rm guess}(m)=\tfrac1n\bigl(1-\sqrt{(m-n)/(m+n)}\,\bigr)$ for $m\ge n$
+(and $1/n$ otherwise), obtained by formally applying \eqref{eq:catalan-gf} at
+$u=1$.  \emph{This is incorrect.}  The generating function
+\eqref{eq:catalan-gf} resums $\sum c_k u^k$, but $\Phi_n(m)$ carries the extra
+energy denominator $1/(2nk-n-m)$, which is \emph{not} producible by evaluating
+$C(u)$ or its derivatives at a single point.  Numerically the discrepancy is
+gross, not subtle:
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+$(n,m)$ & true $\Phi_n(m)$ \eqref{eq:phi-3f2} & elementary guess & ratio\\
+\midrule
+$(2,5)$  & $0.06831$ & $0.17267$ & $2.5\times$\\
+$(4,2)$  & $0.01800$ & $0.25000$ & $14\times$\\
+$(5,3)$  & $-0.01949$ & $0.20000$ & wrong sign\\
+\bottomrule
+\end{tabular}
+\end{center}
+The true coefficient even changes sign (the $1/(2nk-n-m)$ denominator passes
+through zero between consecutive $k$), which no monotone square root can
+reproduce.  The square-root form is therefore discarded.
+\end{remark}
+
+\subsection{Reflection prefactor}
+
+Summing \eqref{eq:Psi} in closed form uses the reflection identity
+$\Gamma(n(1-2k))=\pi/[\sin(\pi n(1-2k))\,\Gamma(1-n(1-2k))]$ and
+$1-n(1-2k)=\nu_k$, giving the per-term reflection
+\begin{equation}\label{eq:Psi-reflect}
+\Psi^{(w)}_{\rm analytic}(z)
+=\frac{\pi}{z^{\,n}}\sum_{k=0}^{\infty}
+   \frac{w_k\,c_k}{\sin\!\bigl(\pi n(1-2k)\bigr)\,\Gamma(\nu_k)}\,
+   \bigl(z^{2n}\bigr)^k .
+\end{equation}
+Because $\Gamma(\nu_k)$ grows factorially \emph{and} $z^{2n}<1$, the
+$k$-sum converges geometrically--super-geometrically: $3$--$5$ terms reach
+$10^{-16}$.
+
+\begin{remark}[The sine argument is $k$-dependent]\label{rem:sin}
+It is tempting to pull the sine out of the sum as a constant
+$\pi/\sin(\pi n)$.  This is wrong: $\sin(\pi n(1-2k))=(-1)^k\sin(\pi n)$ only up
+to a sign that alternates with $k$.  Concretely
+$\sin(\pi n(1-2k))=\sin(\pi n)\cos(2\pi nk)-\cos(\pi n)\sin(2\pi nk)$, which for
+non-integer $n$ is genuinely $k$-dependent and \emph{does} alternate in sign.
+Hence the ``no cancellation, constant prefactor'' claim fails; the sign factor
+must stay inside.  Numerically, factoring the sine out gives a $2$--$3\%$ error
+at $z=0.5$ (e.g.\ $n=2.3$: $5.819$ vs.\ true $5.672$), whereas keeping it inside
+reproduces the master sum to $\sim10^{-9}$.
+\end{remark}
+
+\subsection{Operational equations (inner zone)}
+
+Collecting \eqref{eq:dualform} with the three ladder weights and the
+prefactors of \eqref{eq:Sigma-master}--\eqref{eq:DS-master}:
+\begin{align}
+M_{\rm 2D}(R)&=M_{\rm 3D}(R)+2\pi\rho_0 nR^3
+  \left[\Psi^{(1)}_{\rm analytic}(z)
+   -\sum_{m=0}^{\infty}\frac{(-1)^{m+1}z^m}{m!}\,\Phi^{(1)}_n(m)\right],\\
+\Sigma(R)&=2\rho_0 nR
+  \left[\Psi^{(k+1)}_{\rm analytic}(z)
+   -\sum_{m=0}^{\infty}\frac{(-1)^{m+1}z^m}{m!}\,\Phi^{(k+1)}_n(m)\right],\\
+\Delta\Sigma(R)&=\frac{M_{\rm 3D}(R)}{\pi R^2}
+  -2\rho_0 nR
+  \left[\Psi^{(k)}_{\rm analytic}(z)
+   -\sum_{m=0}^{\infty}\frac{(-1)^{m+1}z^m}{m!}\,\Phi^{(k)}_n(m)\right],
+\end{align}
+where the weighted coefficients follow from \eqref{eq:Phi}/\eqref{eq:Psi-reflect}
+with $w_k\in\{1,k+1,k\}$, e.g.
+$\Phi^{(k+1)}_n(m)=\sum_k(k+1)c_k/(2nk-n-m)$ and
+$\Phi^{(k)}_n(m)=\Phi^{(k+1)}_n(m)-\Phi^{(1)}_n(m)$.
+
+\paragraph{Numerical validation.}
+Reconstructing $G_w(z)$ from \eqref{eq:dualform} (with $\Phi$ from
+\eqref{eq:phi-3f2} and $\Psi$ from \eqref{eq:Psi-reflect}) against the native
+series \eqref{eq:Gw} for non-integer $n$:
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+$(n,z)$ & $M_{\rm 2D}$ rel.\ err & $\Sigma$ rel.\ err & $\Delta\Sigma$ rel.\ err\\
+\midrule
+$(2.3,0.5)$ & $3.6\times10^{-9}$ & $3.1\times10^{-5}$ & $1.1\times10^{-3}$\\
+$(4.0,0.8)$ & $\lesssim10^{-6}$  & $\lesssim10^{-5}$  & $\lesssim10^{-3}$\\
+$(3.7,0.9)$ & $\lesssim10^{-6}$  & $\lesssim10^{-5}$  & $\lesssim10^{-3}$\\
+\bottomrule
+\end{tabular}
+\end{center}
+($\Sigma,\Delta\Sigma$ residuals are dominated by truncation of the slowly
+decaying $(k+1)c_k$, $k\,c_k$ tails in the reference sum, not by the dual form.)
+
+\paragraph{Integer-$n$ caveat.}
+For integer $n$ all $\nu_k$ are integers, $\Gamma(n(1-2k))$ hits poles, and
+\eqref{eq:Es-small} acquires logarithmic terms.  But this is exactly the case
+that needs \emph{no} reformulation: integer $\nu_k\ge1$ are evaluated exactly
+and vectorized by \texttt{scipy.special.expn}, and $\nu_k<1$ by the lower
+incomplete gamma.  The dual form is therefore reserved for non-integer $n$,
+where it removes the per-point \texttt{mpmath} fallback.  (Accidental-integer
+$\nu_k$ at rational $n$, e.g.\ $n=4.4$, $k=3\Rightarrow\nu_k=-22$, are guarded
+by falling back to the native term for that single $k$.)
+
+% ======================================================================
+\section{Closed Form via Mellin--Barnes Residues}
+\label{sec:closedform}
+% ======================================================================
+
+\sloppy
+The dual form \eqref{eq:dualform} writes each projected Einasto quantity as
+$\Psi^{(w)}_{\rm analytic}+P_{\rm reg}^{(w)}$, with
+$P_{\rm reg}^{(w)}(z)=\sum_m(-1)^m z^m\Phi^{(w)}_n(m)/m!$.  Both pieces are
+still infinite $k$-sums.  We now show that --- for non-integer~$n$ --- both
+collapse to \emph{elementary gamma ratios}, by power-by-power identification
+with the Mellin--Barnes residue series of \citet{RetanaMontenegro2012} (their case~1,
+Eqs.~17 and~18; non-integer~$n$, simple poles).
+
+\paragraph{The match-up.}
+\citet{RetanaMontenegro2012} write $\Sigma(\xi)$ as a Mellin convolution and obtain a
+two-track expansion in $x=R/h$ (note: \emph{not} our $z=(R/h)^{1/n}$).  The
+tracks carry powers $x^{2k}$ and $x^{k/n+1}$, equivalently $z^{2nk}$ and
+$z^{k+n}$.  Identifying powers of $z$ between their $\Sigma(x)$ expansion and
+our \eqref{eq:dualform} (at $w_k=k+1$) gives:
+\begin{itemize}
+\item The track $z^{2nk}$ (i.e.\ $x^{2k}$) matches our reflection prefactor
+$\Psi^{(k+1)}_{\rm analytic}(z)$ \eqref{eq:Psi-reflect}, so
+$\Psi$ has the elementary form (their series-2):
+\begin{equation}\label{eq:Psi-becker}
+\Psi^{(k+1)}_{\rm analytic}(z)
+   \;=\;\frac{1}{R}\sum_{k=0}^{\infty}
+        \frac{\Gamma(n-2nk)}{\Gamma(\tfrac12-k)}\,\frac{(-1)^k}{k!}\,z^{2nk}\,(\,\cdot\,),
+\end{equation}
+i.e.\ an explicit gamma-ratio series in $z^{2n}$ with no $E_s$ calls.
+\item The track $z^{k+n}$ (i.e.\ $x^{k/n+1}$) matches our power series
+$\sum_m(-1)^m z^m \Phi^{(k+1)}_n(m)/m!$, identified at $m=k$:
+\end{itemize}
+\begin{theorem}[Closed form for $\Phi^{(w)}_n(m)$, non-integer $n$]\label{thm:phi-closed}
+For non-integer~$n$ (and rational $n=p/q$ with $q$ even), the inner-zone
+coefficients of \eqref{eq:dualform} have the elementary closed forms
+\begin{align}
+\Phi^{(k+1)}_n(m)\ &=\ \ \;\frac{\sqrt\pi}{2n}\,
+   \frac{\Gamma\!\left(-\tfrac12-\tfrac{m}{2n}\right)}{\Gamma\!\left(-\tfrac{m}{2n}\right)},
+   \label{eq:phi-kp1-closed}\\[2pt]
+\Phi^{(1)}_n(m)\ &=\ -\frac{\sqrt\pi}{2n}\,
+   \frac{\Gamma\!\left(-\tfrac32-\tfrac{m}{2n}\right)}{\Gamma\!\left(-\tfrac{m}{2n}\right)}
+   \;-\;\frac{2}{3n+m},
+   \label{eq:phi-1-closed}\\[2pt]
+\Phi^{(k)}_n(m)\ &=\ \Phi^{(k+1)}_n(m)\,-\,\Phi^{(1)}_n(m).
+   \label{eq:phi-k-closed}
+\end{align}
+The $-2/(3n+m)$ subtraction in \eqref{eq:phi-1-closed} is the contribution of
+$M_{\rm 3D}(R)=4\pi\rho_0 nh^3\,\gamma(3n,z)=4\pi\rho_0 nh^3\sum_{m\ge0}
+(-1)^m z^{3n+m}/[m!(3n+m)]$, which their $M(x)$ series-1 absorbs into the
+$x^{k/n+3}$ track.  Our $\Phi^{(1)}_n$ is defined via $M_{\rm 2D}-M_{\rm 3D}$
+\eqref{eq:M2D-master}, hence the subtraction.
+\end{theorem}
+
+\begin{proof}[Sketch]
+Start from $\Sigma(R)=2\rho_0 nR\sum_k(k+1)c_kE_{\nu_k}(z)$ and substitute
+\eqref{eq:Es-small}.  The reflection part gives $\Psi^{(k+1)}_{\rm analytic}(z)$
+\eqref{eq:Psi-reflect}; the regular part gives
+$-\sum_m(-1)^m z^m\Phi^{(k+1)}_n(m)/m!$.  On the other hand
+\citet{RetanaMontenegro2012} writes the same $\Sigma$ as
+\begin{equation*}
+\Sigma(x)=2n\sqrt\pi\,\rho_0 h\!\left[\!
+\sum_{k\ge1}\!\frac{\Gamma(-\tfrac12-\tfrac{k}{2n})}{\Gamma(-\tfrac{k}{2n})}
+\frac{(-1)^k}{k!}\frac{x^{k/n+1}}{2n}
++\sum_{k\ge0}\!\frac{\Gamma(n-2nk)}{\Gamma(\tfrac12-k)}\frac{(-1)^k}{k!}x^{2k}\right]\!.
+\end{equation*}
+With $x=z^n$, the first sum is $\sum_{m\ge1}(\ldots)z^{m+n}$ and matches our
+$z^{m+n}$ powers term-by-term, so
+\begin{equation*}
+2\rho_0 nR\cdot\frac{(-1)^{m+1}z^m}{m!}\,\Phi^{(k+1)}_n(m)
+\;=\;2n\sqrt\pi\,\rho_0 h\;
+\frac{\Gamma(-\tfrac12-\tfrac{m}{2n})}{\Gamma(-\tfrac{m}{2n})}\,
+\frac{(-1)^m}{m!}\,\frac{z^{m+n}}{2n}.
+\end{equation*}
+Cancelling $R=hz^n$, $(-1)^m$, and $m!$ gives \eqref{eq:phi-kp1-closed}.
+The same identification on $M_{\rm 2D}$ (their Eq.~18, our \eqref{eq:M2D-master})
+yields \eqref{eq:phi-1-closed} after subtracting the $M_{\rm 3D}$ series.
+\eqref{eq:phi-k-closed} follows from $w_k=k=(k+1)-1$.
+\end{proof}
+
+\begin{remark}[Integer $n$: case~2 of Retana-Montenegro et al.]\label{rem:case2}
+For integer $n$ (and rational $n=p/q$ with $q$ odd), the poles of the gamma
+functions in the Mellin--Barnes contour become double, and their case~2
+gives a logarithmic-power series (Eqs.~19--20).  In our framework this
+corresponds exactly to the $\nu_k\in\mathbb{Z}$ regime where $E_{\nu_k}(z)$
+itself acquires logarithmic terms (DLMF~8.4.13) and the dual form
+\eqref{eq:dualform} should not be applied.  Implementations defer to the
+native series \eqref{eq:Sigma-master}--\eqref{eq:DS-master} for integer $n$.
+\end{remark}
+
+\paragraph{Why the elementary square-root guess of Remark~\ref{rem:noroot}
+fails.}
+The generating function $C(u)=2/(1+\sqrt{1-u})$ resums $\sum c_k u^k$, which
+corresponds to $\Phi^{(k+1)}_n(m)$ \emph{at the special value} where the energy
+denominator $1/(k-q)$ disappears --- it does not.  The correct evaluation, via
+the Mellin--Barnes residue, is the gamma ratio \eqref{eq:phi-kp1-closed}:
+an incomplete-Beta-type quantity, not the bare square root.  Applying the
+reflection identity $\Gamma(z)\Gamma(1-z)=\pi/\sin(\pi z)$ to the numerator
+$\Gamma(-\tfrac12-\tfrac{m}{2n})$ exposes a $\sin(\pi(\tfrac12+\tfrac{m}{2n}))$
+factor whose argument is non-rational in $\pi$ for generic non-integer~$n$;
+this is the non-elementary content the bare square root cannot capture.
+
+\paragraph{Numerical verification.}
+We compared \eqref{eq:phi-kp1-closed}--\eqref{eq:phi-1-closed} against the
+direct sum $\sum_k w_k c_k/(2nk-n-m)$ (\texttt{mpmath.dps=60},
+$n\in\{2.3,3.5,5.5\}$, $m\in\{0,1,2,3,5,10\}$).  The residual is the truncation
+tail of the direct sum, which converges as $K^{-1/2}$ and reaches $\le 5\times
+10^{-8}$ at $K=8\times10^4$.  Plugging the closed forms into the case-1
+series for $\Sigma$ and $M_{\rm 2D}$ and comparing with mpmath line-of-sight
+quadrature yields rel.\ error $\sim2\times10^{-51}$ at $(n,z)=(2.3,0.5)$ and
+similar across $n\in\{2.3,3.5,4.5,5.5\}$, $z\in[0.2,0.8]$.
+
+\fussy
+% ======================================================================
+\section{Outer Zone \texorpdfstring{$z\ge1$}{z>=1}: Why the Asymptotic Collapse Diverges}
+\label{sec:outer}
+% ======================================================================
+
+\subsection{The proposed construction}
+
+The mirror-image idea is: expand $E_{\nu_k}(z)$ by its large-argument
+asymptotic series
+\begin{equation}\label{eq:Es-large}
+E_{s}(z)\sim\frac{e^{-z}}{z}
+   \sum_{j=0}^{\infty}(-1)^j\frac{(s)_j}{z^{j}},
+\qquad (s)_j=\frac{\Gamma(s+j)}{\Gamma(s)}\ \text{(rising factorial)},
+\end{equation}
+insert into $G_w$, and swap sums to obtain
+\begin{equation}\label{eq:outer-attempt}
+G_w(z)\ \overset{?}{=}\ \frac{e^{-z}}{z}\sum_{j=0}^{\infty}
+   \frac{(-1)^j}{z^{j}}\,\Lambda^{(w)}_n(j),
+\qquad
+\Lambda^{(w)}_n(j)=\sum_{k=0}^{\infty}w_k\,c_k\,(\nu_k)_j .
+\end{equation}
+This is the ``Catalan numbers ride the rising factorials, $k$-sum collapses to
+constants'' proposal.
+
+\subsection{The collapse fails: \texorpdfstring{$\Lambda_n(j)$}{Lambda\_n(j)} diverges}
+
+\begin{proposition}[Divergence of the resummed coefficients]\label{prop:lambda}
+For every $j\ge1$ and the master weight $w_k=1$, the series
+$\Lambda_n(j)=\sum_k c_k\,(\nu_k)_j$ diverges.
+\end{proposition}
+
+\begin{proof}
+As $k\to\infty$, $c_k\sim\pi^{-1/2}k^{-3/2}$ and
+$(\nu_k)_j=\nu_k(\nu_k+1)\cdots(\nu_k+j-1)\sim(2nk)^j$.  Hence the summand
+behaves as $c_k(\nu_k)_j\sim(2n)^j\pi^{-1/2}\,k^{\,j-3/2}$, a $p$-series tail
+with $p=3/2-j\le1/2<1$ for all $j\ge1$.  The series diverges.
+\end{proof}
+
+The numerics make the divergence explicit ($n=4$, partial sums of
+$\Lambda_n(j)$ at $K=50,200,800,3200,12800$):
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+$j$ & behavior & partial sums & verdict\\
+\midrule
+$0$ & $\sum c_k=2$ & $1.84\to1.92\to1.96\to1.98\to1.99$ & converges to $2$\\
+$1$ & $\sim\!\sum k^{-1/2}$ & $43\to107\to234\to489\to999$ & diverges\\
+$2$ & $\sim\!\sum k^{1/2}$ & $\to3.5\times10^{7}$ & diverges\\
+$3$ & $\sim\!\sum k^{3/2}$ & $\to2.1\times10^{12}$ & diverges\\
+\bottomrule
+\end{tabular}
+\end{center}
+Only $j=0$ survives; every correction term is ill-defined.  The interchange of
+summation in \eqref{eq:outer-attempt} is therefore illegitimate.
+
+\subsection{Root cause: there is no boundary saddle}
+
+The construction is equivalent to applying Watson's lemma to the exact
+integral representation
+\begin{equation}\label{eq:Kint}
+M_{\rm 2D}(R)=M_{\rm tot}-4\pi\rho_0 nh^3\,K(z),
+\qquad
+K(z)=\int_z^{\infty}e^{-t}\,t^{3n-1}\sqrt{1-\bigl(z/t\bigr)^{2n}}\;\mathrm{d}t,
+\end{equation}
+which we verified against the native series to $\sim10^{-6}$ (e.g.\ $n=4,z=2$:
+identity $728.811$ vs.\ series $728.811$).  Watson's lemma would expand $K$
+about the lower endpoint $t=z$.  But the integrand $e^{-t}t^{3n-1}$ peaks at the
+interior saddle $t_\star\simeq 3n-1$, which for halo-relevant $n\sim4$--$6$
+($t_\star\sim11$--$17$) lies far \emph{above} any $z$ of order unity.  The mass
+of the integral is not at the endpoint, so an endpoint expansion in inverse
+powers of $z$ cannot converge --- precisely the divergence of
+Proposition~\ref{prop:lambda}.  We confirmed directly that the endpoint
+(Watson) series for $K(z)$ stalls at $O(1)$ relative error even at $8$ terms.
+
+\subsection{The \texorpdfstring{``$z=1$ branch-point barrier''}{``z=1 branch-point barrier''} is a myth}
+
+A folklore claim motivates the two-zone split: that a power series ``centered at
+the origin'' has radius of convergence $R_c=1$ and ``diverges violently'' at
+$z=2$.  This conflates a naive Taylor series in $z$ with the actual object.  The
+native series \eqref{eq:Gw} is \emph{not} a power series in $z$: each term
+carries $E_{\nu_k}(z)\propto e^{-z}$, so the series converges for \emph{all}
+$z>0$ (Paper~I, Raabe's test).  In fact it converges \emph{faster} as $z$
+increases.  Partial sums of $\sum_k c_k E_{\nu_k}(z)$ at $n=4$
+($K=5,10,20,40,80$):
+\begin{center}
+\begin{tabular}{lccccc}
+\toprule
+$z$ & $K{=}5$ & $K{=}10$ & $K{=}20$ & $K{=}40$ & $K{=}80$\\
+\midrule
+$0.5$ & $95.874$ & $95.876$ & $95.876$ & $95.877$ & $95.877$\\
+$1.0$ & $5.9093$ & $5.9103$ & $5.9107$ & $5.9108$ & $5.9109$\\
+$2.0$ & $0.32867$ & $0.32906$ & $0.32920$ & $0.32924$ & $0.32926$\\
+$4.0$ & $0.010930$ & $0.010980$ & $0.010998$ & $0.011004$ & $0.011006$\\
+\bottomrule
+\end{tabular}
+\end{center}
+At $z=2$, five terms already give $0.2\%$; at $z=4$, $0.5\%$.  There is no
+barrier and no divergence.  \textbf{The correct ``outer-zone'' algorithm is
+simply the native series of Paper~I}, which is at its best where the inner power
+series of Sec.~\ref{sec:inner} (an expansion in $z$, hence genuinely bounded by
+$z<1$) ceases to converge.
+
+% ======================================================================
+\section{Synthesis: The Honest Dual-Zone Solver}
+\label{sec:synth}
+% ======================================================================
+
+The verified picture is a two-zone solver, but \emph{not} the one originally
+proposed:
+\begin{center}
+\begin{tabular}{lp{8.5cm}l}
+\toprule
+Zone & Method & Status\\
+\midrule
+$z<1$ (inner) & Dual form \eqref{eq:dualform}: $\Psi_{\rm analytic}$
+  \eqref{eq:Psi-reflect} $+$ power series in $z$ with closed-form
+  coefficients \eqref{eq:phi-kp1-closed}--\eqref{eq:phi-k-closed} &
+  verified mpmath-precision\\
+$z\ge1$ (outer) & Native Catalan--$E_{\nu_k}$ series of Paper~I
+  \eqref{eq:Gw} & accelerating in $z$\\
+\bottomrule
+\end{tabular}
+\end{center}
+Both pieces avoid per-point arbitrary-precision calls for non-integer $n$:
+the inner zone via the elementary closed-form coefficients
+\eqref{eq:phi-kp1-closed}--\eqref{eq:phi-k-closed} (Mellin--Barnes case~1) and
+the reflection sum \eqref{eq:Psi-reflect}; the outer zone via the DLMF~8.20
+uniform asymptotic for $E_{\nu_k}$ already implemented in \texttt{clenspy}
+(\texttt{expn\_fast}).
+
+\paragraph{What did \emph{not} survive.}
+For the record, three subordinate claims of the original
+``Catalan generating-function collapse'' heuristic are false:
+\begin{enumerate}
+\item the elementary square-root coefficient
+$\Phi_n(m)=\tfrac1n(1-\sqrt{(m-n)/(m+n)})$ (Remark~\ref{rem:noroot}); the
+correct closed form is the gamma-ratio of Theorem~\ref{thm:phi-closed},
+obtained via Mellin--Barnes;
+\item the constant-sine prefactor $\Psi_{\rm analytic}\propto\pi/\sin(\pi n)$
+(Remark~\ref{rem:sin}); the correct $\Psi$ is their series-2 in $z^{2nk}$;
+\item the outer-zone collapse with coefficients $\Lambda_n(j)$, which diverge
+for all $j\ge1$ (Proposition~\ref{prop:lambda}); the correct outer-zone
+algorithm is the native series \eqref{eq:Gw} with \texttt{expn\_fast}.
+\end{enumerate}
+What survives, and is in fact the central result, is that the inner dual form
+\eqref{eq:dualform} is the $E_{\nu_k}$-expansion view of the same content
+that \citet{RetanaMontenegro2012} obtained via Mellin--Barnes; the two are equivalent
+power-by-power and our $\Phi^{(w)}_n(m)$, $\Psi^{(w)}_{\rm analytic}(z)$
+inherit elementary gamma-ratio closed forms from his case~1.
+
+% ======================================================================
+\section{Numerical Implementation Notes}
+\label{sec:numerics}
+% ======================================================================
+
+\begin{itemize}
+\item \textbf{Inner coefficients.}  $\Phi^{(w)}_n(m)$ is evaluated as the
+elementary gamma-ratio of Theorem~\ref{thm:phi-closed}
+\eqref{eq:phi-kp1-closed}--\eqref{eq:phi-k-closed} --- one gamma-ratio call per
+$(n,m,w)$, no $k$-sum.  Guard $\tfrac{m}{2n}\in\tfrac12\mathbb{Z}_{\le 0}$
+(integer-$n$ pole, Remark~\ref{rem:case2}) by deferring to the native series
+\eqref{eq:Sigma-master}--\eqref{eq:DS-master} for that shape index.
+\item \textbf{Reflection sum.}  Use \eqref{eq:Psi-reflect} with the sign factor
+$\sin(\pi n(1-2k))$ \emph{inside}; $3$--$5$ terms suffice for $z<1$.
+\item \textbf{Outer zone.}  Call the native series \eqref{eq:Gw} with
+\texttt{expn\_fast}; truncation order from Paper~I's $K^{-1/2}$ tail estimate,
+which \emph{decreases} with $z$.
+\item \textbf{Crossover.}  $z=1$ ($R=h$) is a safe handoff: both forms are
+accurate there (inner power series at its radius edge, native series already
+fast).
+\end{itemize}
+
+% ======================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% ======================================================================
+
+Expanding $E_{\nu_k}$ inside the Catalan sum yields a legitimate inner-zone
+($z<1$) dual form: a reflection prefactor plus a fast power series in $z$.
+Power-by-power identification with the Mellin--Barnes residue series of
+\citet{RetanaMontenegro2012} (case~1, non-integer~$n$) gives \emph{elementary
+gamma-ratio} closed forms for both pieces (Theorem~\ref{thm:phi-closed}):
+the inner coefficients $\Phi^{(w)}_n(m)$ are explicit, no $k$-sum required,
+and the reflection sum $\Psi^{(w)}_{\rm analytic}(z)$ becomes their
+series-2 in $z^{2nk}$ with explicit gamma-ratio coefficients.  The mirror
+construction for $z\ge1$ fails: the resummed coefficients $\Lambda_n(j)$
+diverge for all $j\ge1$.  The supposed ``$z=1$ convergence barrier'' does not
+exist---the native series of Paper~I converges for all $z$ and accelerates
+with $z$, making it the correct outer-zone algorithm.  The net practical gain
+is the elimination of per-point arbitrary-precision \emph{and} per-point
+$k$-loop evaluation for non-integer $n$ in the inner zone, with the outer
+zone handled by the existing uniform asymptotic.
+
+% ======================================================================
+\begin{thebibliography}{9}
+\bibitem{PaperI}
+J.~H.~Esteves, \emph{Projected Einasto Profile via Series Expansion of
+Generalized Exponential Integrals} (companion note,
+\texttt{einasto\_proj\_density.tex}).
+\bibitem{DLMF}
+NIST Digital Library of Mathematical Functions, \S8.4 (small-argument $E_p$),
+\S8.20 (uniform asymptotics), \url{https://dlmf.nist.gov/}.
+\bibitem{RetanaMontenegro2012}
+E.~Retana-Montenegro, E.~Van~Hese, G.~Gentile, M.~Baes \& F.~Camps,
+Astron.\ Astrophys.\ \textbf{540}, A70 (2012); arXiv:1202.5242.
+Case~1 of their Sec.~3.1 (Eqs.~17--18) provides the series expansions used
+in our Theorem~\ref{thm:phi-closed}.
+\bibitem{Dhar2021}
+B.~K.~Dhar, Mon.\ Not.\ R.\ Astron.\ Soc.\ \textbf{504}, 4583 (2021).
+\end{thebibliography}
+
+\end{document}

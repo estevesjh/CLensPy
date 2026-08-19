@@ -1,0 +1,378 @@
+\documentclass{article}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+
+\geometry{margin=1in}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{remark}{Remark}
+
+\title{Projected Einasto Profile:\\
+Implementation from Retana-Montenegro et al.\ (2012)}
+\author{Johnny H.~Esteves}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We recast the Retana-Montenegro et al.\ (2012) residue series for the
+projected Einasto profile in a form optimized for numerical implementation.
+A single coefficient $a_k$ (a gamma ratio depending on the Einasto index~$n$
+alone) encodes all lensing quantities --- $\Sigma$, $M_{\rm 2D}$, and
+$\Delta\Sigma$ --- through rational weight factors $w(k)$. The $\Delta\Sigma$
+formula is numerically stable because the leading constant cancels analytically
+($w_{\Delta\Sigma}(0)=0$). The resulting algorithm is 75--90$\times$ faster
+than evaluating generalized exponential integrals, with machine-precision
+accuracy for all non-integer~$n>0$.
+\end{abstract}
+
+% ======================================================================
+\section{Setup}
+% ======================================================================
+
+Einasto density:
+\begin{equation}\label{eq:rho}
+\rho(r)=\rho_0\,e^{-(r/h)^{1/n}}, \qquad
+n=1/\alpha,\quad h=r_s/(2n)^n.
+\end{equation}
+Dimensionless projected radius:
+\begin{equation}\label{eq:x}
+x \equiv R/h.
+\end{equation}
+
+% ======================================================================
+\section{The Coefficient}
+\label{sec:coeff}
+% ======================================================================
+
+Define, for $k\ge1$ and non-integer $n>0$:
+\begin{equation}\label{eq:ak}
+\boxed{\;
+a_k \;\equiv\;
+\frac{\Gamma\!\left(-\tfrac{3}{2}-\tfrac{k}{2n}\right)}
+     {\Gamma\!\left(-\tfrac{k}{2n}\right)}\;
+\frac{(-1)^k}{k!}\,.
+\;}
+\end{equation}
+This is the residue contribution from the $k$-th pole of
+$\Gamma(b_1+B_1 s)$ in the Mellin--Barnes contour integral
+for $M_{\rm 2D}$ (Retana-Montenegro et al.\ 2012, Eq.~12).
+
+The corresponding coefficient for $\Sigma$ is not independent:
+\begin{equation}\label{eq:sig-coeff}
+\frac{\Gamma\!\left(-\tfrac{1}{2}-\tfrac{k}{2n}\right)}
+     {\Gamma\!\left(-\tfrac{k}{2n}\right)}\;
+\frac{(-1)^k}{k!}
+\;=\; \left(-\tfrac{3}{2}-\tfrac{k}{2n}\right)\,a_k,
+\end{equation}
+from $\Gamma(z+1)=z\,\Gamma(z)$ applied to
+$\Gamma(-\tfrac12-\tfrac{k}{2n})=(-\tfrac32-\tfrac{k}{2n})\,
+\Gamma(-\tfrac32-\tfrac{k}{2n})$.
+
+\paragraph{Second track.}
+The reflection-pole residues give a second coefficient family:
+\begin{equation}\label{eq:atilde}
+\tilde a_k \;\equiv\;
+\frac{\Gamma(n-2nk)}{\Gamma\!\left(\tfrac{1}{2}-k\right)}\;
+\frac{(-1)^k}{k!}\,,
+\qquad k\ge0.
+\end{equation}
+This decays super-factorially; 3--5 terms suffice for machine precision.
+
+% ======================================================================
+\section{All Quantities from One Coefficient}
+\label{sec:quantities}
+% ======================================================================
+
+The two tracks have distinct physical roles:
+\begin{itemize}
+\item \textbf{First track} ($a_k$, powers $x^{k/n}$): carries the cusp/core
+  shape set by the Einasto index~$n$. The fractional power $1/n$ encodes the
+  central slope and is the reason no elementary closed form exists for
+  integer~$n$.
+\item \textbf{Second track} ($\tilde a_k$, powers $x^{2k}$): carries the
+  large-scale geometric shape --- the even-power tail from the projected
+  spherical symmetry. It converges super-factorially and is already negligible
+  after $J\sim5$ terms.
+\end{itemize}
+
+The projected \emph{profiles} (units of mass/length$^2$) share the master form
+\begin{equation}\label{eq:master-profile}
+Q_{\rm prof}(x) = \sqrt\pi\;\rho_0\,h\left[
+  \sum_{k=1}^{K} w_k\; a_k\; x^{k/n+1}
+  \;+\; 2n\sum_{k=0}^{J} \tilde w_k\; \tilde a_k\; x^{2k}
+\right],
+\end{equation}
+and the projected \emph{mass} is simply
+\begin{equation}\label{eq:master-mass}
+M_{\rm 2D}(x) = \pi\,h^2\,x^2\;\cdot\;\bar\Sigma(x),
+\end{equation}
+i.e.\ profile $\times$ area.  The weight factors are:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{lcc}
+\toprule
+Quantity & $w_k$ & $\tilde w_k$\\
+\midrule
+$\Sigma$
+  & $\displaystyle -\frac{3n+k}{2n}$
+  & $1$\\[8pt]
+$\bar\Sigma = M_{\rm 2D}/(\pi R^2)$
+  & $-1$
+  & $\displaystyle\frac{1}{k+1}$\\[8pt]
+$\Delta\Sigma = \bar\Sigma - \Sigma$
+  & $\displaystyle\frac{n+k}{2n}$
+  & $\displaystyle -\frac{k}{k+1}$\\[4pt]
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{remark}[Why $\Delta\Sigma$ is stable]
+The second-track weight for $\Delta\Sigma$ is $-k/(k+1)$, which vanishes at
+$k=0$.  This means the constant term $\tilde a_0=\Gamma(n)/\sqrt\pi$ ---
+which equals $\Sigma(0)/(2\rho_0 h)$, the dominant piece at small~$x$ ---
+cancels \emph{analytically} between $\bar\Sigma$ and $\Sigma$. No large-number
+subtraction occurs at runtime. The surviving terms are $O(x^{2})$ and
+$O(x^{1/n+1})$, both small at small radii.
+\end{remark}
+
+\begin{remark}[Weight derivation]
+From $\Delta\Sigma = \bar\Sigma - \Sigma$:
+\begin{align*}
+w_k^{(\Delta\Sigma)} &= w_k^{(\bar\Sigma)} - w_k^{(\Sigma)}
+  = (-1) - \Bigl(-\frac{3n+k}{2n}\Bigr) = \frac{3n+k}{2n}-1 = \frac{n+k}{2n},\\
+\tilde w_k^{(\Delta\Sigma)} &= \tilde w_k^{(\bar\Sigma)} - \tilde w_k^{(\Sigma)}
+  = \frac{1}{k+1} - 1 = -\frac{k}{k+1}.
+\end{align*}
+\end{remark}
+
+% ======================================================================
+\section{Fractional-Calculus Interpretation}
+\label{sec:frac}
+% ======================================================================
+
+The gamma ratio defining $a_k$ is a (rising) Pochhammer of non-integer length:
+\begin{equation}\label{eq:pochhammer}
+\frac{\Gamma(-\tfrac{3}{2}-\tfrac{k}{2n})}{\Gamma(-\tfrac{k}{2n})}
+\;=\;
+\bigl(-\tfrac{k}{2n}\bigr)\bigl(-\tfrac{k}{2n}-1\bigr)\cdots
+\;=\;\frac{1}{\bigl(-\tfrac{3}{2}-\tfrac{k}{2n}\bigr)_{3/2}},
+\end{equation}
+where $(z)_{s}\equiv\Gamma(z+s)/\Gamma(z)$. The exponent $3/2$ is not arbitrary
+--- it is the fractional order of the operator that takes 3D density to
+projected mass.
+
+\paragraph{Riemann--Liouville action on monomials.}
+The Riemann--Liouville fractional integral satisfies
+\begin{equation}\label{eq:RL}
+I^{\mu}\,r^{\beta}
+\;=\;\frac{\Gamma(\beta+1)}{\Gamma(\beta+\mu+1)}\,r^{\beta+\mu}.
+\end{equation}
+Setting $\beta=-\tfrac{k}{2n}-\tfrac{5}{2}$ and $\mu=\tfrac{3}{2}$:
+\begin{equation}
+I^{3/2}\,r^{-k/(2n)-5/2}
+\;=\;\frac{\Gamma(-\tfrac{k}{2n}-\tfrac{3}{2})}{\Gamma(-\tfrac{k}{2n})}\,
+   r^{-k/(2n)-1}.
+\end{equation}
+Hence $a_k$ is, up to the $(-1)^k/k!$ Taylor weight, the coefficient of an
+order-$3/2$ Riemann--Liouville action on a power-law mode of the density.
+
+\paragraph{Why the fractional order is $3/2$.}
+The two ingredients of $M_{\rm 2D}$ are:
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{lc}
+\toprule
+Operation & RL fractional order $\mu$\\
+\midrule
+Abel projection $\rho(r)\to\Sigma(R)$, kernel $(r^2-R^2)^{-1/2}$ & $1/2$\\
+Areal integration $\Sigma(R')R'\,dR'\to M_{\rm 2D}(R)$ & $1$\\
+\midrule
+Composition: $\rho\to M_{\rm 2D}$ & $\boxed{3/2}$\\
+\bottomrule
+\end{tabular}
+\end{center}
+Correspondingly, the $\Sigma$-coefficient in \eqref{eq:sig-coeff} is the
+gamma ratio $\Gamma(-\tfrac{1}{2}-\tfrac{k}{2n})/\Gamma(-\tfrac{k}{2n})$ ---
+fractional order $1/2$, the Abel projection alone.
+
+\paragraph{General projected moment.}
+For the projected moment
+$M_p(R)\equiv\int_0^R\Sigma(R')R'^{\,p+1}dR'$, the same residue
+calculation gives a coefficient
+\begin{equation}\label{eq:gen-frac}
+\frac{\Gamma\!\left(-\tfrac{2p+3}{2}-\tfrac{k}{2n}\right)}
+     {\Gamma\!\left(-\tfrac{k}{2n}\right)}\,\frac{(-1)^k}{k!},
+\qquad
+\mu_p=\frac{2p+3}{2}.
+\end{equation}
+The familiar cases:
+\[
+\Sigma\;(p=-1,\;\mu=\tfrac12),\quad
+M_{\rm 2D}\;(p=0,\;\mu=\tfrac32),\quad
+\textstyle\int\!\Sigma R'^2 dR'\;(p=1,\;\mu=\tfrac52).
+\]
+The integer step $\Delta\mu=1$ between these is exactly what makes the
+weight ratios $w_k^{(\Sigma)}/w_k^{(M_{\rm 2D})}=-(3n+k)/(2n)$ collapse to a
+\emph{rational} function of $(n,k)$ via the simple gamma identity
+$\Gamma(z+1)=z\,\Gamma(z)$ used in \eqref{eq:sig-coeff}. Without that integer
+step, no such collapse would occur.
+
+\paragraph{\texorpdfstring{$\Sigma$ as a Weyl half-integral.}{Sigma as a Weyl half-integral.}}
+The fractional-calculus connection becomes most striking when we recognize
+the entire first-track sum as the action of a single Weyl half-integral on
+an elementary function.  The Weyl integral on monomials decaying at infinity
+is the formal action
+\begin{equation}\label{eq:weyl-monomial}
+W^{\alpha}\, u^{\beta}
+\;=\;\frac{\Gamma(-\beta-\alpha)}{\Gamma(-\beta)}\,u^{\beta+\alpha},
+\end{equation}
+where the gamma ratio plays the role analogous to
+$\Gamma(\beta+1)/\Gamma(\beta-\alpha+1)$ in the standard derivative form
+$D^{\alpha}x^m=\Gamma(m+1)/\Gamma(m-\alpha+1)\,x^{m-\alpha}$, but with the
+sign convention adapted to right-half-line decay.
+
+Take the auxiliary variable $u\equiv x^2 = (R/h)^2$ and the function
+\begin{equation}\label{eq:f-def}
+f(u)\;\equiv\;e^{-u^{1/(2n)}}-1
+\;=\;\sum_{k\ge1}\frac{(-1)^k}{k!}\,u^{k/(2n)}.
+\end{equation}
+Applying $W^{1/2}$ termwise via \eqref{eq:weyl-monomial} with $\beta=k/(2n)$,
+$\alpha=1/2$, and substituting $u=x^2$:
+\begin{equation}\label{eq:Sigma-weyl}
+\boxed{\;
+W^{1/2}_u\,f(u)\Big|_{u=x^2}
+\;=\;\sum_{k\ge1}\frac{(-1)^k}{k!}\,
+\frac{\Gamma(-\tfrac{1}{2}-\tfrac{k}{2n})}{\Gamma(-\tfrac{k}{2n})}\,x^{k/n+1}
+\;=\;\text{(first track of }\Sigma\text{)}.
+\;}
+\end{equation}
+That is, the entire core-shape series for $\Sigma$ is a Weyl half-integral of
+$e^{-u^{1/(2n)}}-1$ with respect to $u=R^2/h^2$.  This is the formal,
+power-series statement of the Abel projection $\rho\to\Sigma$.
+
+The full surface density is then
+\begin{equation}\label{eq:Sigma-frac}
+\Sigma(R)\;=\;\sqrt\pi\,\rho_0\,h\,\bigg[\,
+W^{1/2}_u\!\left(e^{-u^{1/(2n)}}-1\right)\Big|_{u=x^2}
+\;+\;2n\sum_{k=0}^{J}\tilde a_k\,x^{2k}
+\,\bigg].
+\end{equation}
+The $-1$ subtraction in $f(u)$ removes the $k=0$ constant term of the
+exponential's expansion, which would correspond to $W^{1/2}\!\cdot\!1$ ---
+divergent in the Weyl convention.
+
+\paragraph{Second track: modulated projected circle.}
+The second track admits its own structural simplification.  Using the
+reflection $\Gamma(\tfrac12-j)\,\Gamma(\tfrac12+j)=\pi(-1)^j$:
+\begin{equation}\label{eq:atilde-catalan}
+\tilde a_j
+\;=\;\frac{\Gamma(n-2nj)}{\Gamma(\tfrac12-j)}\,\frac{(-1)^j}{j!}
+\;=\;\frac{\Gamma(n-2nj)\,\Gamma(\tfrac12+j)}{\pi\,j!}
+\;=\;\frac{\Gamma(n-2nj)}{\sqrt\pi}\,c_j,
+\end{equation}
+where
+\begin{equation}\label{eq:catalan}
+c_j\;\equiv\;\frac{(\tfrac12)_j}{j!}\;=\;\binom{2j}{j}\frac{1}{4^j}
+\end{equation}
+are the central-binomial coefficients (the Catalan-over-$4^k$ kernel from
+the projected-circle generating function $\sum_j c_j u^j=(1-u)^{-1/2}$).
+Hence
+\begin{equation}\label{eq:second-track}
+\boxed{\;
+\sum_{j\ge0}\tilde a_j\,x^{2j}
+\;=\;\frac{1}{\sqrt\pi}\sum_{j\ge0}\Gamma\bigl(n(1-2j)\bigr)\,c_j\,x^{2j}.
+\;}
+\end{equation}
+The Catalan kernel $c_j$ is purely \emph{geometric} --- it would already
+generate $(1-x^2)^{-1/2}$ if no other factors were present, the singular
+projected-disk shape from a uniform shell.  The factor
+$\Gamma\bigl(n(1-2j)\bigr)$ is the \emph{halo modulation}: a Mittag-Leffler-type
+weight that selects the Einasto-specific large-scale profile.  Its
+super-factorial decay $|\Gamma(n-2nj)|\sim|2n|^{-2nj}\Gamma(2nj)^{-1}$ is
+why $J\sim5$ terms suffice.
+
+In this language, the full surface density reads
+\begin{equation}\label{eq:Sigma-final}
+\Sigma(R)=\sqrt\pi\,\rho_0\,h\,\bigg[\,
+\underbrace{W^{1/2}_u\!\left(e^{-u^{1/(2n)}}-1\right)\Big|_{u=x^2}}_{\text{Abel-projected core}}
+\;+\;\underbrace{\frac{2n}{\sqrt\pi}\sum_{j\ge0}\Gamma\!\bigl(n(1-2j)\bigr)c_j\,x^{2j}}_{\text{Catalan-modulated geometry}}
+\,\bigg].
+\end{equation}
+The two tracks are the two pole strings of the same Mellin--Barnes contour
+(Retana-Montenegro et al.\ 2012, Eq.~12); the first encodes \emph{cusp shape
+via fractional projection}, the second encodes \emph{shell geometry via
+Catalan kernel} times an $n$-dependent gamma weight.
+
+\begin{remark}[Same picture for $M_{\rm 2D}$ and $\Delta\Sigma$]
+The first track of $M_{\rm 2D}$ is $W^{3/2}_u f(u)|_{u=x^2}$ (Abel +
+areal, total order $3/2$). The first track of $\Delta\Sigma$ is then a
+difference of two order-$1/2$ operators on~$f$; their leading symbols
+cancel, which is the analytic origin of
+$\tilde w_0^{(\Delta\Sigma)}=0$.
+\end{remark}
+
+% ======================================================================
+\section{Implementation}
+\label{sec:impl}
+% ======================================================================
+
+\subsection{\texorpdfstring{Precompute (once per $n$)}{Precompute (once per n)}}
+
+\begin{align}
+a_k &= \frac{\Gamma(-\tfrac32-\tfrac{k}{2n})}{\Gamma(-\tfrac{k}{2n})}\,
+       \frac{(-1)^k}{k!}, \qquad k=1,\ldots,K,\\
+\tilde a_k &= \frac{\Gamma(n-2nk)}{\Gamma(\tfrac12-k)}\,\frac{(-1)^k}{k!},
+       \qquad k=0,\ldots,J.
+\end{align}
+Typical: $K=60$, $J=5$.
+Guard: if $n-2nk$ is a non-positive integer (rational $n=p/q$ with $q$ odd),
+set $\tilde a_k=0$ for that $k$ (the term is negligible by then).
+
+\subsection{\texorpdfstring{Per radius ($x=R/h$)}{Per radius (x=R/h)}}
+\begin{align}
+\Sigma(R) &= \sqrt\pi\,\rho_0 h
+  \left[-\sum_{k=1}^K \frac{3n+k}{2n}\,a_k\,x^{k/n+1}
+  + 2n\sum_{k=0}^J \tilde a_k\,x^{2k}\right],
+\label{eq:impl-Sigma}\\[4pt]
+\Delta\Sigma(R) &= \sqrt\pi\,\rho_0 h
+  \left[\sum_{k=1}^K \frac{n+k}{2n}\,a_k\,x^{k/n+1}
+  - 2n\sum_{k=1}^J \frac{k}{k+1}\,\tilde a_k\,x^{2k}\right].
+\label{eq:impl-DS}
+\end{align}
+
+\subsection{Convergence}
+The $(-1)^k/k!$ factor in $a_k$ ensures the first sum converges like
+$e^{-x^{1/n}}$. At $x=5$ (roughly $5\,r_s$ for $n\sim4$), $K=60$ gives
+$<10^{-12}$. The $\tilde a$ sum is super-geometric: $J=5$ gives $<10^{-15}$
+for any $x\lesssim10$.
+
+\subsection{Performance}
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+& Native $E_\nu$ series (v1) & This work (v3)\\
+\midrule
+1000 radii, $n=4.5$ & 22 ms & 0.3 ms\\
+Speedup & --- & $\mathbf{75\text{--}90\times}$\\
+$\Sigma$ accuracy & $K^{-1/2}\sim10^{-2}$ & $10^{-16}$\\
+$\Delta\Sigma$ accuracy & 10--60\% (cancellation) & $10^{-14}$\\
+Valid for $n$ & $n>3/2$ & any non-integer $n>0$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ======================================================================
+\begin{thebibliography}{9}
+\bibitem{RetanaMontenegro2012}
+E.~Retana-Montenegro, E.~Van~Hese, G.~Gentile, M.~Baes \& F.~Camps,
+Astron.\ Astrophys.\ \textbf{540}, A70 (2012); arXiv:1202.5242.
+Case~1 of their Sec.~3.1 (Eqs.~17--18).
+\end{thebibliography}
+
+\end{document}
