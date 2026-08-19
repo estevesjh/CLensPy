@@ -68,8 +68,9 @@ For a detailed breakdown of every class and function, see the {doc}`api/index`.
 
 - **Development**: see {doc}`development` for running tests, the optional
   comparison-test dependencies, and building these docs locally
-- **Notes**: see {doc}`einasto_pitfalls` for the numerical convergence
-  caveats behind the Einasto profile's series expansion
+- **Notes**: see {doc}`einasto_math` for the Einasto profile's math -
+  closed forms, series expansions, and the numerical fallbacks that cover
+  the rest
 - **Source code**: <https://github.com/estevesjh/clenspy>
 - **Issue tracker**: <https://github.com/estevesjh/clenspy/issues>
 
@@ -80,5 +81,5 @@ For a detailed breakdown of every class and function, see the {doc}`api/index`.
 installation
 api/index
 development
-Einasto profile notes <einasto_pitfalls>
+Einasto profile math <einasto_math>
 ```
