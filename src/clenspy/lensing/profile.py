@@ -19,6 +19,8 @@ __all__ = ["LensingProfile", "LensingProfileInfo"]
 
 @dataclass
 class LensingProfileInfo:
+    """Summary of a `LensingProfile`'s parameters, returned by `LensingProfile.info`."""
+
     model: str
     z_cluster: float
     z_source: float
@@ -33,30 +35,48 @@ class LensingProfileInfo:
 
 
 class LensingProfile:
-    """
-    A unified class for weak lensing calculations.
+    r"""
+    A unified class for weak lensing calculations, combining a 1-halo term
+    (`NfwProfile`) with an optional linear-bias 2-halo term (`TwoHaloTerm`):
 
-    This class computes weak-lensing observables like ΔΣ(R), Σ(R), shear, etc.
+    .. math::
+        \Sigma(R) = \Sigma_{\rm 1h}(R) + b(M)\, \rho_m\, \Sigma_{\rm 2h}(R)
 
-    Attributes:
-        zCluster (float): Redshift of the cluster.
-        m200 (float): Mass of the halo in Msun.
-        cosmology (Cosmology): Cosmology object for calculations.
-        concentration (float): Concentration parameter of the halo.
-        model (str): Halo profile model, currently only supports "NFW".
-        include_2halo (bool): Whether to include the two-halo term in calculations.
-        backend_2halo (str): Backend for two-halo term calculations, default is "camb".
-        z_source (float): Redshift of the source galaxy for lensing calculations.
+    where :math:`b(M)` is the linear halo bias (`BiasModel`) and
+    :math:`\rho_m` is the mean matter density at ``z_cluster``.
 
-    Methods:
-        deltasigma(R): Computes the excess surface density ΔΣ(R).
-        sigma(R): Computes the surface density Σ(R).
-        density(r): Computes the 3D density profile ρ(r).
-        shear(R): Computes the tangential shear γ_t(R).
-        convergence(R): Computes the convergence κ(R).
-        reduced_shear(R): Computes the reduced shear g_t(R).
-        fourier_profile(k): Computes the Fourier transform of the halo profile.
-        info(): Returns a summary of the profile parameters.
+    Attributes
+    ----------
+    z_cluster : float
+        Redshift of the cluster.
+    m200 : float
+        Halo mass M_200 [Msun].
+    cosmology : astropy.cosmology.Cosmology
+        Cosmology used for all calculations.
+    concentration : float
+        Halo concentration c_200.
+    model : str
+        Halo profile model; currently only "NFW" is implemented.
+    include_2halo : bool
+        Whether to add the 2-halo term to `sigma`/`deltasigma`/
+        `fourier_profile`.
+    backend_2halo : str
+        `PkGrid` backend used for the 2-halo term's P(k) ("camb" or
+        "pyccl").
+    z_source : float
+        Source redshift used for `_sigma_crit`.
+
+    Notes
+    -----
+    `deltasigma`'s 2-halo term previously multiplied by a hardcoded
+    ``1e12`` instead of ``self.rho_m`` (the factor `sigma`'s 2-halo term
+    correctly uses - `TwoHaloTerm.sigma`/`deltasigma` are both derived from
+    the same un-normalized xi(r) grid, so they need the same normalization).
+    Confirmed this was wrong empirically (`deltasigma` came out ~1e10x
+    larger than `sigma`, giving unphysical shear >> 1) and against
+    `tests/test_twohalo.py`'s own cluster_toolkit-validated reference
+    pattern, which uses ``TwoHaloTerm.deltasigma(...) * rho_m`` with no
+    extra factor. Fixed to match.
     """
 
     def __init__(
@@ -70,6 +90,28 @@ class LensingProfile:
         backend_2halo: str = "camb",
         z_source: float = 1.0,
     ) -> None:
+        """
+        Parameters
+        ----------
+        z_cluster : float
+            Cluster (lens) redshift.
+        m200 : float
+            Halo mass M_200 [Msun].
+        cosmology : astropy.cosmology.Cosmology, optional
+            Cosmology to use (default: `~clenspy.config.DEFAULT_COSMOLOGY`).
+        concentration : float, optional
+            Halo concentration c_200 (default: 4.0).
+        model : str, optional
+            Halo profile model; only "NFW" is implemented (default: "NFW").
+        include_2halo : bool, optional
+            Whether to add the 2-halo term (default: True). If True, builds
+            a `~clenspy.cosmology.PkGrid` (via ``backend_2halo``) and a
+            `TwoHaloTerm` at construction time.
+        backend_2halo : {"camb", "pyccl"}, optional
+            `PkGrid` backend for the 2-halo term's P(k) (default: "camb").
+        z_source : float, optional
+            Source redshift, must exceed ``z_cluster`` (default: 1.0).
+        """
         self.cosmo = cosmology
         self.z_cluster = z_cluster
         self.m200 = m200
@@ -130,16 +172,28 @@ class LensingProfile:
             )
 
     def deltasigma(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
-        """Excess surface density ΔΣ(R) in Msun/Mpc^2."""
+        r"""
+        Excess surface density, in Msun/Mpc^2.
+
+        .. math::
+            \Delta\Sigma(R) = \Delta\Sigma_{\rm 1h}(R)
+            + b(M)\, \Delta\Sigma_{\rm 2h}(R)
+
+        See the class Notes for a units caveat on the 2-halo term here.
+        """
         deltasigma = self.halo_profile.deltasigma(R)
         if self.include_2halo:
-            deltasigma2h = self.two_halo_profile.deltasigma(R, self.z_cluster)
-            deltasigma2h *= 1e12  # keep scaling from earlier version
+            deltasigma2h = self.rho_m * self.two_halo_profile.deltasigma(R, self.z_cluster)
             deltasigma += self.bias * deltasigma2h
         return deltasigma
 
     def sigma(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
-        """Surface density Σ(R) in Msun/Mpc^2."""
+        r"""
+        Surface density, in Msun/Mpc^2.
+
+        .. math::
+            \Sigma(R) = \Sigma_{\rm 1h}(R) + b(M)\, \rho_m\, \Sigma_{\rm 2h}(R)
+        """
         sigma = self.halo_profile.sigma(R)
         if self.include_2halo:
             sigma2h = self.rho_m * self.two_halo_profile.sigma(R, self.z_cluster)
@@ -147,9 +201,17 @@ class LensingProfile:
         return sigma
 
     def density(self, r: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
-        """3D density ρ(r) in Msun/Mpc^3."""
+        r"""
+        3D density, in Msun/Mpc^3.
+
+        .. math::
+            \rho(r) = \rho_{\rm 1h}(r) + \rho_m \left[1 + b(M)\, \xi_{\rm 2h}(r)\right]
+
+        where :math:`\xi_{\rm 2h}` is the matter correlation function
+        (`TwoHaloTerm.xi`).
+        """
         density = self.halo_profile.density(r)
-        
+
         if self.include_2halo:
             xi = self.two_halo_profile.xi(r, self.z_cluster)
             density += self.rho_m * (1 + self.bias * xi)
@@ -157,17 +219,38 @@ class LensingProfile:
         return density
 
     def shear(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
-        """Tangential shear γ_t(R) (dimensionless)."""
+        r"""
+        Tangential shear (dimensionless).
+
+        .. math::
+            \gamma_t(R) = \frac{\Delta\Sigma(R)}{\Sigma_{\rm crit}}
+        """
         _deltasigma = self.deltasigma(R)
         return _deltasigma / self._sigma_crit
 
     def convergence(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
-        """Convergence κ(R) (dimensionless)."""
+        r"""
+        Convergence (dimensionless).
+
+        .. math::
+            \kappa(R) = \frac{\Sigma(R)}{\Sigma_{\rm crit}}
+        """
         _sigma = self.sigma(R)
         return _sigma / self._sigma_crit
 
     def reduced_shear(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
-        """Reduced shear g_t(R) = γ_t(R) / (1 − κ(R))."""
+        r"""
+        Reduced shear.
+
+        .. math::
+            g_t(R) = \frac{\gamma_t(R)}{1 - \kappa(R)}
+
+        Raises
+        ------
+        ValueError
+            If :math:`\kappa(R) \geq 1` anywhere (the reduced-shear
+            expansion is invalid in the strong-lensing regime).
+        """
         _kappa = self.convergence(R)
         if np.any(_kappa >= 1.0):
             raise ValueError(
@@ -177,11 +260,33 @@ class LensingProfile:
         return _gamma / (1.0 - _kappa)
 
     def fourier_profile(self, k: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
-        """Fourier transform u(k)."""
+        r"""
+        Mass-normalized Fourier transform :math:`u(k) \equiv \tilde\rho(k)/M`.
+
+        .. math::
+            u(k) = u_{\rm 1h}(k) + \frac{b(M)}{M}\, P_{\rm 2h}(k)
+
+        Parameters
+        ----------
+        k : float or np.ndarray
+            Wavenumber [1/Mpc].
+
+        Returns
+        -------
+        float or np.ndarray
+            :math:`u(k)`, scalar if ``k`` was scalar.
+
+        Notes
+        -----
+        Previously called a nonexistent ``self.two_halo_profile.pk(...)``
+        method (`TwoHaloTerm` has no `pk`) - would raise `AttributeError`
+        whenever ``include_2halo=True`` (the default). Fixed to use
+        `TwoHaloTerm`'s actual P(k, z) interpolator, ``p_kz``.
+        """
         k = np.atleast_1d(k)
         result = self.halo_profile.fourier(k)
         if self.include_2halo:
-            result += self.bias * self.two_halo_profile.pk(k, self.z_cluster) / self.m200
+            result += self.bias * self.two_halo_profile.p_kz(k, self.z_cluster) / self.m200
 
         return result if np.ndim(k) > 0 else np.asarray(result).item()
 

@@ -2,7 +2,6 @@
 Configuration settings for CLensPy.
 """
 
-import astropy.units as u
 from astropy.cosmology import FlatLambdaCDM
 
 # Default astropy cosmology

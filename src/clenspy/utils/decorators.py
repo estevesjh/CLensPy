@@ -5,7 +5,20 @@ import numpy as np
 
 
 def scalar_array_output(method):
-    """Return a scalar for scalar input, ndarray otherwise."""
+    """
+    Decorator: return a Python scalar if the method's first positional
+    argument was scalar-like, otherwise return the ndarray unchanged.
+
+    Parameters
+    ----------
+    method : callable
+        Method with signature ``(self, x, ...)`` returning an array-like.
+
+    Returns
+    -------
+    callable
+        Wrapped method with the same signature.
+    """
     @wraps(method)
     def wrapper(self, *args, **kwargs):
         result = method(self, *args, **kwargs)
@@ -24,9 +37,18 @@ def scalar_array_output(method):
 
 def default_rvals_z(method):
     """
-    Decorator for methods with signature (self, R_vals=None, z=None):
-    - If R_vals is None, use self.reval.
-    - If z is None, use self.zvec.
+    Decorator for methods with signature ``(self, R_vals=None, z=None)``:
+    substitutes ``self.reval``/``self.zvec`` when ``R_vals``/``z`` are None.
+
+    Parameters
+    ----------
+    method : callable
+        Method with signature ``(self, R_vals, z, ...)``.
+
+    Returns
+    -------
+    callable
+        Wrapped method accepting ``R_vals=None``/``z=None``.
     """
     from functools import wraps
 
@@ -42,6 +64,21 @@ def default_rvals_z(method):
 
 
 def time_method(func):
+    """
+    Decorator: record each call's wall-clock time in ``self.timings``
+    (a dict mapping method name to a list of elapsed seconds), and print
+    it if ``self.verbose`` is truthy.
+
+    Parameters
+    ----------
+    func : callable
+        Method to time.
+
+    Returns
+    -------
+    callable
+        Wrapped method with the same signature and return value.
+    """
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         if not hasattr(self, "timings"):

@@ -61,14 +61,22 @@ class TwoHaloTerm:
 
     Methods
     -------
-    buildAll(R_vals=None, z=None, **sigma_kwargs):
+    build_all(R_vals=None, z=None, **sigma_kwargs):
         Compute and cache all interpolators for ξ, Σ, ΔΣ.
     xi(R_vals=None, z=None):
         Compute or interpolate ξ(r, z) at given radii and redshifts.
-    sigma_R(R_vals=None, z=None, **kwargs):
+    sigma(R_vals=None, z=None, **kwargs):
         Compute/interpolate Σ(R, z) on the current grid and integration method.
-    deltasigma_R(R_vals=None, z=None, **kwargs):
+    deltasigma(R_vals=None, z=None, **kwargs):
         Compute/interpolate ΔΣ(R, z) for the grid.
+
+    Notes
+    -----
+    `sigma` and `deltasigma` are computed purely from the correlation
+    function ξ(r, z) (no mean-matter-density factor applied); the caller
+    must multiply by ρ_m(z) to get physical Msun/Mpc^2 (see
+    `~clenspy.lensing.profile.LensingProfile.sigma`/`deltasigma` for the
+    pattern, and `tests/test_twohalo.py` for a validated reference).
 
     Example
     -------
@@ -108,6 +116,14 @@ class TwoHaloTerm:
     def build_all(self, R_vals=None, z=None, **sigma_kwargs):
         """
         Compute and cache ξ(r, z), Σ(R, z), ΔΣ(R, z) interpolators.
+
+        Calls `xi`, `sigma`, `deltasigma` in turn (each caches its own
+        interpolator on first call) purely for their side effects.
+
+        Returns
+        -------
+        TwoHaloTerm
+            ``self``, for chaining (e.g. ``TwoHaloTerm(...).build_all()``).
         """
         self.xi(R_vals, z)
         self.sigma(R_vals, z, **sigma_kwargs)
@@ -117,8 +133,24 @@ class TwoHaloTerm:
     @default_rvals_z
     @time_method
     def xi(self, R_vals=None, z=None) -> np.ndarray:
-        """
-        Compute or interpolate ξ(r, z) at given radii and redshifts.
+        r"""
+        Matter correlation function from the gridded P(k, z), via FFTLog:
+
+        .. math::
+            \xi(r, z) = \frac{1}{2\pi^2} \int dk\, k^2 P(k, z)\,
+            \frac{\sin(kr)}{kr}
+
+        Parameters
+        ----------
+        R_vals : np.ndarray, optional
+            Radii to evaluate at. If None, uses `reval`.
+        z : float or np.ndarray, optional
+            Redshift(s). If None, uses `zvec`.
+
+        Returns
+        -------
+        np.ndarray
+            ξ(r, z).
         """
         if hasattr(self, "xi_rz_interp"):
             return self.xi_rz_interp(R_vals, z)
@@ -144,8 +176,15 @@ class TwoHaloTerm:
     @default_rvals_z
     @time_method
     def sigma(self, R_vals=None, z=None, **kwargs) -> np.ndarray:
-        """
-        Compute/interpolate Σ(R, z) on the current grid and integration method.
+        r"""
+        Projected Σ(R, z) via Abel (line-of-sight) projection of ξ(r, z):
+
+        .. math::
+            \Sigma(R, z) = 2 \int_R^\infty \xi(r, z)\, \frac{r\, dr}
+            {\sqrt{r^2 - R^2}}
+
+        Not yet multiplied by the mean matter density - see the class
+        Notes.
 
         Parameters
         ----------
@@ -186,8 +225,30 @@ class TwoHaloTerm:
     @default_rvals_z
     @time_method
     def deltasigma(self, R_vals=None, z=None, **kwargs) -> np.ndarray:
-        """
-        Compute/interpolate ΔΣ(R, z) for the grid.
+        r"""
+        Excess surface density, from `sigma`'s grid via cumulative-trapezoid
+        enclosed mass:
+
+        .. math::
+            \Delta\Sigma(R, z) \equiv \bar\Sigma(<R, z) - \Sigma(R, z)
+
+        Not yet multiplied by the mean matter density - see the class
+        Notes. See `~clenspy.utils.integrate.sigma_to_deltasigma_cumtrapz`
+        for the near-``R=0`` accuracy caveat this inherits.
+
+        Parameters
+        ----------
+        R_vals : np.ndarray, optional
+            Radii to evaluate at. If None, uses `reval`.
+        z : float or np.ndarray, optional
+            Redshift(s). If None, uses `zvec`.
+        **kwargs
+            Passed to `sigma` if its interpolator isn't built yet.
+
+        Returns
+        -------
+        np.ndarray
+            ΔΣ(R, z).
         """
         if not hasattr(self, "sigma_rz_interp"):
             _ = self.sigma(**kwargs)
@@ -206,7 +267,29 @@ def prepare_pk_grid(
     kvec: np.ndarray, Pk: np.ndarray, zvec: Optional[np.ndarray] = None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Prepare (kvec, Pk_grid, zvec) with consistent shapes.
+    Normalize (kvec, Pk, zvec) into consistent (kvec, Pk_grid, zvec) shapes.
+
+    Accepts ``Pk`` as 1D (broadcast across all z) or 2D in either
+    ``(nk, nz)`` or ``(nz, nk)`` order, and ``zvec`` as None (single
+    z=0 spectrum), scalar, or array; sorts by ``zvec`` if needed.
+
+    Parameters
+    ----------
+    kvec : np.ndarray
+        Wavenumber grid, shape (nk,).
+    Pk : np.ndarray
+        Power spectrum, shape (nk,), (nk, nz), or (nz, nk).
+    zvec : np.ndarray, optional
+        Redshift grid. If None, a single z=0.0 is assumed.
+
+    Returns
+    -------
+    kvec : np.ndarray
+        Unchanged wavenumber grid.
+    Pk_grid : np.ndarray
+        Power spectrum, shape (nk, nz).
+    zvec : np.ndarray
+        Redshift grid, shape (nz,), strictly increasing.
     """
     kvec = np.asarray(kvec)
     nk = len(kvec)

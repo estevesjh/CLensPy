@@ -14,12 +14,25 @@ from ..lensing.profile import LensingProfile
 
 class MiscenteringProfile(LensingProfile):
     """
-    A class for handling miscentering corrections in weak lensing profiles.
+    A `LensingProfile` with a placeholder miscentering correction.
 
-    Inherits from LensingProfile and adds functionality for miscentering corrections.
+    Inherits all of `LensingProfile`'s behavior unchanged (sigma/deltasigma
+    are NOT overridden here); `apply_miscentering` is a standalone utility,
+    not currently wired into the profile calculations.
 
-    Attributes:
-        miscentering_factor (float): Factor to apply for miscentering correction.
+    Warning
+    -------
+    `apply_miscentering` is a placeholder linear rescaling of R, not a
+    physical miscentering deprojection. A real miscentering correction
+    convolves the profile with an offset (e.g. Rayleigh/Gamma-distributed
+    R_mis) distribution and integrates over the azimuthal angle - see e.g.
+    Johnston et al. (2007) or Simet et al. (2017) for the standard
+    formalism. This has not been implemented yet.
+
+    Attributes
+    ----------
+    miscentering_factor : float
+        Linear scale factor applied to R by `apply_miscentering`.
     """
 
     def __init__(
@@ -37,15 +50,20 @@ class MiscenteringProfile(LensingProfile):
         super().__init__(
             zCluster, m200, cosmology, concentration, model, include2Halo, backend2Halo, zSource
         )
-    
+        self.miscentering_factor = miscentering_factor
+
     def apply_miscentering(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         """
-        Apply miscentering correction to the radius R.
+        Rescale R by `miscentering_factor` (placeholder - see class Warning).
 
-        Args:
-            R (Union[float, np.ndarray]): Radius or radii to apply the correction.
+        Parameters
+        ----------
+        R : float or np.ndarray
+            Radius or radii [Mpc].
 
-        Returns:
-            Union[float, np.ndarray]: Corrected radius or radii.
+        Returns
+        -------
+        float or np.ndarray
+            ``R * self.miscentering_factor``.
         """
         return R * self.miscentering_factor

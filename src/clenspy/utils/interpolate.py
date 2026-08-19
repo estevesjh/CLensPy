@@ -25,6 +25,22 @@ class LogGridInterpolator:
         minval: float = 1e-128,
         maxval: float = 1e128,
     ) -> None:
+        """
+        Parameters
+        ----------
+        xvec : np.ndarray
+            Grid values along the interpolated (log) axis; must be > 0.
+        zvec : np.ndarray, optional
+            Grid values along the second (linear) axis. If None or a
+            single value, the interpolator operates in scalar-z mode.
+        values : np.ndarray
+            Function values on the grid: shape ``(len(xvec),)`` or
+            ``(len(xvec), 1)`` in scalar-z mode, else ``(len(xvec),
+            len(zvec))`` or ``(len(zvec), len(xvec))`` (auto-transposed).
+        minval, maxval : float, optional
+            Values below ``minval`` are clipped to 0; above ``maxval`` to
+            `inf` (default: 1e-128, 1e128).
+        """
         x = np.asarray(xvec)
         if zvec is None or (
             np.ndim(zvec) == 0
@@ -97,12 +113,26 @@ def make_log_interpolation(
     xgrid: np.ndarray, ygrid: np.ndarray, minval: float = 1e-128, maxval: float = 1e128
 ) -> Callable[[np.ndarray], np.ndarray]:
     """
-    Create a log-log interpolation.
+    Create a log-log interpolation function of a single variable.
 
-    The output is not logarithmic, but the interpolation is done in log space.
+    The returned function's output is not logarithmic - only the
+    interpolation itself is done in log space (linear interpolation of
+    log(y) vs. log(x)), extrapolating linearly in log space beyond the
+    input range. Non-finite or non-positive ``ygrid`` points are dropped
+    before fitting.
 
-    Extrapolates linearly in log space, ensuring that the interpolation
-    behaves well for large and small values of x.
+    Parameters
+    ----------
+    xgrid, ygrid : np.ndarray
+        Grid to interpolate; ``xgrid`` must be > 0.
+    minval, maxval : float, optional
+        Output below ``minval`` is clipped to 0; above ``maxval`` to `inf`
+        (default: 1e-128, 1e128).
+
+    Returns
+    -------
+    callable
+        Function ``f(r)`` returning the interpolated value(s) at ``r``.
     """
     # Only use valid, positive values
     mask = np.isfinite(ygrid) & (ygrid > 0)
@@ -130,4 +160,4 @@ def valid_mask_2d(values: np.ndarray) -> np.ndarray:
     return mask
 
 
-__all__ = ["LogGridInterpolator"]
+__all__ = ["LogGridInterpolator", "make_log_interpolation"]
