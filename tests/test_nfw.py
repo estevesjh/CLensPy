@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from clenspy.halo.nfw import NFWProfile
+from clenspy.halo.nfw import NfwProfile
 
 try:
     import pyccl as ccl
@@ -12,7 +12,7 @@ except ImportError:
 
 is_plot = False  # Set to True to enable plotting in tests
 
-class TestNFWProfile:
+class TestNfwProfile:
     """Test NFW profile implementation."""
     
     def test_nfw_initialization(self):
@@ -20,7 +20,7 @@ class TestNFWProfile:
         M200 = 1e14  # Msun
         c200 = 5.0
         
-        nfw = NFWProfile(m200=M200, c200=c200)
+        nfw = NfwProfile(m200=M200, c200=c200)
         
         # Check that basic parameters are set
         assert nfw.m200 == M200
@@ -39,7 +39,7 @@ class TestNFWProfile:
     
     def test_density_3d(self):
         """Test 3D density profile."""
-        nfw = NFWProfile(m200=1e14, c200=5.0)
+        nfw = NfwProfile(m200=1e14, c200=5.0)
         
         r = np.array([0.1, 0.5, 1.0, 2.0])  # Mpc
         rho = nfw.density(r)
@@ -54,10 +54,10 @@ class TestNFWProfile:
     
     def test_surface_density(self):
         """Test surface density profile."""
-        nfw = NFWProfile(m200=1e14, c200=5.0)
+        nfw = NfwProfile(m200=1e14, c200=5.0)
         
         R = np.array([0.1, 0.5, 1.0, 2.0])  # Mpc
-        sigma = nfw.sigmaR(R)
+        sigma = nfw.sigma(R)
         
         # Should return array of same length
         assert len(sigma) == len(R)
@@ -67,10 +67,10 @@ class TestNFWProfile:
     
     def test_deltasigma(self):
         """Test mean surface density."""
-        nfw = NFWProfile(m200=1e14, c200=5.0)
+        nfw = NfwProfile(m200=1e14, c200=5.0)
         
         R = np.array([0.5, 1.0, 2.0])  # Mpc
-        deltasigma = nfw.deltasigmaR(R)
+        deltasigma = nfw.deltasigma(R)
 
         # Should return array of same length
         assert len(deltasigma) == len(R)
@@ -80,11 +80,11 @@ class TestNFWProfile:
 
     def test_surface_vs_mean_density(self):
         """Test relationship between surface and mean surface density."""
-        nfw = NFWProfile(m200=1e14, c200=5.0)
+        nfw = NfwProfile(m200=1e14, c200=5.0)
         
         R = 1.0  # Mpc
-        sigma = nfw.sigmaR(R)
-        deltasigma = nfw.deltasigmaR(R)
+        sigma = nfw.sigma(R)
+        deltasigma = nfw.deltasigma(R)
         sigma_mean = deltasigma + sigma
         
         # For NFW profiles, mean surface density is typically larger
@@ -94,15 +94,15 @@ class TestNFWProfile:
     
     def test_scalar_input(self):
         """Test that scalar inputs work correctly."""
-        nfw = NFWProfile(m200=1e14, c200=5.0)
+        nfw = NfwProfile(m200=1e14, c200=5.0)
         
         r_scalar = 1.0
         R_scalar = 1.0
         
         # These should return scalars, not arrays
         rho = nfw.density(r_scalar)
-        sigma = nfw.sigmaR(R_scalar)
-        deltasigma = nfw.deltasigmaR(R_scalar)
+        sigma = nfw.sigma(R_scalar)
+        deltasigma = nfw.deltasigma(R_scalar)
         
         assert np.isscalar(rho)
         assert np.isscalar(sigma)
@@ -111,7 +111,7 @@ class TestNFWProfile:
 @pytest.mark.skipif(ccl is None, reason="pyccl not installed")
 @pytest.mark.parametrize("truncated", [False, True])
 def test_nfw_fourier_matches_pyccl(truncated):
-    """Test NFWProfile.fourier matches pyccl's analytic NFW FT (fractional RMS < 1e-3)."""
+    """Test NfwProfile.fourier matches pyccl's analytic NFW FT (fractional RMS < 1e-3)."""
     # --- User's implementation ---
     m200 = 1e14  # Msun
     c200 = 4.0
@@ -136,7 +136,7 @@ def test_nfw_fourier_matches_pyccl(truncated):
         cosmo, k, m200, 1
     )
     # 1.  clenspy NFW Fourier transform
-    nfw = NFWProfile(m200, c200)
+    nfw = NfwProfile(m200, c200)
     uk_clenspy = nfw.fourier(k, truncated=truncated)
 
     if is_plot:
@@ -163,7 +163,7 @@ def test_nfw_fourier_matches_pyccl(truncated):
 
 @pytest.mark.skipif(ccl is None, reason="pyccl not installed")
 def test_nfw_surface_density_matches_pyccl():
-    """Test NFWProfile.surface_density matches pyccl analytic NFW projected profile."""
+    """Test NfwProfile.surface_density matches pyccl analytic NFW projected profile."""
 
     m200 = 1e14  # Msun
     c200 = 4.0
@@ -183,8 +183,8 @@ def test_nfw_surface_density_matches_pyccl():
     sig_ccl = p_nfw.projected(cosmo, R, m200, 1)  # M_sun / Mpc^2
 
     # clenspy: NFW surface density Sigma(R)
-    nfw = NFWProfile(m200, c200)
-    sig_clenspy = nfw.sigmaR(R)
+    nfw = NfwProfile(m200, c200)
+    sig_clenspy = nfw.sigma(R)
 
     # For strict normalization, match scale radius to CCL:
     # rs_ccl = mdef.get_radius(cosmo, m200, 1) / conc(cosmo, m200, 1)
@@ -212,7 +212,7 @@ def test_nfw_surface_density_matches_pyccl():
 
 @pytest.mark.skipif(ccl is None, reason="pyccl not installed")
 def test_nfw_deltasigma_matches_pyccl():
-    """Test NFWProfile.deltasigma matches pyccl analytic NFW DeltaSigma (RMS < 0.2%)."""
+    """Test NfwProfile.deltasigma matches pyccl analytic NFW DeltaSigma (RMS < 0.2%)."""
     m200 = 1e14  # Msun
     c200 = 4.0
     R = np.logspace(-3, 1.3, 100)  # [Mpc], up to ~20 Mpc
@@ -235,9 +235,9 @@ def test_nfw_deltasigma_matches_pyccl():
     delta_ccl = sigma_mean - p_nfw.projected(cosmo, R, m200, 1)
 
     # clenspy: NFW excess surface density DeltaSigma(R)
-    nfw = NFWProfile(m200, c200)
+    nfw = NfwProfile(m200, c200)
     # Ensure you use the same mass definition and normalization!
-    delta_clenspy = nfw.deltasigmaR(R)
+    delta_clenspy = nfw.deltasigma(R)
 
     if is_plot:
         import matplotlib.pyplot as plt

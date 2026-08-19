@@ -1,91 +1,120 @@
 # CLensPy
 
+[![Documentation Status](https://readthedocs.org/projects/clenspy/badge/?version=latest)](https://clenspy.readthedocs.io/en/latest/?badge=latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A Python package for cluster gravitational lensing analysis.
 
 ## Overview
 
-CLensPy provides a comprehensive toolkit for cluster gravitational lensing calculations, including:
+CLensPy provides a toolkit for cluster weak-lensing calculations, including:
 
-- **Lensing observables**: Computation of excess surface density (Δ\\Sigma) and shear profiles
-- **Halo profiles**: Implementation of NFW and other dark matter halo density profiles  
-- **Coordinate utilities**: Conversions between angular and physical coordinates
-- **Profile fitting**: Tools for fitting theoretical models to observational data
-
-## Features
-
-- 🔭 **Comprehensive**: Full pipeline from halo profiles to lensing observables
-- 🚀 **Fast**: Optimized numerical implementations
-- 📊 **Flexible**: Modular design for easy extension and customization
-- 🧪 **Well-tested**: Extensive test suite ensures reliability
-- 📚 **Documented**: Clear documentation with practical examples
+- **Halo profiles**: NFW and Einasto 3D density, projected surface density
+  Sigma(R), and excess surface density (weak-lensing shear proxy)
+  DeltaSigma(R)
+- **Halo bias**: Linear bias b(M) from the Tinker et al. (2010) fitting
+  function
+- **Two-halo term**: Correlation function, Sigma(R), and DeltaSigma(R) from a
+  gridded linear power spectrum
+- **Cosmology utilities**: Critical surface density, angular/comoving
+  conversions, and P(k) grids
 
 ## Quick Start
 
 ### Installation
 
 ```bash
-pip install clenspy
+git clone https://github.com/estevesjh/clenspy.git
+cd clenspy
+pip install -e .
 ```
+
+CLensPy is not yet published on PyPI; install from source as shown above.
 
 ### Basic Usage
 
 ```python
 import numpy as np
-from clenspy.profiles import NFWProfile
-from clenspy.lensing import delta_sigma_nfw
+from clenspy.halo import NfwProfile, EinastoProfile, BiasModel
 
 # Define halo parameters
-M200 = 1e14  # Halo mass in solar masses
-c200 = 5.0   # Concentration parameter
-z_lens = 0.3 # Lens redshift
-z_source = 1.0 # Source redshift
+M200 = 1e14  # Halo mass [Msun]
+c200 = 5.0   # Concentration
 
-# Create NFW profile
-nfw = NFWProfile(M200=M200, c200=c200, z=z_lens)
+# NFW profile
+nfw = NfwProfile(m200=M200, c200=c200)
+R = np.logspace(-2, 1, 50)  # Projected radius [Mpc]
+sigma = nfw.sigma(R)            # Surface density Sigma(R) [Msun/Mpc^2]
+deltasigma = nfw.deltasigma(R)  # Excess surface density DeltaSigma(R)
 
-# Calculate excess surface density
-r = np.logspace(-1, 1, 50)  # Radii in Mpc
-delta_sigma = delta_sigma_nfw(r, M200, c200, z_lens, z_source)
+# Einasto profile, for comparison
+einasto = EinastoProfile(alpha=0.2, rho_0=nfw.rho_s, r_s=nfw.rs, tol=1e-4)
+deltasigma_einasto = einasto.deltasigma(R)
 
-# Plot the results
-import matplotlib.pyplot as plt
-plt.loglog(r, delta_sigma)
-plt.xlabel('Radius [Mpc]')
-plt.ylabel('Δσ [M☉/Mpc²]')
-plt.show()
+# Linear halo bias, given a matter power spectrum P(k)
+k = np.logspace(-3, 1, 200)
+Pk = 2e4 * (k / 0.05) ** (-1.5)  # replace with a real P(k), e.g. from CAMB/CLASS
+bias = BiasModel(k, Pk).bias(M200)
 ```
+
+See `examples/demo_basic_usage.py` for the full runnable script, including
+plots of density, Sigma(R), and DeltaSigma(R).
 
 ## Examples
 
 The `examples/` directory contains detailed demonstrations:
 
-- `demo_basic_usage.py`: Introduction to core functionality
-- `demo_profile_fit.ipynb`: Profile fitting with MCMC uncertainty estimation
+- `demo_basic_usage.py`: NFW vs Einasto profiles, halo bias, quick plots
+- `demo_lensing.ipynb`: 1-halo + 2-halo Sigma(R)/DeltaSigma(R) walkthrough
+- `einasto_convergence_map.py`: 2D convergence map from an Einasto profile
 
 ## Module Structure
 
-- `clenspy.lensing`: Core weak lensing calculations
-- `clenspy.profiles`: Dark matter halo density profiles
-- `clenspy.utils`: Coordinate transformations and utilities
-- `clenspy.config`: Configuration settings and physical constants
+- `clenspy.halo`: Halo profiles (`NfwProfile`, `EinastoProfile`), halo bias
+  (`BiasModel`), and the two-halo term (`TwoHaloTerm`)
+- `clenspy.lensing`: `LensingProfile`, a higher-level wrapper combining a halo
+  profile with the two-halo term and boost/miscentering corrections
+  (2-halo support currently requires the `compare` extra for a P(k) backend;
+  only the NFW model is implemented so far)
+- `clenspy.cosmology`: `PkGrid` (linear/nonlinear P(k) grids), critical surface
+  density, and angular/comoving coordinate conversions
+- `clenspy.utils`: Log-grid interpolation, numerical integration helpers, and
+  decorators used across the halo/lensing modules
+- `clenspy.config`: Default cosmology and physical constants
 
 ## Requirements
 
 - Python >= 3.8
 - NumPy >= 1.20.0
 - SciPy >= 1.7.0
+- Astropy >= 4.0.0
 - Matplotlib >= 3.3.0
+- mpmath >= 1.3.0
+- mcfit >= 0.0.22
 
 ### Optional Dependencies
 
-For MCMC analysis (required for some examples):
+For MCMC profile fitting:
 ```bash
-pip install clenspy[mcmc]
+pip install -e ".[mcmc]"
 ```
 
-For development:
+For building the documentation locally:
 ```bash
-pip install clenspy[dev]
+pip install -e ".[docs]"
+sphinx-build -b html docs docs/_build/html
+```
+
+For running the tests that validate CLensPy against independent codes
+(`pyccl`, `clmm`, `camb` are on PyPI; `cluster_toolkit` needs GSL and is not
+on PyPI, see [docs/development.md](docs/development.md)):
+```bash
+pip install -e ".[compare]"
+```
+
+For development (linting, testing):
+```bash
+pip install -e ".[dev]"
 ```
 
 ## Development
@@ -95,7 +124,7 @@ pip install clenspy[dev]
 ```bash
 git clone https://github.com/estevesjh/clenspy.git
 cd clenspy
-pip install -e .
+pip install -e ".[dev]"
 ```
 
 ### Running Tests
@@ -104,9 +133,18 @@ pip install -e .
 pytest tests/
 ```
 
+Tests that compare against `pyccl`/`cluster_toolkit`/`clmm`/`camb` skip
+automatically if those packages aren't installed (see the `compare` extra
+above).
+
 ### Contributing
 
 We welcome contributions! Please see our contributing guidelines for details.
+
+## Documentation
+
+Full documentation, including the API reference, is built with Sphinx and
+hosted on Read the Docs: https://clenspy.readthedocs.io
 
 ## Citation
 
@@ -129,46 +167,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 CLensPy builds upon decades of research in weak gravitational lensing. We acknowledge the contributions of the broader weak lensing community to the theoretical foundations implemented in this package.
-
-## Features
-
-- Modular architecture for easy extension and benchmarking
-- Optimized for large-scale survey datasets
-- Built on NumPy, Astropy, and Matplotlib
-- Fully tested with `pytest`
-- Example workflows and tutorials included
-
----
-
-## Installation
-
-```bash
-pip install clenspy
-```
-
-Or clone the repository:
-
-```bash
-git clone https://github.com/your-org/clenspy.git
-cd clenspy
-pip install -e .
-```
-
----
-
-# Documentation
-
-Full documentation and tutorials are available in the [`docs/`](docs/) folder.
-
----
-
-## License
-
-[MIT](LICENSE)
-
----
-
-## Credits
-
-CLensPy is inspired by [Cluster Tool-Kit](https://github.com/tmcclintock/cluster_toolkit.git) and developed for the cosmology community.
-```

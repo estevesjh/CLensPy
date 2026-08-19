@@ -52,7 +52,7 @@ def test_twohalo_deltasigma_matches_clustertoolkit():
     # halogrid = TwoHaloTerm(k_values, pk_values, method='leggauss', n_points=128)
     halogrid = TwoHaloTerm(k_values, pk_values, method='quad_vec')
 
-    deltasigma_halo = halogrid.deltasigma_R(r_proj)
+    deltasigma_halo = halogrid.deltasigma(r_proj)
     deltasigma_halo *= rho_m #/ halogrid.rho_m
 
     # --- cluster-toolkit (uses same P(k)) ---

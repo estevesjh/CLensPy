@@ -1,0 +1,104 @@
+/*
+ * CLensPy docs theme override.
+ *
+ * sphinx_wagtail_theme compiles Bootstrap utility classes to literal hex
+ * colors rather than CSS custom properties, so the primary brand color
+ * can't be swapped via a variable - it has to be repainted selector by
+ * selector. This file overrides every selector the default theme derives
+ * from `$primary` with a light-blue, Rubin/LSST-inspired palette instead
+ * of the theme's default purple.
+ */
+
+:root {
+  --clenspy-primary: #1e88e5;
+  --clenspy-primary-dark: #1565c0;
+  --clenspy-primary-darker: #0d47a1;
+  --clenspy-accent: #4fc3f7;
+}
+
+/* Links */
+a,
+.btn-link,
+.page-link,
+.current > a {
+  color: var(--clenspy-primary);
+}
+
+a {
+  text-decoration-color: var(--clenspy-accent);
+}
+
+a:hover {
+  color: var(--clenspy-primary-darker);
+}
+
+/* Header / footer bars */
+.bg-primary {
+  background-color: var(--clenspy-primary) !important;
+}
+
+.text-primary {
+  color: var(--clenspy-primary) !important;
+}
+
+.border-primary {
+  border-color: var(--clenspy-primary) !important;
+}
+
+/* Buttons */
+.btn-primary,
+.btn-primary.disabled,
+.btn-primary:disabled,
+.badge-primary,
+.progress-bar,
+.list-group-item.active,
+.dropdown-item.active,
+.dropdown-item:active,
+.show > .nav-link,
+.active.show > .btn-outline-primary.dropdown-toggle {
+  background-color: var(--clenspy-primary);
+  border-color: var(--clenspy-primary);
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+  background-color: var(--clenspy-primary-dark);
+  border-color: var(--clenspy-primary-dark);
+}
+
+.btn-outline-primary {
+  color: var(--clenspy-primary);
+  border-color: var(--clenspy-primary);
+}
+
+.btn-outline-primary:hover,
+.btn-outline-primary.disabled,
+.btn-outline-primary:disabled {
+  background-color: var(--clenspy-primary);
+  border-color: var(--clenspy-primary);
+}
+
+/* Sidebar table of contents: active/current page */
+.current > .toctree-expand,
+.toctree-expand {
+  background-color: var(--clenspy-primary);
+}
+
+.rst-current-version {
+  background-color: var(--clenspy-primary);
+}
+
+/* Code blocks */
+pre {
+  background-color: var(--clenspy-primary-darker);
+}
+
+/* Search box */
+.form-control:focus {
+  border-color: var(--clenspy-primary);
+  box-shadow: 0 0 0 0.2rem rgba(30, 136, 229, 0.25);
+}
+
+.input-group-text {
+  border-color: #dedede;
+}

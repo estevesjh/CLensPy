@@ -2,6 +2,8 @@
 A class for 2-halo term modeling (from P(k) to xi, Sigma, etc.)
 """
 
+from __future__ import annotations
+
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 

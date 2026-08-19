@@ -2,6 +2,8 @@
 A class that holds the integration methods for cluster lensing observables.
 """
 
+from __future__ import annotations
+
 import mcfit
 import numpy as np
 from numpy.polynomial.legendre import leggauss
@@ -46,6 +48,16 @@ def sigma_to_deltasigma_cumtrapz(
 ) -> np.ndarray:
     """
     Compute ΔΣ(R) = mean_Σ(<R) - Σ(R) from a grid of Σ(R).
+
+    The mean enclosed Σ(<R) is a *cumulative* trapezoidal integral starting
+    from ``Rvec[0]``, so it implicitly assumes Σ is ~constant (or the
+    enclosed mass is negligible) between 0 and ``Rvec[0]``. ΔΣ is therefore
+    only accurate once ``Rvec[0]`` is small enough relative to the profile's
+    scale radius, and once enough points have accumulated meaningful
+    enclosed mass - the first several points of a wide, log-spaced ``Rvec``
+    can be well off (even exactly 0) for a cored/smooth profile. Use a
+    grid that extends to small enough R for your profile's scale, and treat
+    the innermost few points with caution.
 
     Parameters
     ----------

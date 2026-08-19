@@ -213,6 +213,23 @@ output/
 plots/
 results/
 
+# LaTeX build artifacts (docs/*.tex sources are tracked, build output is not)
+*.aux
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+docs/*.pdf
+
+# Reference material kept locally, not part of the package
+*.djvu
+docs/Slice_*.md
+/papers/
+
+# Example script output
+examples/*.png
+
 # Temporary files
 *.tmp
 *.temp

@@ -25,12 +25,13 @@ integer nu>=1 via scipy.special.expn; large nu via the DLMF 8.20 uniform
 asymptotic expansion; otherwise via mpmath.expint.
 """
 
-import warnings
-
+import mcfit
 import numpy as np
-from scipy.special import expn, gamma, gammainc, gammaincc, gammaln, roots_genlaguerre
+from scipy.special import expn, gamma, gammainc, gammaincc, gammaln, kv, roots_genlaguerre
 
 from ..utils.decorators import scalar_array_output
+from ..utils.integrate import compute_sigma_quadvec, sigma_to_deltasigma_cumtrapz
+from ..utils.interpolate import make_log_interpolation
 
 # Cache for generalised Gauss-Laguerre nodes/weights, keyed by (alpha_w, N).
 _GL_CACHE: dict = {}
@@ -271,12 +272,41 @@ class EinastoProfile:
     r_s : float
         Scale radius; h = r_s / (2n)^n.
     order : int, optional
-        Number of terms (k = 0..order) in the projected series.
+        Number of terms (k = 0..order) in the projected series. Only used
+        when n > 3/2 (see Notes).
     tol : float, optional
         If given, the series order is chosen automatically at construction
         via :meth:`order_for_tol` (``order`` is then used only as the search
         ceiling). The Catalan series converges algebraically (~K^{-1/2}), so
         the required order grows steeply as the shape index n falls below ~2.
+        Only used when n > 3/2 (see Notes).
+
+    Notes
+    -----
+    For n = 1/alpha > 3/2, :meth:`sigma`, :meth:`deltasigma`, and
+    :meth:`enclosed_mass_2D` use the closed-form Catalan series
+    (docs/einasto_proj_density.tex). For n <= 3/2 (alpha >= 2/3) that series
+    converges too slowly to be usable, so :meth:`sigma` and :meth:`deltasigma`
+    are instead computed numerically: :meth:`sigma` via direct Abel
+    (line-of-sight) projection of :meth:`density`, :meth:`deltasigma` from a
+    dense :meth:`sigma` grid via cumulative-trapezoid enclosed mass.
+    :meth:`enclosed_mass_2D` has no fallback and raises for n <= 3/2.
+
+    :meth:`power_spectrum`/:meth:`fourier` use their own, independent split
+    (docs/einasto_power_spectrum.tex): an analytic series for n > 1
+    (converges for all k), and a FFTLog transform (`mcfit.xi2P`) of
+    :meth:`density` for 0 < n < 1 away from n = 1/2 (the small-k series is
+    convergent there too, but its finite-precision partial sums are not
+    usable - see :meth:`power_spectrum`).
+
+    Both n = 1 (exponential, rho = rho_0 exp(-r/h)) and n = 1/2 (Gaussian,
+    rho = rho_0 exp(-(r/h)^2)) have exact closed forms and bypass both the
+    series and the numerical fallbacks: `sigma`/`deltasigma` at n = 1 use the
+    modified Bessel functions K_1/K_2, and `power_spectrum` at n = 1 and
+    n = 1/2 uses the closed forms from docs/einasto_power_spectrum.tex.
+
+    :meth:`density`, :meth:`enclosed_mass`, and :attr:`total_mass` use the
+    incomplete-gamma closed form for any n and are unaffected by any of this.
     """
 
     def __init__(self, alpha, rho_0, r_s, order=100, tol=None):
@@ -285,17 +315,20 @@ class EinastoProfile:
         self.r_s = r_s
 
         self.n_index = 1.0 / alpha
-        if self.n_index <= 1.5:
-            raise ValueError(
-                f"n = 1/alpha = {self.n_index:.3f} must be > 3/2. "
-                "The Catalan series converges too slowly for n <= 3/2."
-            )
+        if self.n_index <= 0:
+            raise ValueError(f"n = 1/alpha = {self.n_index:.3f} must be positive.")
         self.h = self.r_s / (2 * self.n_index) ** self.n_index
 
-        if tol is not None:
-            self._build(order)                       # ceiling for the search
-            order = self.order_for_tol(tol, max_order=order)
-        self._build(order)
+        # n > 3/2: closed-form Catalan series. n <= 3/2: numerical fallback
+        # (see class Notes) -- the series converges too slowly to use there.
+        self._series = self.n_index > 1.5
+        if self._series:
+            if tol is not None:
+                self._build(order)                       # ceiling for the search
+                order = self.order_for_tol(tol, max_order=order)
+            self._build(order)
+        else:
+            self.order = None
 
     def _build(self, order):
         """Precompute the index-dependent series arrays for k = 0..order."""
@@ -307,18 +340,71 @@ class EinastoProfile:
         self._nu_k = 2 * k * n - n + 1                        # nu_k
 
     # ------------------------------------------------------------------
+    # Numerical fallback (n <= 3/2): no closed-form Catalan series exists,
+    # so Sigma, DeltaSigma, and P(k) are computed directly from `density`
+    # by Abel projection / FFTLog instead. See the class Notes.
+    # ------------------------------------------------------------------
+    def _numerical_r_grid(self, n_grid=400):
+        """Log-spaced r grid spanning density() from ~1e-4 h out to where
+        it has decayed to ~exp(-40) of rho_0 (double-precision noise floor)."""
+        r_min = self.h * 1e-4
+        r_max = self.h * 40.0 ** self.n_index
+        return np.logspace(np.log10(r_min), np.log10(r_max), n_grid)
+
+    def _sigma_numerical(self, R):
+        """Sigma(R) via the Abel (line-of-sight) projection of density(r)."""
+        R = np.atleast_1d(np.asarray(R, float))
+        r_max = R.max() + self.h * 40.0 ** self.n_index
+
+        def xi_func(r, z):
+            return self.density(r)
+
+        return compute_sigma_quadvec(xi_func, R, np.array([0.0]), r_max=r_max).ravel()
+
+    def _deltasigma_numerical(self, R):
+        """DeltaSigma(R) from a dense numerical Sigma(R) grid (cumtrapz).
+
+        The cumulative-trapezoid enclosed mass needs a well-resolved grid
+        near R=0 (see `sigma_to_deltasigma_cumtrapz`'s caveat); 1600 points
+        keeps the innermost decade accurate to ~0.3% at negligible extra
+        cost (a few ms; `density`/Abel evaluations are cheap closed forms).
+        """
+        R = np.atleast_1d(np.asarray(R, float))
+        r_max = R.max() + self.h * 40.0 ** self.n_index
+        Rgrid = np.logspace(np.log10(self.h * 1e-4), np.log10(r_max), 1600)
+        sigma_grid = self._sigma_numerical(Rgrid)
+        ds_grid = sigma_to_deltasigma_cumtrapz(Rgrid, sigma_grid)
+        return make_log_interpolation(Rgrid, ds_grid)(R)
+
+    def _power_spectrum_numerical(self, k):
+        """P(k) = rho_tilde(k)/(4 pi)^2 via FFTLog (mcfit.xi2P) of density(r)."""
+        k = np.atleast_1d(np.asarray(k, float))
+        rgrid = self._numerical_r_grid(2048)
+        kgrid, Fk = mcfit.xi2P(rgrid, lowring=True)(self.density(rgrid))
+        return make_log_interpolation(kgrid, Fk / (4 * np.pi) ** 2)(k)
+
+    # ------------------------------------------------------------------
     # 3D quantities
     # ------------------------------------------------------------------
     def density(self, r):
-        """Density rho(r)."""
+        r"""
+        Density :math:`\rho(r)`.
+
+        .. math::
+            \rho(r) = \rho_0\, \exp\!\left[-(r/h)^{1/n}\right]
+        """
         x = np.asarray(r) / self.h
         return self.rho_0 * np.exp(-x ** (1.0 / self.n_index))
 
     def enclosed_mass(self, r):
-        """
-        Spherical enclosed mass (Eq. M3D):
+        r"""
+        Spherical enclosed mass.
 
-            M_3D(r) = 4 pi rho_0 n h^3 gamma(3n, (r/h)^(1/n)).
+        .. math::
+            M_{\rm 3D}(r) = 4\pi \rho_0\, n\, h^3\,
+            \gamma\!\left(3n,\, (r/h)^{1/n}\right)
+
+        where :math:`\gamma` is the lower incomplete gamma function.
         """
         n, h = self.n_index, self.h
         x = (np.asarray(r) / h) ** (1.0 / n)
@@ -327,7 +413,12 @@ class EinastoProfile:
 
     @property
     def total_mass(self):
-        """M_tot = 4 pi rho_0 n h^3 Gamma(3n)."""
+        r"""
+        Total mass.
+
+        .. math::
+            M_{\rm tot} = 4\pi \rho_0\, n\, h^3\, \Gamma(3n)
+        """
         n, h = self.n_index, self.h
         return 4 * np.pi * self.rho_0 * n * h ** 3 * gamma(3 * n)
 
@@ -350,12 +441,34 @@ class EinastoProfile:
 
     @scalar_array_output
     def sigma(self, R):
-        """
-        Surface density (Eq. Sigma):
+        r"""
+        Surface density :math:`\Sigma(R)`.
 
-            Sigma(R) = 2 rho_0 n R sum_{k>=0} (k+1) c_k E_{nu_k}(x).
+        For n > 3/2, the Catalan series:
+
+        .. math::
+            \Sigma(R) = 2 \rho_0\, n\, R \sum_{k \ge 0} (k+1)\, c_k\,
+            E_{\nu_k}(x), \qquad x = (R/h)^{1/n}
+
+        For n = 1 (exponential profile), the exact closed form
+
+        .. math::
+            \Sigma(R) = 2 \rho_0\, R\, K_1(R/h)
+
+        is used instead, where :math:`K_1` is the modified Bessel function
+        of the second kind (standard Abel projection of
+        :math:`\rho(r) = \rho_0 e^{-r/h}`, via the integral representation
+        :math:`K_1(x) = \int_0^\infty e^{-x\cosh t}\cosh(t)\, dt`).
+
+        For other n <= 3/2 the series is not used either; Sigma is instead
+        computed by direct Abel (line-of-sight) projection of `density`
+        (see the class Notes and :meth:`_sigma_numerical`).
         """
         R = np.atleast_1d(np.asarray(R, float))
+        if np.isclose(self.n_index, 1.0):
+            return 2.0 * self.rho_0 * R * kv(1, R / self.h)
+        if not self._series:
+            return self._sigma_numerical(R)
         weight = (self._k + 1) * self._ck
         sumval = np.sum(weight[None, :] * self._E_nu(R), axis=-1)
         return 2 * self.rho_0 * self.n_index * R * sumval
@@ -404,17 +517,43 @@ class EinastoProfile:
 
     @scalar_array_output
     def deltasigma(self, R):
-        """
-        Excess surface density (Eq. DeltaSigma):
+        r"""
+        Excess surface density :math:`\Delta\Sigma(R) \equiv \bar\Sigma(<R) -
+        \Sigma(R)`.
 
-            DeltaSigma(R) = M_3D(R)/(pi R^2)
-                            - 2 rho_0 n R sum_{k>=1} k c_k E_{nu_k}(x).
+        For n > 3/2, the Catalan series:
 
-        For z = (R/h)^(1/n) < :attr:`_DS_ASYMP_ZMAX` the native series suffers
-        catastrophic cancellation and the small-z asymptotic
+        .. math::
+            \Delta\Sigma(R) = \frac{M_{\rm 3D}(R)}{\pi R^2}
+            - 2\rho_0\, n\, R \sum_{k \ge 1} k\, c_k\, E_{\nu_k}(x),
+            \qquad x = (R/h)^{1/n}
+
+        For :math:`z = (R/h)^{1/n} <` :attr:`_DS_ASYMP_ZMAX` the native
+        series suffers catastrophic cancellation and the small-z asymptotic
         (:meth:`_deltasigma_asymp`) is used instead.
+
+        For n = 1 (exponential profile), the exact closed form
+
+        .. math::
+            \Delta\Sigma(R) = \rho_0 h \left[\frac{8}{x^2} - 4 K_2(x)
+            - 2 x K_1(x)\right], \qquad x = R/h
+
+        is used instead (from :math:`\Sigma(R) = 2\rho_0 R K_1(R/h)` and
+        :math:`M_{\rm 2D}(R) = 4\pi\rho_0 h^3 [2 - x^2 K_2(x)]`, using
+        :math:`d(x^2 K_2(x))/dx = -x^2 K_1(x)`).
+
+        For other n <= 3/2, neither series applies; DeltaSigma is instead
+        computed from a dense numerical `sigma` grid (see the class Notes
+        and :meth:`_deltasigma_numerical`).
         """
         R = np.atleast_1d(np.asarray(R, float))
+        if np.isclose(self.n_index, 1.0):
+            x = R / self.h
+            return self.rho_0 * self.h * (
+                8.0 / x ** 2 - 4.0 * kv(2, x) - 2.0 * x * kv(1, x)
+            )
+        if not self._series:
+            return self._deltasigma_numerical(R)
         z = (R / self.h) ** (1.0 / self.n_index)
         small = z < self._DS_ASYMP_ZMAX
 
@@ -431,11 +570,23 @@ class EinastoProfile:
 
     @scalar_array_output
     def enclosed_mass_2D(self, R):
-        """
-        Cylindrical enclosed mass (Eq. M2D):
+        r"""
+        Cylindrical (projected) enclosed mass.
 
-            M_2D(R) = M_3D(R) + 2 pi rho_0 n R^3 sum_{k>=0} c_k E_{nu_k}(x).
+        .. math::
+            M_{\rm 2D}(R) = M_{\rm 3D}(R) + 2\pi \rho_0\, n\, R^3
+            \sum_{k \ge 0} c_k\, E_{\nu_k}(x), \qquad x = (R/h)^{1/n}
+
+        Only available for n > 3/2 (the Catalan series); there is no
+        numerical fallback for n <= 3/2 (unlike `sigma`/`deltasigma`/
+        `power_spectrum`).
         """
+        if not self._series:
+            raise NotImplementedError(
+                "enclosed_mass_2D has no numerical fallback for n <= 3/2 "
+                "(alpha >= 2/3); use enclosed_mass (3D) or sigma/deltasigma, "
+                "which are supported numerically for this n."
+            )
         R = np.atleast_1d(np.asarray(R, float))
         sumval = np.sum(self._ck[None, :] * self._E_nu(R), axis=-1)
         return self.enclosed_mass(R) + 2 * np.pi * self.rho_0 * self.n_index * R ** 3 * sumval
@@ -452,7 +603,7 @@ class EinastoProfile:
 
             R_K ~ sum_{k>K} u_k ~ u_K * K / (p - 1),
 
-        and the relative error is R_K / |S_K|. This tracks the true error
+        and the relative error is ``R_K / |S_K|``. This tracks the true error
         (validated against the Abel-transform ground truth) rather than the
         optimistic step size; for Sigma it gives R_K ~ 2 K u_K. Because the
         Sigma weight (k+1) c_k bounds the M_2D (c_k) and DeltaSigma (k c_k)
@@ -476,6 +627,12 @@ class EinastoProfile:
         int
             Series order K (k = 0..K).
         """
+        if not self._series:
+            raise NotImplementedError(
+                "order_for_tol tunes the Catalan series order, which is not "
+                "used for n <= 3/2 (alpha >= 2/3); sigma/deltasigma/"
+                "power_spectrum are computed numerically for this n instead."
+            )
         if R is None:
             R = self.r_s * np.array([0.1, 0.3, 1.0, 3.0, 10.0])
         R = np.atleast_1d(np.asarray(R, float))
@@ -519,30 +676,58 @@ class EinastoProfile:
     # Fourier-space form factor / power spectrum
     # ------------------------------------------------------------------
     def power_spectrum(self, k, branch="auto", order=None):
-        """
-        Rescaled Fourier transform P(k) = rho_tilde(k)/(4 pi)^2 of the profile
-        (einasto_power_spectrum.tex).
+        r"""
+        Rescaled Fourier transform of the profile (einasto_power_spectrum.tex):
 
-        Two complementary convergent Cauchy series are selected by the shape
-        index n (= 1/alpha):
+        .. math::
+            P(k) = \frac{\tilde\rho(k)}{(4\pi)^2}
 
-        - n < 1 (small-k / large-scale series), kt = k h:
-              P = rho_0 n h^3/(4 pi) sum_{m>=0} A_m^+ (kt^2/4)^m,
-              A_m^+ = (-1)^m Gamma(3n+2nm) / [m! (3/2)_m].
+        In "auto" mode (the default), the shape index :math:`n = 1/\alpha`
+        selects one of four exact or convergent representations, with
+        :math:`\tilde k \equiv k h`:
 
-        - n > 1 (large-k / small-scale series):
-              P = rho_0 h^3/(4 pi kt^3) sum_{m>=1} A_m^- kt^{-m/n},
-              A_m^- = (-1)^{m+1}/m! Gamma(2+m/n) sin(pi m / 2n).
+        **n > 1** (large-k / small-scale series), analytic, converges for
+        all k:
 
-        - n = 1 (boundary), closed form:
-              P = rho_0 h^3 / [2 pi (1 + kt^2)^2].
+        .. math::
+            P(k) = \frac{\rho_0 h^3}{4\pi \tilde k^3}
+            \sum_{m \ge 1} A_m^- \tilde k^{-m/n}, \qquad
+            A_m^- = \frac{(-1)^{m+1}}{m!}\, \Gamma\!\left(2+\frac{m}{n}\right)
+            \sin\!\left(\frac{\pi m}{2n}\right)
+
+        **n = 1** (boundary), closed form:
+
+        .. math::
+            P(k) = \frac{\rho_0 h^3}{2\pi \left(1 + \tilde k^2\right)^2}
+
+        **n = 1/2**, exact Gaussian closed form:
+
+        .. math::
+            P(k) = \frac{\rho_0 h^3}{16\sqrt{\pi}}\, e^{-\tilde k^2/4}
+
+        **0 < n < 1, n != 1/2**: the small-k series
+
+        .. math::
+            P(k) = \frac{\rho_0\, n\, h^3}{4\pi}
+            \sum_{m \ge 0} A_m^+ \left(\frac{\tilde k^2}{4}\right)^m, \qquad
+            A_m^+ = \frac{(-1)^m\, \Gamma(3n+2nm)}{m!\, (3/2)_m}
+
+        is a convergent Cauchy series for all k, but its finite-precision
+        partial sums suffer unresolved catastrophic cancellation (no
+        anti-cancellation decomposition like the n>1 Wright form below has
+        been derived for it). ``power_spectrum`` instead computes this
+        case numerically, via a FFTLog transform (`mcfit.xi2P`) of
+        `density`; see :meth:`_power_spectrum_numerical`.
 
         Parameters
         ----------
         k : array_like
             Wavenumber [1/length].
         branch : {"auto", "small_k", "large_k", "closed"}, optional
-            Series branch; "auto" picks by n.
+            Series branch; "auto" picks by n as described above. The named
+            branches evaluate the corresponding series directly (useful for
+            comparison/research) but are not used automatically for n<=1
+            because of the cancellation issue above.
         order : int, optional
             Number of series terms (defaults to self.order).
 
@@ -558,17 +743,38 @@ class EinastoProfile:
         if branch == "auto":
             if np.isclose(n, 1.0):
                 branch = "closed"
+            elif np.isclose(n, 0.5):
+                # Exact Gaussian transform (einasto_power_spectrum.tex, eq. 21).
+                return rho_0 * h ** 3 / (16.0 * np.sqrt(np.pi)) * np.exp(-(kt ** 2) / 4.0)
             elif n < 1.0:
-                branch = "small_k"
+                # The small-k series (eq. 12) is a convergent Cauchy series
+                # for all k when n<1, but its finite-precision partial sums
+                # suffer unresolved catastrophic cancellation well before
+                # the asymptotic regime (no anti-cancellation trick like the
+                # n>1 Wright decomposition below has been derived for this
+                # branch yet). Use a direct FFTLog transform of density()
+                # instead; validated against the exact n=1/2 case above to
+                # ~1e-4 relative accuracy.
+                return self._power_spectrum_numerical(k)
             else:
-                # n>1 dispatch -- per-kt threshold:
+                # n>1: analytic large-k series (eq. 16), converges for all k.
+                # Dispatch valid for both n<1 and n>1 -- per-kt threshold:
                 #   sum_{m=1..m_star} |t_m| / P(0) < tol.
                 # Plateau-residual is valid where this holds; the largest
                 # such kt is the auto-found kt_max for the plateau branch.
+                # Where it fails: for n>1 there's a large-k asymptotic
+                # (Wright) series; for n<=1 that series isn't valid (see
+                # _einasto_pk_wright_real), but GL quadrature alone already
+                # covers the practically-relevant range (validated against
+                # the exact Gaussian n=1/2 closed form to ~1e-14 out to
+                # P(k)/P(0) ~ 1e-17), so large-k points just fall to GL.
                 tol = 1e-2
-                xi_fail = 32.0 * (1.0 - np.exp(-(n - 1.0) / 2.5))
-                kt_w = xi_fail ** (-n)
-                N_GL = min(400, max(96, int(30 * n)))
+                N_GL = min(400, max(96, int(30 * max(n, 1.0))))
+                if n > 1.0:
+                    xi_fail = 32.0 * (1.0 - np.exp(-(n - 1.0) / 2.5))
+                    kt_w = xi_fail ** (-n)
+                else:
+                    kt_w = np.inf
 
                 pref_pl = rho_0 * n * h ** 3 / (4 * np.pi)
                 P0 = pref_pl * gamma(3 * n)

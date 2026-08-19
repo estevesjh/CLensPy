@@ -42,11 +42,14 @@ def _hash(spec: dict) -> str:
 
 def _astropy_to_dict(cosmo, *, sigma8=0.8, n_s=0.96) -> dict:
     """Translate an Astropy cosmology to the scalar dict CAMB / PyCCL expect."""
+    # Astropy cosmologies default Ob0 to 0.0 (not None) when the caller
+    # doesn't pass Ob0, so `is not None` never falls back to the default
+    # below; treat an exact 0.0 as "unset" too.
     ob0 = cosmo.Ob0
     return dict(
         h=cosmo.h,
         Omega_m=cosmo.Om0,
-        Omega_b=ob0 if ob0 is not None else 0.05,  # default if not set
+        Omega_b=ob0 if ob0 else 0.05,  # default if not set
         Omega_k=cosmo.Ok0,
         sigma8=getattr(cosmo, "sigma8", sigma8),
         n_s=getattr(cosmo, "n_s", n_s),
@@ -70,7 +73,7 @@ class PkGrid:
     z_range  : Tuple[float, float], default (0.0, 2.0)
     nk, nz   : int, default (200, 41)
     cache    : bool, default True
-        If True, store / reuse *.npz files in ``clenspy-data/pk_cache``.
+        If True, store / reuse ``*.npz`` files in ``clenspy-data/pk_cache``.
     """
 
     def __init__(
@@ -207,9 +210,9 @@ class PkGrid:
         )
         pars.set_matter_power(redshifts=[0], kmax=self.k[-1])
         res = camb.get_results(pars)
-        sigma8_now = res.get_sigma8()  # σ8 at z=0
+        sigma8_now = float(np.ravel(res.get_sigma8())[0])  # σ8 at z=0
         target = p["sigma8"]
-        As_new = pars.InitPower.As * (target / sigma8_now) ** 2
+        As_new = float(pars.InitPower.As * (target / sigma8_now) ** 2)
 
         pars.InitPower.set_params(ns=p["n_s"], As=As_new)
         pars.set_matter_power(redshifts=self.z.tolist(), kmax=self.k[-1])
@@ -218,11 +221,17 @@ class PkGrid:
         )
 
         res = camb.get_results(pars)
+        # CAMB's get_matter_power_spectrum works in k/h and (Mpc/h)^3, unlike
+        # the rest of this class (and set_matter_power's kmax above), which
+        # use physical k [1/Mpc] throughout. Request the equivalent k/h range
+        # and convert the result back to physical units.
+        h = p["h"]
         kh, zz, pk = res.get_matter_power_spectrum(
-            minkh=self.k[0], maxkh=self.k[-1], npoints=len(self.k)
+            minkh=self.k[0] / h, maxkh=self.k[-1] / h, npoints=len(self.k)
         )
-        # Ensure order matches self.k (they should)
-        return pk  # shape (nz, nk)
+        # kh * h reproduces self.k exactly: both are `len(self.k)` points
+        # log-spaced between the same physical bounds.
+        return pk / h**3  # shape (nz, nk), physical Mpc^3
 
     # -------- PyCCL ---------------------------------------------------
     def _grid_from_pyccl(self) -> np.ndarray:

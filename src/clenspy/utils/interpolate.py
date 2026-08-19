@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Callable
 
 import numpy as np
@@ -6,13 +8,13 @@ from scipy.interpolate import RegularGridInterpolator, interp1d
 
 class LogGridInterpolator:
     """
-    Log-linear grid interpolator:
-      - Interpolates log(values) over
-      log(x) (axis 0),
-        z (axis 1, linear, or single value).
-      - Handles the case where zvec is None (scalar mode).
-      - Masks out bad (<=0 or nan/inf) values.
-      - On __call__, clips output to [minval, maxval].
+    Log-linear grid interpolator.
+
+    - Interpolates log(values) over log(x) (axis 0) and z (axis 1, linear,
+      or a single value).
+    - Handles the case where zvec is None (scalar mode).
+    - Masks out bad (<=0 or nan/inf) values.
+    - On __call__, clips output to [minval, maxval].
     """
 
     def __init__(

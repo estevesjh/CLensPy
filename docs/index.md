@@ -1,104 +1,84 @@
-# CLensPy Documentation
+# CLensPy
 
-Welcome to CLensPy, a Python package for weak gravitational lensing analysis.
+Welcome to CLensPy, a Python package for cluster gravitational lensing analysis.
 
 ## Overview
 
-CLensPy provides tools for computing weak lensing observables and working with dark matter halo profiles. The package is designed to be:
+CLensPy provides a toolkit for computing weak-lensing observables from dark
+matter halo profiles: NFW and Einasto density profiles, projected surface
+density Sigma(R), excess surface density DeltaSigma(R), halo bias, and the
+two-halo term. It is designed to be:
 
-- **Easy to use**: Simple, intuitive API for common lensing calculations
-- **Flexible**: Modular design allows easy extension and customization
-- **Fast**: Optimized implementations of key algorithms
-- **Well-tested**: Comprehensive test suite ensures reliability
+- **Modular**: each halo profile is a small, self-contained class with the
+  same `density` / `sigma` / `deltasigma` interface
+- **Fast**: vectorized NumPy/SciPy implementations, with closed-form or
+  series expansions used where available (e.g. the Einasto profile's
+  projected density)
+- **Validated**: cross-checked against independent codes (`pyccl`,
+  `cluster_toolkit`, `CLMM`) in the test suite
 
-## Features
+## Installation
 
-### Core Lensing Calculations
-- Excess surface density (Δσ) profiles
-- Tangential shear profiles
-- Critical surface density calculations
-- Multi-redshift lensing geometry
+CLensPy is not yet published on PyPI; install it from source:
 
-### Halo Profiles
-- NFW (Navarro-Frenk-White) profiles
-- 3D density profiles
-- Projected surface density profiles
-- Mean surface density calculations
+```bash
+git clone https://github.com/estevesjh/clenspy.git
+cd clenspy
+pip install -e .
+```
 
-### Utilities
-- Coordinate transformations (angular ↔ physical)
-- Cosmological distance calculations
-- Mathematical utilities
+See {doc}`installation` for optional dependency groups (`mcmc`, `docs`,
+`compare`, `dev`).
 
 ## Quick Start
 
 ```python
 import numpy as np
-from clenspy.profiles import NFWProfile
-from clenspy.lensing import delta_sigma_nfw
+from clenspy.halo import NfwProfile, EinastoProfile, BiasModel
 
-# Create an NFW halo
-M200 = 1e14  # Solar masses
+# Define halo parameters
+M200 = 1e14  # Halo mass [Msun]
 c200 = 5.0   # Concentration
-z = 0.3      # Redshift
 
-nfw = NFWProfile(M200=M200, c200=c200, z=z)
+# NFW profile
+nfw = NfwProfile(m200=M200, c200=c200)
+R = np.logspace(-2, 1, 50)  # Projected radius [Mpc]
+sigma = nfw.sigma(R)            # Surface density Sigma(R) [Msun/Mpc^2]
+deltasigma = nfw.deltasigma(R)  # Excess surface density DeltaSigma(R)
 
-# Calculate lensing signal
-r = np.logspace(-1, 1, 50)  # Mpc
-z_source = 1.0
-delta_sigma = delta_sigma_nfw(r, M200, c200, z, z_source)
+# Einasto profile, for comparison
+einasto = EinastoProfile(alpha=0.2, rho_0=nfw.rho_s, r_s=nfw.rs, tol=1e-4)
+deltasigma_einasto = einasto.deltasigma(R)
+
+# Linear halo bias, given a matter power spectrum P(k)
+k = np.logspace(-3, 1, 200)
+Pk = 2e4 * (k / 0.05) ** (-1.5)  # replace with a real P(k), e.g. from CAMB/CLASS
+bias = BiasModel(k, Pk).bias(M200)
 ```
 
-## Installation
-
-```bash
-pip install clenspy
-```
-
-## Examples
-
-See the `examples/` directory for detailed usage examples:
-
-- `demo_basic_usage.py`: Basic usage of all main features
-- `demo_profile_fit.ipynb`: Profile fitting with MCMC uncertainty estimation
+See `examples/demo_basic_usage.py` in the repository for the full runnable
+script, including plots, and `examples/demo_lensing.ipynb` for a 1-halo +
+2-halo walkthrough.
 
 ## API Reference
 
-### Modules
+For a detailed breakdown of every class and function, see the {doc}`api/index`.
 
-- `clenspy.lensing`: Core lensing calculations
-- `clenspy.profiles`: Halo density profiles
-- `clenspy.utils`: Utility functions
-- `clenspy.config`: Configuration and constants
+## Additional Resources
 
-## Development
+- **Development**: see {doc}`development` for running tests, the optional
+  comparison-test dependencies, and building these docs locally
+- **Notes**: see {doc}`einasto_pitfalls` for the numerical convergence
+  caveats behind the Einasto profile's series expansion
+- **Source code**: <https://github.com/estevesjh/clenspy>
+- **Issue tracker**: <https://github.com/estevesjh/clenspy/issues>
 
-CLensPy is actively developed. Contributions are welcome!
+```{toctree}
+:maxdepth: 2
+:caption: Contents
 
-### Repository Structure
+installation
+api/index
+development
+Einasto profile notes <einasto_pitfalls>
 ```
-CLensPy/
-├── clenspy/          # Main package
-├── tests/            # Test suite
-├── examples/         # Usage examples
-├── docs/             # Documentation
-└── .github/          # CI/CD workflows
-```
-
-## Citation
-
-If you use CLensPy in your research, please cite:
-
-```bibtex
-@software{clenspy,
-    title={CLensPy: A Python Package for Weak Gravitational Lensing},
-    author={Your Name},
-    year={2025},
-    url={https://github.com/username/clenspy}
-}
-```
-
-## License
-
-CLensPy is released under the MIT License.

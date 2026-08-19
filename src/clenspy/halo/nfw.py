@@ -5,6 +5,8 @@ The NFW profile is the most commonly used model for dark matter halo
 density profiles in weak lensing analysis.
 """
 
+from __future__ import annotations
+
 import numpy as np
 from astropy import cosmology
 from scipy.special import sici
@@ -12,13 +14,23 @@ from scipy.special import sici
 from ..config import DEFAULT_COSMOLOGY
 from ..utils.decorators import scalar_array_output
 
-# from ..config import RHOCRIT
-RHOCRIT = 2.77536627e11  # Critical density in Msun/Mpc^3/h^2
-
 
 class NfwProfile:
-    """
+    r"""
     Analytical NFW lensing profile for a single halo or a vector of halos.
+
+    The 3D density profile is
+
+    .. math::
+        \rho(r) = \frac{\rho_s}{x (1 + x)^2}, \qquad x = \frac{r}{r_s}
+
+    where the scale radius :math:`r_s = r_{200} / c_{200}` and the
+    characteristic density :math:`\rho_s` are fixed by requiring the profile
+    to enclose :math:`M_{200}` within :math:`r_{200}`,
+
+    .. math::
+        \rho_s = \frac{M_{200}}
+        {4\pi r_s^3 \left[\ln(1 + c_{200}) - c_{200} / (1 + c_{200})\right]}.
 
     Parameters
     ----------
@@ -69,8 +81,12 @@ class NfwProfile:
 
     @scalar_array_output
     def density(self, r: np.ndarray | float) -> np.ndarray | float:
-        """
+        r"""
         Calculate 3D density profile for NFW.
+
+        .. math::
+            \rho(r) = \frac{\rho_s}{x (1 + x)^2}, \qquad x = \frac{r}{r_s}
+
         Parameters
         ----------
         r : float or np.ndarray
@@ -90,11 +106,34 @@ class NfwProfile:
     def fourier(
         self, k: np.ndarray | float, truncated: bool = True
     ) -> np.ndarray | float:
-        """
+        r"""
         Analytical Fourier transform of the NFW density profile (normalized by M_200).
-        This is the standard u(k|M) ≡ (1/M) ∫ d^3r ρ_NFW(r) exp(i k⋅r),
-        evaluated using the closed formula:
-        see e.g. pyccl, eq. 34 in Cooray & Sheth 2002.
+
+        This is the standard mass-normalized profile
+
+        .. math::
+            u(k \mid M) \equiv \frac{1}{M} \int d^3r\, \rho_{\rm NFW}(r)\,
+            e^{i \mathbf{k} \cdot \mathbf{r}},
+
+        evaluated with the closed-form expression (see e.g. pyccl, or eq. 81
+        of Cooray & Sheth 2002), with :math:`x \equiv k r_s`. For the profile
+        truncated at :math:`r_{200} = c_{200} r_s`,
+
+        .. math::
+            u(k \mid M) = \frac{1}{\ln(1+c) - c/(1+c)} \Big\{
+            \sin(x)\left[\mathrm{Si}\big((1+c)x\big) - \mathrm{Si}(x)\right]
+            + \cos(x)\left[\mathrm{Ci}\big((1+c)x\big) - \mathrm{Ci}(x)\right]
+            - \frac{\sin(cx)}{(1+c)x} \Big\},
+
+        and for the untruncated (infinite-extent) profile,
+
+        .. math::
+            u(k \mid M) = \frac{1}{\ln(1+c) - c/(1+c)} \left\{
+            \sin(x)\left[\frac{\pi}{2} - \mathrm{Si}(x)\right]
+            - \cos(x)\, \mathrm{Ci}(x) \right\},
+
+        where :math:`c \equiv c_{200}` and Si, Ci are the sine and cosine
+        integrals.
 
         Parameters
         ----------
@@ -133,8 +172,23 @@ class NfwProfile:
 
     @scalar_array_output
     def sigma(self, R: np.ndarray | float) -> np.ndarray | float:
-        """
+        r"""
         Projected surface density Σ(R) for NFW, in [Msun/Mpc^2].
+
+        .. math::
+            \Sigma(R) = 2 r_s \rho_s\, f(x), \qquad x = \frac{R}{r_s}
+
+        with the piecewise kernel (Wright & Brainerd 2000)
+
+        .. math::
+            f(x) =
+            \begin{cases}
+            \dfrac{1}{x^2 - 1}\left[1 - \dfrac{2}{\sqrt{1 - x^2}}\,
+            \mathrm{arctanh}\sqrt{\dfrac{1-x}{1+x}}\right], & x < 1 \\[2mm]
+            \dfrac{1}{3}, & x = 1 \\[2mm]
+            \dfrac{1}{x^2 - 1}\left[1 - \dfrac{2}{\sqrt{x^2 - 1}}\,
+            \arctan\sqrt{\dfrac{x-1}{x+1}}\right], & x > 1
+            \end{cases}
 
         Parameters
         ----------
@@ -155,8 +209,27 @@ class NfwProfile:
 
     @scalar_array_output
     def deltasigma(self, R: np.ndarray | float) -> np.ndarray | float:
-        """
+        r"""
         Excess surface density ΔΣ(R) for NFW, in [Msun/Mpc^2].
+
+        .. math::
+            \Delta\Sigma(R) \equiv \bar\Sigma(<R) - \Sigma(R)
+            = r_s \rho_s\, g(x), \qquad x = \frac{R}{r_s}
+
+        with the piecewise kernel (Wright & Brainerd 2000)
+
+        .. math::
+            g(x) =
+            \begin{cases}
+            \dfrac{8\,\mathrm{arctanh}\sqrt{\frac{1-x}{1+x}}}{x^2\sqrt{1-x^2}}
+            + \dfrac{4}{x^2}\ln\dfrac{x}{2} - \dfrac{2}{x^2-1}
+            + \dfrac{4\,\mathrm{arctanh}\sqrt{\frac{1-x}{1+x}}}{(x^2-1)\sqrt{1-x^2}},
+            & x < 1 \\[3mm]
+            \dfrac{10}{3} + 4\ln\dfrac{1}{2}, & x = 1 \\[3mm]
+            \dfrac{8\arctan\sqrt{\frac{x-1}{x+1}}}{x^2\sqrt{x^2-1}}
+            + \dfrac{4}{x^2}\ln\dfrac{x}{2} - \dfrac{2}{x^2-1}
+            + \dfrac{4\arctan\sqrt{\frac{x-1}{x+1}}}{(x^2-1)^{3/2}}, & x > 1
+            \end{cases}
 
         Parameters
         ----------
