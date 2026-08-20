@@ -100,3 +100,8 @@ exclude = ["build", "dist", ".venv"]
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
+
+[dependency-groups]
+dev = [
+    "seaborn>=0.13.2",
+]

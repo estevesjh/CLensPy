@@ -1,4 +1,16 @@
+```{image} _static/img/logo.png
+:alt: CLensPy logo
+:width: 300px
+:align: center
+```
+
 # CLensPy
+
+[![Documentation Status](https://readthedocs.org/projects/clenspy/badge/?version=latest)](https://clenspy.readthedocs.io/en/latest/?badge=latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/estevesjh/CLensPy/blob/main/LICENSE)
+[![GitHub tag](https://img.shields.io/github/v/tag/estevesjh/CLensPy?label=version&sort=semver)](https://github.com/estevesjh/CLensPy/tags)
+[![GitHub issues](https://img.shields.io/github/issues/estevesjh/CLensPy)](https://github.com/estevesjh/CLensPy/issues)
+[![GitHub stars](https://img.shields.io/github/stars/estevesjh/CLensPy?style=social)](https://github.com/estevesjh/CLensPy)
 
 Welcome to CLensPy, a Python package for cluster gravitational lensing analysis.
 
@@ -69,8 +81,8 @@ For a detailed breakdown of every class and function, see the {doc}`api/index`.
 - **Development**: see {doc}`development` for running tests, the optional
   comparison-test dependencies, and building these docs locally
 - **Notes**: see {doc}`einasto_math` for the Einasto profile's math -
-  closed forms, series expansions, and the numerical fallbacks that cover
-  the rest
+  exact anchors, the stable residue-series backend (any `n > 0`, with
+  resonance pairing), and the `P(k)` dispatch
 - **Source code**: <https://github.com/estevesjh/clenspy>
 - **Issue tracker**: <https://github.com/estevesjh/clenspy/issues>
 

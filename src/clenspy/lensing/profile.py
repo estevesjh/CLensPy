@@ -43,7 +43,8 @@ class LensingProfile:
         \Sigma(R) = \Sigma_{\rm 1h}(R) + b(M)\, \rho_m\, \Sigma_{\rm 2h}(R)
 
     where :math:`b(M)` is the linear halo bias (`BiasModel`) and
-    :math:`\rho_m` is the mean matter density at ``z_cluster``.
+    :math:`\rho_m = \Omega_{m,0}\,\rho_{c,0}` is the present-day
+    (comoving) mean matter density -- no redshift dependence.
 
     Attributes
     ----------
@@ -121,8 +122,12 @@ class LensingProfile:
         self.z_source = z_source
         self.omega_m = self.cosmo.Om0
 
-        rhocrit = self.cosmo.critical_density(z_cluster).to_value("Msun/Mpc^3")
-        self.rho_m = rhocrit * self.omega_m
+        # comoving mean matter density: Omega_{m,0} * rho_{c,0}, with NO
+        # redshift dependence (critical_density(z) here would mix in
+        # E^2(z) -- 34% high at z=0.25 -- and the 2h tables/NfwProfile
+        # are comoving, matching nfw.py's own rhom convention)
+        rhocrit0 = self.cosmo.critical_density0.to_value("Msun/Mpc^3")
+        self.rho_m = rhocrit0 * self.omega_m
 
         # Validate inputs
         self._validate_inputs()

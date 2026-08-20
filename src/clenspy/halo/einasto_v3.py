@@ -65,10 +65,12 @@ class EinastoProfileV3(EinastoProfile):
         self._integer_n = abs(self.n_index - round(self.n_index)) < 1e-9
         self.K = K
         self.J = J
+        # order is used by the inherited power_spectrum() regardless of
+        # branch; must be set for non-integer n too.
+        self.order = order
 
         if self._integer_n:
             # Need parent _build for native series fallback
-            self.order = order
             n = self.n_index
             k = np.arange(0, order + 1)
             self._k = k
@@ -91,9 +93,10 @@ class EinastoProfileV3(EinastoProfile):
         sign_k = np.where(k % 2 == 0, 1.0, -1.0)  # (-1)^k
         log_kfact = np.zeros(K)
         np.cumsum(np.log(np.arange(1, K + 1)), out=log_kfact)
-        kfact = np.exp(log_kfact)
-
-        self._ak = _gamma(arg_num) * _rgamma(arg_den) * sign_k / kfact
+        # multiply by exp(-log k!) instead of dividing by k!  (k! itself
+        # overflows for K >~ 170; the combined coefficient does not)
+        self._ak = _gamma(arg_num) * _rgamma(arg_den) * sign_k \
+            * np.exp(-log_kfact)
 
         # Weights for each quantity (first track)
         self._w_sigma = -(3.0 * n + k) / (2.0 * n)

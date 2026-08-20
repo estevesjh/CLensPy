@@ -27,11 +27,14 @@ asymptotic expansion; otherwise via mpmath.expint.
 
 import mcfit
 import numpy as np
-from scipy.special import expn, gamma, gammainc, gammaincc, gammaln, kv, roots_genlaguerre
+from scipy.special import (expn, gamma, gammainc, gammaincc, gammaln, kv,
+                           loggamma, roots_genlaguerre)
 
 from ..utils.decorators import scalar_array_output
 from ..utils.integrate import compute_sigma_quadvec, sigma_to_deltasigma_cumtrapz
 from ..utils.interpolate import make_log_interpolation
+
+SQPI_ = np.sqrt(np.pi)
 
 # Cache for generalised Gauss-Laguerre nodes/weights, keyed by (alpha_w, N).
 _GL_CACHE: dict = {}
@@ -94,6 +97,308 @@ NTERMS_ASYMP = 5
 def _nu_asymp_threshold(rtol, nterms=NTERMS_ASYMP):
     """Minimum nu for asymptotic: error ~ nu^{-nterms} < rtol."""
     return rtol ** (-1.0 / nterms)
+
+
+_EULER_GAMMA = 0.5772156649015329
+
+# --------------------------------------------------------------------------
+# P(k) for 0 < n < 1: analytic evaluators with computable error estimates
+# (docs/einasto_proj_density_v4.tex, "The power spectrum"). All in the
+# P = rho_tilde/(4 pi)^2 convention with rho_0 = h = 1; caller rescales.
+# --------------------------------------------------------------------------
+_PK_TOL = 1e-9
+
+
+def _pk_build_kummer(n, M=320, dps_cap=300):
+    """Build the Kummer coefficients b_m defined by
+    e^z sum_m A_m^+ z^m = sum_m b_m z^m  (z = (kt/2)^2), i.e.
+
+        b_m = sum_{i<=m} A_i^+ / (m-i)!,
+        A_i^+ = (-1)^i Gamma(3n+2ni) / (i! (3/2)_i).
+
+    The alternating cancellation is absorbed HERE, once, in mpmath with
+    self-consistently chosen precision; at runtime the series in b_m is
+    (near-)cancellation-free for n <~ 0.93. Returns (sign, log|b_m|,
+    usable): as n -> 1 the entire order 1/(2-2n) of f diverges and the
+    build precision explodes -- usable=False then, and the dispatch falls
+    back to the plain series + asymptotics (+ GL in a small window).
+    """
+    import mpmath as mp
+
+    def _pass(dps_):
+        with mp.workdps(dps_):
+            nn = mp.mpf(n)
+            a = [mp.gamma(3 * nn + 2 * nn * i)
+                 / (mp.factorial(i) * mp.rf(mp.mpf(1.5), i))
+                 for i in range(M + 1)]
+            b, lost = [], 0.0
+            for m_ in range(M + 1):
+                s = mp.mpf(0)
+                big = mp.mpf(0)
+                for i in range(m_ + 1):
+                    t = (-1) ** i * a[i] / mp.factorial(m_ - i)
+                    s += t
+                    big = max(big, abs(t))
+                if s != 0 and big > 0:
+                    lost = max(lost, float(mp.log10(big / abs(s))))
+                b.append(s)
+            return b, lost
+
+    dps = 40
+    for _ in range(3):
+        b, lost = _pass(dps)
+        if lost + 25 <= dps:
+            sign = np.array([float(mp.sign(x)) for x in b])
+            with np.errstate(divide="ignore"):
+                logb = np.array([float(mp.log(abs(x))) if x != 0 else -np.inf
+                                 for x in b])
+            return sign, logb, True
+        dps = int(lost) + 30
+        if dps > dps_cap:
+            break
+    return None, None, False
+
+
+def _pk_kummer_eval(n, kt, sign, logb):
+    """P and error estimate from the Kummer form,
+    P = (n/4pi) sum_m sgn(b_m) exp(log|b_m| + m ln(zeta) - zeta),
+    zeta = kt^2/4. The e^{-zeta} factor is folded into each term
+    (overflow-free); estimate = 10^{lost - 15.6}."""
+    kt = np.atleast_1d(np.asarray(kt, float))
+    m = np.arange(logb.size, dtype=float)
+    z = kt * kt / 4.0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        lt = logb[None, :] + m[None, :] * np.log(z)[:, None] - z[:, None]
+    if (z == 0).any():
+        lt[z == 0] = np.where(m == 0, logb[0], -np.inf)
+    ltmax = lt.max(axis=1, keepdims=True)
+    terms = sign[None, :] * np.exp(lt - ltmax)
+    s_scaled = terms.sum(axis=1)
+    with np.errstate(over="ignore", invalid="ignore"):
+        val = n / (4 * np.pi) * s_scaled * np.exp(ltmax[:, 0])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        est = 10.0 ** (-np.log10(np.abs(s_scaled)) - 15.6)
+    # under-truncation is invisible to the cancellation metric (terms still
+    # growing at the cutoff look like a clean single-signed sum): if the
+    # term peak sits at the end of the table, the value is unusable.
+    est[lt.argmax(axis=1) >= logb.size - 2] = np.inf
+    est[~np.isfinite(val)] = np.inf
+    return val, est
+
+
+def _pk_conv_eval(n, kt, M=400):
+    """Plain convergent small-kt series (log-space terms) + estimate."""
+    kt = np.atleast_1d(np.asarray(kt, float))
+    m = np.arange(0, M + 1, dtype=float)
+    logc = gammaln(3 * n + 2 * n * m) - gammaln(m + 1) \
+        - (gammaln(1.5 + m) - gammaln(1.5))
+    z = kt * kt / 4.0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        lt = logc[None, :] + m[None, :] * np.log(z)[:, None]
+    if (z == 0).any():
+        lt[z == 0] = np.where(m == 0, logc[0], -np.inf)
+    ltmax = lt.max(axis=1, keepdims=True)
+    terms = ((-1.0) ** m)[None, :] * np.exp(lt - ltmax)
+    s_scaled = terms.sum(axis=1)
+    with np.errstate(over="ignore", invalid="ignore"):
+        val = n / (4 * np.pi) * s_scaled * np.exp(ltmax[:, 0])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        est = 10.0 ** (-np.log10(np.abs(s_scaled)) - 15.6)
+    est[lt.argmax(axis=1) >= M - 2] = np.inf   # under-truncated: unusable
+    est[~np.isfinite(val)] = np.inf
+    return val, est
+
+
+def _pk_mb_contour(n, kt, c=-0.5, h=0.08):
+    """P(kt) by trapezoidal quadrature of the Mellin-Barnes kernel along
+    w = c + i tau (rho_0 = h = 1 units):
+
+        P = (n/(4 pi kt)) (1/2 pi i) int Gamma(w) sin(pi w/2)
+            Gamma(2n - nw) kt^{-w} dw .
+
+    The integrand decays like e^{-(pi/2) n |tau|} (the sin GROWS like
+    e^{+(pi/2)|tau|}) and is analytic in -1 < Re w < 2 (the w = 0 pole is
+    killed by the sin zero), so the trapezoidal rule converges
+    geometrically (Aceto & Durastante 2022 setting). c = -1/2 keeps the
+    small-kt amplitude cancellation at ~kt^{-1/2}. Validated to <= 8e-12
+    for n in [0.45, 2.5] over kt in [1e-8, 12]; the phase gradient
+    ~ n ln n of Gamma(2n-nw) undersamples for n >~ 3 -- callers must not
+    use it there.
+    """
+    kt = np.atleast_1d(np.asarray(kt, float))
+    tau_max = max((40.0 + 2 * np.abs(np.log(kt)).max())
+                  / ((np.pi / 2) * n), 8.0)
+    tau = np.arange(h / 2, tau_max, h)
+    w = c + 1j * tau
+    logG = loggamma(w) + loggamma(2 * n - n * w) \
+        + np.log(np.sin(np.pi * w / 2))
+    vals = np.exp(logG[None, :] - w[None, :] * np.log(kt)[:, None])
+    integral = 2.0 * (h / (2 * np.pi)) * vals.real.sum(axis=1)
+    return n / (4 * np.pi * kt) * integral
+
+
+def _pk_plateau_eval(n, kt, Mmax=400):
+    """P0 + small-kt series with optimal truncation (asymptotic for n>1).
+    Returns (val, est); est = 10 x smallest retained term / |sum|."""
+    kt = np.atleast_1d(np.asarray(kt, float))
+    m = np.arange(1, Mmax + 1, dtype=float)
+    logc = gammaln(3 * n + 2 * n * m) - gammaln(m + 1) \
+        - (gammaln(1.5 + m) - gammaln(1.5))
+    logP0 = gammaln(3 * n)
+    out = np.empty(kt.size)
+    est = np.empty(kt.size)
+    for i, k_ in enumerate(kt):
+        if k_ <= 0:
+            out[i], est[i] = n / (4 * np.pi) * np.exp(logP0), 0.0
+            continue
+        lt = logc + m * np.log(k_ * k_ / 4.0) - logP0     # terms / P0
+        grow = np.diff(lt) > 0
+        mo = int(np.argmax(grow)) + 1 if grow.any() else Mmax
+        s_rel = 1.0 + (((-1.0) ** m[:mo]) * np.exp(lt[:mo])).sum()
+        out[i] = n / (4 * np.pi) * np.exp(logP0) * s_rel
+        est[i] = 10.0 * np.exp(lt[min(mo, Mmax - 1)]) \
+            / max(abs(s_rel), 1e-300)
+    return out, est
+
+
+def _pk_direct_eval(n, kt, M=600):
+    """Direct large-kt series (convergent for n>1), log-space terms.
+    est covers BOTH fp64 cancellation and the unsummed tail (the
+    cancellation metric alone cannot see under-truncation)."""
+    kt = np.atleast_1d(np.asarray(kt, float))
+    m = np.arange(1, M + 1, dtype=float)
+    logc = gammaln(2 + m / n) - gammaln(m + 1)
+    sgn = (-1.0) ** (m + 1) * np.sin(np.pi * m / (2 * n))
+    out = np.empty(kt.size)
+    est = np.empty(kt.size)
+    for i, k_ in enumerate(kt):
+        if k_ <= 0:
+            out[i], est[i] = 0.0, np.inf
+            continue
+        lt = logc - (m / n) * np.log(k_)
+        ltmax = lt.max()
+        s_scaled = (sgn * np.exp(lt - ltmax)).sum()
+        out[i] = s_scaled * np.exp(ltmax) / (4 * np.pi * k_ ** 3)
+        s_abs = max(abs(s_scaled), 1e-300)
+        cancel = 10.0 ** (-np.log10(s_abs) - 15.6)
+        tail = 10.0 * np.exp(lt[-1] - ltmax) / s_abs
+        est[i] = max(cancel, tail)
+        if lt.argmax() >= M - 2:
+            est[i] = np.inf
+    return out, est
+
+
+def _pk_filon(n, kt, npts=50000):
+    """P(kt) by Filon quadrature of the t-space master integral
+    (rho_0 = h = 1 units):
+
+        P = (1/(4 pi kt)) int_0^{t_hi} g(t) sin(kt t) dt,
+        g(t) = t e^{-t^{1/n}},  t_hi = (2n + 45)^n
+        [u = t^{1/n} substitution: u^{3n-1} du = (1/n) t^2 dt cancels the
+        master integral's overall factor n].
+
+    Piecewise-LINEAR interpolation of the smooth envelope g with the
+    oscillatory factor integrated EXACTLY per interval, so the node count
+    follows the envelope (not the oscillation count) -- the standard cure
+    for large-n turnover kt, where the integrand oscillates ~kt t_hi >> 1
+    times and Gauss-Laguerre undersamples. Cost ~ npts flops per kt.
+    """
+    kt = np.atleast_1d(np.asarray(kt, float))
+    # envelope grid: uniform in z = t^{1/n} resolves g everywhere
+    z = np.linspace(0.0, 2 * n + 45.0, npts)
+    t = z ** n
+    g = t * np.exp(-z)
+    out = np.empty(kt.size)
+    for i, k_ in enumerate(kt):
+        a = k_ * t[:-1]
+        b = k_ * t[1:]
+        dt_ = t[1:] - t[:-1]
+        good = dt_ > 0
+        # exact int_{ta}^{tb} (g_a + s (g_b - g_a)) sin(k t) dt with
+        # s = (t - ta)/dt:  use antiderivatives of sin, t sin
+        ca, cb = np.cos(a), np.cos(b)
+        sa, sb = np.sin(a), np.sin(b)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            I0 = (ca - cb) / k_                       # int sin
+            I1 = (sb - sa) / k_ ** 2 - (t[1:] * cb - t[:-1] * ca) / k_
+            g0, g1 = g[:-1], g[1:]
+            slope = np.where(good, (g1 - g0) / np.where(good, dt_, 1), 0.0)
+            seg = (g0 - slope * t[:-1]) * I0 + slope * I1
+        out[i] = seg[good].sum() / (4 * np.pi * k_)
+    return out
+
+
+def _pk_asym_eval(n, kt, Mmax=2000):
+    """Large-kt series with optimal truncation. For n < 1 it is a valid
+    asymptotic expansion (Watson/Erdelyi); smallest-term truncation gives
+    error ~ exp(-c kt^{1/(1-n)}). Estimate = 10 x smallest term / |sum|."""
+    kt = np.atleast_1d(np.asarray(kt, float))
+    m = np.arange(1, Mmax + 1, dtype=float)
+    logc = gammaln(2 + m / n) - gammaln(m + 1)
+    sgn = (-1.0) ** (m + 1) * np.sin(np.pi * m / (2 * n))
+    out = np.empty(kt.size)
+    est = np.empty(kt.size)
+    for i, k_ in enumerate(kt):
+        if k_ <= 0:
+            out[i], est[i] = 0.0, np.inf
+            continue
+        lt = logc - (m / n) * np.log(k_)
+        grow = np.diff(lt) > 0
+        mo = int(np.argmax(grow)) + 1 if grow.any() else Mmax
+        s = (sgn[:mo] * np.exp(lt[:mo])).sum()
+        out[i] = s / (4 * np.pi * k_ ** 3)
+        est[i] = 10.0 * np.exp(lt[min(mo, Mmax - 1)]) / abs(s) \
+            if s != 0 else np.inf
+    return out, est
+
+
+def _expdisk_deltasigma_factor(x):
+    """DeltaSigma/(rho_0 h) for the n = 1 (exponential) profile.
+
+    Closed form 8/x^2 - 4 K_2(x) - 2 x K_1(x) self-cancels as x -> 0
+    (both 8/x^2 and 4K_2 ~ 8/x^2 while the result is O(x^2 ln x)); below
+    x = 0.1 use its verified small-x expansion (error <= 1e-10 there):
+
+        -(x^2/2)(Lt - 1/4) - (x^4/12)(Lt - 7/6) - (x^6/256)(Lt - 13/8),
+        Lt = ln(x/2) + euler_gamma.
+    """
+    x = np.asarray(x, float)
+    out = np.empty_like(x)
+    small = x < 0.1
+    if small.any():
+        xs = x[small]
+        with np.errstate(divide="ignore"):
+            Lt = np.log(xs / 2.0) + _EULER_GAMMA
+        t = -(xs ** 2 / 2) * (Lt - 0.25) - (xs ** 4 / 12) * (Lt - 7.0 / 6.0) \
+            - (xs ** 6 / 256) * (Lt - 13.0 / 8.0)
+        out[small] = np.where(xs > 0, t, 0.0)
+    if (~small).any():
+        xl = x[~small]
+        out[~small] = 8.0 / xl ** 2 - 4.0 * kv(2, xl) - 2.0 * xl * kv(1, xl)
+    return out
+
+
+def _expdisk_m2d_factor(x):
+    """M_2D/(4 pi rho_0 h^3) for the n = 1 profile: 2 - x^2 K_2(x), with
+    the small-x expansion below x = 0.1 (2 and x^2 K_2 ~ 2 cancel):
+
+        x^2/2 + (x^4/8) Lb + (x^6/96)(Lb - 2/3) + (x^8/3072)(Lb - 25/24),
+        Lb = ln(x/2) + euler_gamma - 3/4.
+    """
+    x = np.asarray(x, float)
+    out = np.empty_like(x)
+    small = x < 0.1
+    if small.any():
+        xs = x[small]
+        with np.errstate(divide="ignore"):
+            Lb = np.log(xs / 2.0) + _EULER_GAMMA - 0.75
+        t = xs ** 2 / 2 + (xs ** 4 / 8) * Lb + (xs ** 6 / 96) * (Lb - 2.0 / 3.0) \
+            + (xs ** 8 / 3072) * (Lb - 25.0 / 24.0)
+        out[small] = np.where(xs > 0, t, 0.0)
+    if (~small).any():
+        xl = x[~small]
+        out[~small] = 2.0 - xl ** 2 * kv(2, xl)
+    return out
 
 
 def _catalan_over_4k(k):
@@ -285,12 +590,15 @@ class EinastoProfile:
     -----
     For n = 1/alpha > 3/2, :meth:`sigma`, :meth:`deltasigma`, and
     :meth:`enclosed_mass_2D` use the closed-form Catalan series
-    (docs/einasto_proj_density.tex). For n <= 3/2 (alpha >= 2/3) that series
-    converges too slowly to be usable, so :meth:`sigma` and :meth:`deltasigma`
-    are instead computed numerically: :meth:`sigma` via direct Abel
-    (line-of-sight) projection of :meth:`density`, :meth:`deltasigma` from a
-    dense :meth:`sigma` grid via cumulative-trapezoid enclosed mass.
-    :meth:`enclosed_mass_2D` has no fallback and raises for n <= 3/2.
+    (docs/einasto_proj_density.tex). For n <= 3/2 (alpha >= 2/3) they use
+    the stable low-n backend (:class:`~clenspy.halo.einasto_lown.EinastoLowN`):
+    the Retana-Montenegro et al. (2012) case-1 residue series with resonance
+    pairing at small/moderate z = (R/h)^(1/n), switching to the all-positive
+    Catalan E_nu representation beyond a per-n calibrated z. Validated to
+    ~4e-9 relative accuracy against mpmath quadrature for n in [0.35, 1.5]
+    and R/h in [0.01, 40]. The purely numerical Abel/cumtrapz fallbacks
+    (:meth:`_sigma_numerical`, :meth:`_deltasigma_numerical`) are retained
+    for cross-checks only.
 
     :meth:`power_spectrum`/:meth:`fourier` use their own, independent split
     (docs/einasto_power_spectrum.tex): an analytic series for n > 1
@@ -319,9 +627,17 @@ class EinastoProfile:
             raise ValueError(f"n = 1/alpha = {self.n_index:.3f} must be positive.")
         self.h = self.r_s / (2 * self.n_index) ** self.n_index
 
-        # n > 3/2: closed-form Catalan series. n <= 3/2: numerical fallback
-        # (see class Notes) -- the series converges too slowly to use there.
+        # sigma/deltasigma/enclosed_mass_2D: exact closed forms at the
+        # anchors n = 1/2 (Gaussian) and n = 1 (exponential); the stable
+        # residue-series + E_nu hybrid (einasto_lown) for every other n.
+        # The legacy Catalan machinery is still built for n > 3/2 because
+        # power_spectrum and order_for_tol use it (self.order / _ck / _nu_k),
+        # but sigma/deltasigma/enclosed_mass_2D no longer evaluate through
+        # it (its DeltaSigma truncation error is O(K^{-1/2}) *absolute*,
+        # i.e. 30-200% relative -- see docs/einasto_proj_density_v4.tex).
         self._series = self.n_index > 1.5
+        self._lown = None
+        self._pk_bm = None          # lazy Kummer P(k) build, n < 1 only
         if self._series:
             if tol is not None:
                 self._build(order)                       # ceiling for the search
@@ -329,6 +645,18 @@ class EinastoProfile:
             self._build(order)
         else:
             self.order = None
+        if not self._is_anchor():
+            from .einasto_lown import EinastoLowN
+            self._lown = EinastoLowN(
+                self.n_index, self.rho_0, self.h,
+                tol=tol if tol is not None else 1e-9)
+
+    def _is_anchor(self):
+        # tight tolerance on purpose: np.isclose's default rtol=1e-5 would
+        # silently evaluate e.g. n = 1 + 1e-7 with the n = 1 closed form
+        # (an O(1e-7) profile error); the backend handles near-integer n
+        # exactly via resonance pairing, so only true anchors bypass it.
+        return abs(self.n_index - 0.5) < 1e-12 or abs(self.n_index - 1.0) < 1e-12
 
     def _build(self, order):
         """Precompute the index-dependent series arrays for k = 0..order."""
@@ -465,13 +793,11 @@ class EinastoProfile:
         (see the class Notes and :meth:`_sigma_numerical`).
         """
         R = np.atleast_1d(np.asarray(R, float))
-        if np.isclose(self.n_index, 1.0):
+        if abs(self.n_index - 1.0) < 1e-12:
             return 2.0 * self.rho_0 * R * kv(1, R / self.h)
-        if not self._series:
-            return self._sigma_numerical(R)
-        weight = (self._k + 1) * self._ck
-        sumval = np.sum(weight[None, :] * self._E_nu(R), axis=-1)
-        return 2 * self.rho_0 * self.n_index * R * sumval
+        if abs(self.n_index - 0.5) < 1e-12:
+            return SQPI_ * self.rho_0 * self.h * np.exp(-((R / self.h) ** 2))
+        return self._lown.sigma(R)
 
     # Below this scaled radius z = (R/h)^(1/n) the native DeltaSigma series
     # loses all precision to catastrophic cancellation (M_3D/piR^2 and the
@@ -547,26 +873,15 @@ class EinastoProfile:
         and :meth:`_deltasigma_numerical`).
         """
         R = np.atleast_1d(np.asarray(R, float))
-        if np.isclose(self.n_index, 1.0):
-            x = R / self.h
-            return self.rho_0 * self.h * (
-                8.0 / x ** 2 - 4.0 * kv(2, x) - 2.0 * x * kv(1, x)
-            )
-        if not self._series:
-            return self._deltasigma_numerical(R)
-        z = (R / self.h) ** (1.0 / self.n_index)
-        small = z < self._DS_ASYMP_ZMAX
-
-        out = np.empty_like(R)
-        if small.any():
-            out[small] = self._deltasigma_asymp(R[small])
-        if (~small).any():
-            Rb = R[~small]
-            weight = self._k * self._ck         # k=0 term vanishes
-            sumval = np.sum(weight[None, :] * self._E_nu(Rb), axis=-1)
-            mean_term = self.enclosed_mass(Rb) / (np.pi * Rb ** 2)
-            out[~small] = mean_term - 2 * self.rho_0 * self.n_index * Rb * sumval
-        return out
+        if abs(self.n_index - 1.0) < 1e-12:
+            return self.rho_0 * self.h * _expdisk_deltasigma_factor(R / self.h)
+        if abs(self.n_index - 0.5) < 1e-12:
+            x2 = (R / self.h) ** 2
+            with np.errstate(divide="ignore", invalid="ignore"):
+                out = SQPI_ * self.rho_0 * self.h * (
+                    -np.expm1(-x2) / x2 - np.exp(-x2))
+            return np.where(x2 > 0, out, 0.0)
+        return self._lown.deltasigma(R)
 
     @scalar_array_output
     def enclosed_mass_2D(self, R):
@@ -577,19 +892,18 @@ class EinastoProfile:
             M_{\rm 2D}(R) = M_{\rm 3D}(R) + 2\pi \rho_0\, n\, R^3
             \sum_{k \ge 0} c_k\, E_{\nu_k}(x), \qquad x = (R/h)^{1/n}
 
-        Only available for n > 3/2 (the Catalan series); there is no
-        numerical fallback for n <= 3/2 (unlike `sigma`/`deltasigma`/
-        `power_spectrum`).
+        For n <= 3/2: exact closed forms at the anchors (n = 1/2 Gaussian,
+        n = 1 exponential), otherwise ``pi R^2 (Sigma + DeltaSigma)`` from
+        the stable low-n series backend.
         """
-        if not self._series:
-            raise NotImplementedError(
-                "enclosed_mass_2D has no numerical fallback for n <= 3/2 "
-                "(alpha >= 2/3); use enclosed_mass (3D) or sigma/deltasigma, "
-                "which are supported numerically for this n."
-            )
         R = np.atleast_1d(np.asarray(R, float))
-        sumval = np.sum(self._ck[None, :] * self._E_nu(R), axis=-1)
-        return self.enclosed_mass(R) + 2 * np.pi * self.rho_0 * self.n_index * R ** 3 * sumval
+        if abs(self.n_index - 1.0) < 1e-12:
+            return 4.0 * np.pi * self.rho_0 * self.h ** 3 \
+                * _expdisk_m2d_factor(R / self.h)
+        if abs(self.n_index - 0.5) < 1e-12:
+            x2 = (R / self.h) ** 2
+            return np.pi * SQPI_ * self.rho_0 * self.h ** 3 * (-np.expm1(-x2))
+        return self._lown.enclosed_mass_2D(R)
 
     def order_for_tol(self, tol, R=None, max_order=5000, quantity="sigma"):
         """
@@ -712,12 +1026,30 @@ class EinastoProfile:
             \sum_{m \ge 0} A_m^+ \left(\frac{\tilde k^2}{4}\right)^m, \qquad
             A_m^+ = \frac{(-1)^m\, \Gamma(3n+2nm)}{m!\, (3/2)_m}
 
-        is a convergent Cauchy series for all k, but its finite-precision
-        partial sums suffer unresolved catastrophic cancellation (no
-        anti-cancellation decomposition like the n>1 Wright form below has
-        been derived for it). ``power_spectrum`` instead computes this
-        case numerically, via a FFTLog transform (`mcfit.xi2P`) of
-        `density`; see :meth:`_power_spectrum_numerical`.
+        converges for all k but self-cancels in fp64 beyond a modest
+        :math:`\tilde k`. Evaluation therefore dispatches per point among
+        three analytic forms with computable error estimates: the Kummer
+        (anti-cancellation) decomposition
+
+        .. math::
+            P = \frac{\rho_0 n h^3}{4\pi}\, e^{-\tilde k^2/4}
+            \sum_{m \ge 0} b_m \left(\frac{\tilde k}{2}\right)^{2m},
+            \qquad b_m = \sum_{i=0}^{m} \frac{A_i^+}{(m-i)!}
+
+        with build-time :math:`b_m` (exactly :math:`b_m = \delta_{m0}` at
+        n = 1/2); the plain series; and the optimally-truncated large-k
+        series above, a valid asymptotic expansion for n < 1 with error
+        :math:`\sim e^{-c\tilde k^{1/(1-n)}}`. Trapezoidal Mellin-Barnes
+        contour quadrature covers the narrow window (only
+        :math:`n \gtrsim 0.93`) where no estimate meets ``_PK_TOL``.
+        Validated to <= 1e-11 against mpmath for n = 0.45-0.97 (see
+        docs/einasto_proj_density_v4.tex).
+
+        **n > 1** dispatches through a cost-ordered analytic cascade
+        (plateau series, direct series, MB contour / Filon quadrature) --
+        see the inline comments in the auto branch and
+        docs/einasto_math.md. Validated to <= 3.3e-10 for n = 1.05-4 and
+        <= 8.5e-8 for n = 10 over the physical k range.
 
         Parameters
         ----------
@@ -747,83 +1079,76 @@ class EinastoProfile:
                 # Exact Gaussian transform (einasto_power_spectrum.tex, eq. 21).
                 return rho_0 * h ** 3 / (16.0 * np.sqrt(np.pi)) * np.exp(-(kt ** 2) / 4.0)
             elif n < 1.0:
-                # The small-k series (eq. 12) is a convergent Cauchy series
-                # for all k when n<1, but its finite-precision partial sums
-                # suffer unresolved catastrophic cancellation well before
-                # the asymptotic regime (no anti-cancellation trick like the
-                # n>1 Wright decomposition below has been derived for this
-                # branch yet). Use a direct FFTLog transform of density()
-                # instead; validated against the exact n=1/2 case above to
-                # ~1e-4 relative accuracy.
-                return self._power_spectrum_numerical(k)
-            else:
-                # n>1: analytic large-k series (eq. 16), converges for all k.
-                # Dispatch valid for both n<1 and n>1 -- per-kt threshold:
-                #   sum_{m=1..m_star} |t_m| / P(0) < tol.
-                # Plateau-residual is valid where this holds; the largest
-                # such kt is the auto-found kt_max for the plateau branch.
-                # Where it fails: for n>1 there's a large-k asymptotic
-                # (Wright) series; for n<=1 that series isn't valid (see
-                # _einasto_pk_wright_real), but GL quadrature alone already
-                # covers the practically-relevant range (validated against
-                # the exact Gaussian n=1/2 closed form to ~1e-14 out to
-                # P(k)/P(0) ~ 1e-17), so large-k points just fall to GL.
-                tol = 1e-2
-                N_GL = min(400, max(96, int(30 * max(n, 1.0))))
-                if n > 1.0:
-                    xi_fail = 32.0 * (1.0 - np.exp(-(n - 1.0) / 2.5))
-                    kt_w = xi_fail ** (-n)
+                # Analytic dispatch (docs/einasto_proj_density_v4.tex,
+                # "The power spectrum"): per point, the best of
+                #   (a) the Kummer form e^{-zeta} sum b_m zeta^m (the
+                #       anti-cancellation decomposition of the convergent
+                #       small-kt series; exact e^{-zeta} at n=1/2),
+                #   (b) the plain convergent series (when the Kummer build
+                #       is unusable, n >~ 0.93), and
+                #   (c) the optimally-truncated large-kt asymptotic series
+                #       (valid for n<1 with error ~ exp(-c kt^{1/(1-n)})),
+                # each carrying a computable error estimate; Gauss-Laguerre
+                # quadrature of the master integral only where no estimate
+                # meets _PK_TOL (a narrow kt window for n >~ 0.93).
+                kt_arr = np.atleast_1d(np.asarray(kt, float))
+                if self._pk_bm is None:
+                    self._pk_bm = _pk_build_kummer(n)
+                sgn_b, logb, usable = self._pk_bm
+                va, ea = _pk_asym_eval(n, kt_arr)
+                if usable:
+                    vb, eb = _pk_kummer_eval(n, kt_arr, sgn_b, logb)
                 else:
-                    kt_w = np.inf
-
-                pref_pl = rho_0 * n * h ** 3 / (4 * np.pi)
-                P0 = pref_pl * gamma(3 * n)
-
-                kt_arr = np.atleast_1d(kt)
-                result = np.empty_like(kt_arr)
-
-                J_max = 80
-                m_arr = np.arange(1, J_max + 1, dtype=float)
-                log_z = 2 * np.log(kt_arr)[:, None] - np.log(4.0)
-                log_t_abs = (
-                    gammaln(3 * n + 2 * n * m_arr)[None, :]
-                    - gammaln(m_arr + 1.0)[None, :]
-                    - gammaln(1.5 + m_arr)[None, :]
-                    + gammaln(1.5)
-                    + m_arr[None, :] * log_z
-                )                                              # log|t_m|
-                log_P0 = gammaln(3 * n)
-                log_t_norm = log_t_abs - log_P0                 # log|t_m/P0|
-                # Decision metric: scan all truncations M=1..J_max and
-                # pick the smallest M where |sum_{m=1..M} t_m| / P(0) < tol.
-                # If no such M exists (sum never dips below tol), the
-                # plateau-residual branch is invalid for this kt.
-                sgn = (-1.0) ** m_arr
-                t_norm = sgn[None, :] * np.exp(log_t_norm)      # (nk, J_max)
-                cumS = np.cumsum(t_norm, axis=1)                # partial sums
-                small = np.abs(cumS) < tol                      # (nk, J_max)
-                first_M = np.argmax(small, axis=1)              # 0-indexed
-                use_pl = np.any(small, axis=1)
-                m_trunc = first_M + 1                           # smallest M
-                use_w = (~use_pl) & (kt_arr >= kt_w)
-                use_gl = ~(use_pl | use_w)
-
-                if use_pl.any():
-                    sgn = (-1.0) ** m_arr
-                    idxs = np.where(use_pl)[0]
-                    out_pl = np.empty(idxs.size)
-                    for k, i in enumerate(idxs):
-                        J = int(m_trunc[i])
-                        terms = sgn[:J] * np.exp(log_t_abs[i, :J])
-                        out_pl[k] = P0 + pref_pl * np.sum(terms)
-                    result[use_pl] = out_pl
-                if use_gl.any():
-                    result[use_gl] = _einasto_pk_GL(
-                        kt_arr[use_gl], n, h, rho_0, N=N_GL)
-                if use_w.any():
-                    result[use_w] = _einasto_pk_wright_real(
-                        kt_arr[use_w], n, h, rho_0, M=80)
-                return result
+                    vb, eb = _pk_conv_eval(n, kt_arr)
+                use_a = ea < eb
+                val = np.where(use_a, va, vb)
+                err = np.minimum(ea, eb)
+                # Mellin-Barnes contour quadrature where the series
+                # estimates fail (a narrow kt window for n >~ 0.93);
+                # machine-exact and the cheapest evaluator in that window.
+                bad = err > 1e-8
+                if bad.any():
+                    val[bad] = _pk_mb_contour(n, kt_arr[bad])
+                out = rho_0 * h ** 3 * val
+                return out if np.ndim(kt) else out[0]
+            else:
+                # n > 1: cost-ordered analytic cascade (each branch carries
+                # a computable error estimate; later, costlier branches
+                # only touch the points earlier ones could not certify):
+                #   1. plateau series, optimally truncated (asymptotic for
+                #      n>1; superb at small kt),
+                #   2. direct large-k series (convergent for n>1; superb
+                #      at moderate/large kt; estimate covers cancellation
+                #      AND the unsummed tail),
+                #   3. crack filler: Mellin-Barnes contour quadrature for
+                #      n <= 3 (machine-exact, cheapest); Gauss-Laguerre
+                #      (N=300; exact at small kt) for larger n, where the
+                #      MB phase gradient ~ n ln n is under-sampled.
+                # The Wright rotation branch is no longer used here (it
+                # was misrouted into the deep plateau for n >~ 3 and is
+                # dominated by the direct series where it is valid).
+                kt_arr = np.atleast_1d(np.asarray(kt, float))
+                vp, ep = _pk_plateau_eval(n, kt_arr)
+                val = vp
+                need = ep > _PK_TOL
+                if need.any():
+                    vd, ed = _pk_direct_eval(n, kt_arr[need])
+                    better = ed < ep[need]
+                    val[need] = np.where(better, vd, vp[need])
+                    still = np.where(need)[0][np.minimum(ed, ep[need])
+                                              > 1e-8]
+                    if still.size:
+                        if n <= 3.0:
+                            val[still] = _pk_mb_contour(n, kt_arr[still])
+                        else:
+                            # large-n turnover: the master integrand
+                            # oscillates ~kt (2n)^n times against the
+                            # weight; Filon (envelope-resolved, exact
+                            # sine integrals) instead of GL, which
+                            # undersamples there (errors up to ~4e-2)
+                            val[still] = _pk_filon(n, kt_arr[still])
+                out = rho_0 * h ** 3 * val
+                return out if np.ndim(kt) else out[0]
 
         if branch == "closed":
             return rho_0 * h ** 3 / (2 * np.pi * (1 + kt ** 2) ** 2)

@@ -45,7 +45,11 @@ the same way, driven by `.readthedocs.yaml` at the repository root.
   shared decorators
 - `clenspy.config`: default cosmology and physical constants
 
+`clenspy.halo.einasto_lown` is the series backend `EinastoProfile` uses for
+all non-anchor `n` (see `docs/einasto_proj_density_v4.tex` and
+{doc}`einasto_math`); it is internal - construct `EinastoProfile`.
 `clenspy.halo.einasto_v2` and `clenspy.halo.einasto_v3` are research/benchmark
 implementations exploring alternative closed-form series for the Einasto
 projected density (see `docs/einasto_proj_density_v2.tex` and `_v3.tex`).
-They are not part of the public API - use `clenspy.halo.EinastoProfile`.
+None of the three are part of the public API - use
+`clenspy.halo.EinastoProfile`.

@@ -1,5 +1,38 @@
 # Einasto Series Investigation: Why the Case-1 Series Fails at Large x/k
 
+```{admonition} Post-hoc correction (2026-08): Finding 1 "Mode B" is refuted
+:class: warning
+
+A later session re-derived the case-1 series from scratch (Mellin–Barnes,
+{doc}`einasto_proj_density_v4 <einasto_math>`, `docs/einasto_proj_density_v4.tex`)
+and ran a three-way *triangle test* — mpmath Abel quadrature, direct numerical
+integration of the Mellin–Barnes contour integral, and the residue series —
+at exactly the points reported below as "identical wrong answer at any
+precision" (`n=0.7`, `x = 6.5, 8, 10`). All three agree to `1e-28`–`1e-44`.
+The contour-closure argument (superfactorial gamma decay beats `x^sigma`)
+proves the series equals the profile for **all** `x` and all `n > 0`; there
+is **no finite domain of validity**. "Mode B" was an evaluation bug in this
+session's test harness, not mathematics.
+
+What *is* real at large `x` in double precision is cancellation: the largest
+term grows like `e^{+z}` (`z = x^{1/n}`) while the answer stays small,
+losing `~0.5 z` digits for `DeltaSigma` (`~0.87 z` for `Sigma`) — a
+measurable, budgetable limit, beyond which the implementation now switches
+to the all-positive Catalan `E_nu` representation. The *actual* instability
+of the `1 < n <= 3/2` regime turned out to be something this document never
+identified: **pole collisions** between the two residue tracks at
+`k = n(2j-1)` (any `n = p/q` with odd `q`: 6/5, 4/3, 7/5, ...), where both
+coefficients diverge like `1/eps` and must be evaluated as an analytically
+paired term. See `docs/einasto_proj_density_v4.tex` and
+`src/clenspy/halo/einasto_lown.py` (validated to `<= 4e-9` for
+`n in [0.35, 1.5]`, `x in [0.01, 40]`).
+
+Findings 1 (Mode A: under-truncation), 3, 4, and 5 below remain valid; the
+"hybrid dispatch is mathematically necessary" conclusion should read
+"practically necessary in fp64 (cancellation), with the switch point set by
+arithmetic, not by a validity wall".
+```
+
 ## Context
 
 {doc}`einasto_math` documents the current implementation: for `0 < n <=

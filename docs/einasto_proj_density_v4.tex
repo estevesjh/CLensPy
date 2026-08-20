@@ -1,0 +1,477 @@
+\documentclass{article}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+
+\geometry{margin=1in}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{remark}{Remark}
+
+\title{Projected Einasto Profile IV:\\
+One Mellin--Barnes Kernel per Quantity, Resonance Pairing,\\
+and a Numerically Stable Recipe for $n\le 3/2$}
+\author{Johnny H.~Esteves}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We redefine the series coefficients of the projected Einasto quantities
+$\Sigma$, $\bar\Sigma$, and $\Delta\Sigma$ so that each is read directly off
+its own Mellin--Barnes kernel, eliminating the chained weight ladders of the
+earlier notes. The kernel for $\Delta\Sigma$ collapses to a single gamma
+ratio, $2\sqrt\pi\,n\,\Gamma(ns)\,\Gamma(\tfrac{s+1}{2})/[\Gamma(\tfrac
+s2)(3-s)]$. We prove the residue series converges to the exact profile for
+\emph{all} radii and all $n>0$ --- correcting the earlier claim of a finite
+domain of validity, which we show empirically (Abel quadrature, direct
+contour integration, and the series agree to $10^{-40}$) was an artifact of a
+buggy evaluation. The genuine obstacles in double precision are (i)
+cancellation, whose depth $\simeq 0.5\,z$ digits for $\Delta\Sigma$
+($0.87\,z$ for $\Sigma$), $z=(R/h)^{1/n}$, is measurable at build time, and
+(ii) \emph{pole collisions} between the two residue strings at $k = n(2j-1)$
+(any $n=p/q$ with odd $q$, e.g.\ $n=6/5,\,4/3,\,7/5$), where both
+coefficients diverge like $1/\varepsilon$ and previous implementations
+returned garbage or \texttt{inf}. We give an exact paired-residue form,
+stable uniformly in $\varepsilon$, that reproduces the integer-limit
+logarithmic series continuously in $n$. Beyond the cancellation budget the
+evaluation switches to the all-positive Catalan $E_\nu$ representation with
+closed-form tail corrections. The resulting double-precision implementation
+achieves $\lesssim 4\times10^{-9}$ relative accuracy for all
+$n\in[0.35,\,1.5]$ and $R/h\in[0.01,\,40]$, against the $10^{-3}$ target of
+issue~\#3.
+\end{abstract}
+
+% ======================================================================
+\section{Setup}
+% ======================================================================
+
+\begin{equation}\label{eq:rho}
+\rho(r)=\rho_0\,e^{-(r/h)^{1/n}}, \qquad n=1/\alpha,\quad h=r_s/(2n)^n,
+\qquad x \equiv R/h,\quad z \equiv x^{1/n}.
+\end{equation}
+Throughout, $\Sigma$ is the surface density, $M_{\rm 2D}(R)=2\pi\!\int_0^R
+\Sigma R'\,{\rm d}R'$, $\bar\Sigma = M_{\rm 2D}/(\pi R^2)$, and
+$\Delta\Sigma=\bar\Sigma-\Sigma$.
+
+% ======================================================================
+\section{One kernel per quantity}\label{sec:kernels}
+% ======================================================================
+
+Start from the Abel projection and the Mellin pair
+$\int_0^\infty u^{s-1} e^{-u^{1/n}}{\rm d}u = n\,\Gamma(ns)$:
+\begin{equation}
+\Sigma(x) = 2\rho_0 h \int_x^\infty
+\frac{e^{-u^{1/n}}\,u\,{\rm d}u}{\sqrt{u^2-x^2}}
+= 2\rho_0 h\, x \int_0^1 e^{-(x/t)^{1/n}}\,
+\frac{{\rm d}t}{t^{2}\sqrt{1-t^2}} .
+\end{equation}
+Inserting $e^{-v^{1/n}} = \frac{n}{2\pi i}\int_{c}\Gamma(ns)\,v^{-s}\,{\rm
+d}s$ and $\int_0^1 t^{s-2}(1-t^2)^{-1/2}{\rm d}t = \frac{\sqrt\pi}{2}
+\Gamma(\tfrac{s-1}{2})/\Gamma(\tfrac s2)$ (valid for $\mathrm{Re}\,s>1$)
+gives the master representations, for $1<c<3$:
+\begin{align}
+\Sigma(x) &= \sqrt\pi\,\rho_0 h\; \frac{n}{2\pi i}\int_{c-i\infty}^{c+i\infty}
+\frac{\Gamma(ns)\,\Gamma\!\big(\tfrac{s-1}{2}\big)}{\Gamma\!\big(\tfrac
+s2\big)}\; x^{1-s}\,{\rm d}s, \label{eq:mb-sigma}\\[4pt]
+\bar\Sigma(x) &= \sqrt\pi\,\rho_0 h\; \frac{n}{2\pi i}\int_{c}
+\frac{\Gamma(ns)\,\Gamma\!\big(\tfrac{s-1}{2}\big)}{\Gamma\!\big(\tfrac
+s2\big)}\;\frac{2}{3-s}\; x^{1-s}\,{\rm d}s, \label{eq:mb-sigbar}\\[4pt]
+\Delta\Sigma(x) &= 2\sqrt\pi\,\rho_0 h\; \frac{n}{2\pi i}\int_{c}
+\boxed{\;\frac{\Gamma(ns)\,\Gamma\!\big(\tfrac{s+1}{2}\big)}
+{\Gamma\!\big(\tfrac s2\big)\,(3-s)}\;}\; x^{1-s}\,{\rm d}s .
+\label{eq:mb-ds}
+\end{align}
+Equation~\eqref{eq:mb-sigbar} follows by termwise radial integration
+($\int_0^x x'^{\,2-s}{\rm d}x' = x^{3-s}/(3-s)$, legal for $c<3$), and
+\eqref{eq:mb-ds} from $\bar\Sigma-\Sigma$ via the identity
+\begin{equation}
+\Big(\frac{2}{3-s}-1\Big)\Gamma\!\Big(\frac{s-1}{2}\Big)
+= \frac{s-1}{3-s}\,\Gamma\!\Big(\frac{s-1}{2}\Big)
+= \frac{2}{3-s}\,\Gamma\!\Big(\frac{s+1}{2}\Big).
+\end{equation}
+The pole of $1/(3-s)$ lies \emph{right} of the contour and is never picked
+up; the $k=0$ pole of $\Gamma(ns)$ at $s=0$ is annihilated in
+\eqref{eq:mb-ds} by the zero of $1/\Gamma(s/2)$, which is the kernel-level
+statement that $\Delta\Sigma$ has no constant term (no large-number
+subtraction at small $x$).
+
+% ======================================================================
+\section{Residue series and the new coefficients}\label{sec:coeffs}
+% ======================================================================
+
+Closing the contour to the left picks up two pole strings: $s=-k/n$
+($k\ge0$, from $\Gamma(ns)$) and $s=1-2j$ ($j\ge0$, from
+$\Gamma(\tfrac{s\mp1}{2})$):
+\begin{align}
+\Sigma(x) &= \sqrt\pi \rho_0 h \Big[ \sum_{k\ge1} A_k\,x^{k/n+1}
+ + \sum_{j\ge0} S_j\,x^{2j} \Big], &
+A_k &= \frac{(-1)^k}{k!}\,
+\frac{\Gamma\!\big({-\tfrac12}-\tfrac{k}{2n}\big)}
+     {\Gamma\!\big({-\tfrac{k}{2n}}\big)},
+\label{eq:Ak}\\
+\Delta\Sigma(x) &= \sqrt\pi \rho_0 h \Big[ \sum_{k\ge1} D_k\,x^{k/n+1}
+ + \sum_{j\ge1} T_j\,x^{2j} \Big], &
+D_k &= -\frac{n+k}{3n+k}\,A_k,
+\label{eq:Dk}
+\end{align}
+\begin{equation}\label{eq:SjTj}
+S_j = 2n\,\frac{(-1)^j}{j!}\,
+\frac{\Gamma(n-2nj)}{\Gamma(\tfrac12-j)}
+= \frac{2n}{\pi}\,\frac{\Gamma(j+\tfrac12)}{j!}\,\Gamma(n-2nj),
+\qquad
+T_j = -\frac{j}{j+1}\,S_j \quad (T_0=0),
+\end{equation}
+and $\bar\Sigma = \Sigma + \Delta\Sigma$, $M_{\rm 2D} = \pi R^2\bar\Sigma$.
+Equation~\eqref{eq:Dk} follows from the kernel residue
+$\frac{(-1)^k}{k!}\frac{2n}{3n+k}\,
+\Gamma(\tfrac12-\tfrac{k}{2n})/\Gamma(-\tfrac{k}{2n})$ via
+$\Gamma(z+1)=z\Gamma(z)$ at $z=-\tfrac12-\tfrac{k}{2n}$ (note
+$-\tfrac12-\tfrac{k}{2n} = -\tfrac{n+k}{2n}$). A single gamma-ratio family
+per track ($A_k$, $S_j$) thus generates all quantities through rational
+factors; the $\{k+1,1,k\}$ ladders and $w_k$ tables of the earlier notes
+are the same identity in other clothes.
+
+\begin{theorem}[Global validity]\label{thm:valid}
+For every $n>0$ and every $x>0$ at which the poles are simple, the residue
+series \eqref{eq:Ak}--\eqref{eq:SjTj} converge absolutely and equal the
+exact integrals \eqref{eq:mb-sigma}--\eqref{eq:mb-ds}.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+Along $\mathrm{Re}\,s=-\sigma\to-\infty$ (between poles), reflection gives
+$|\Gamma(ns)\Gamma(\tfrac{s\mp1}{2})/\Gamma(\tfrac s2)| \sim
+\exp[-n\sigma\ln\sigma + O(\sigma)]$, which decays superfactorially, while
+$|x^{1-s}| = x\,e^{\sigma\ln x}$ grows only exponentially. The left arcs
+therefore vanish for every $x$, and the contour closes.
+\end{proof}
+
+\begin{remark}[Correction to the ``finite domain of validity'' claim]
+\texttt{docs/einasto\_series\_investigation.md} (Finding 1, ``Mode B'')
+reported that the series converges to a wrong value for $x\gtrsim7$ at
+$n=0.7$ at any precision. Theorem~\ref{thm:valid} forbids this, and a
+three-way triangle test (mpmath Abel quadrature, direct numerical
+integration of \eqref{eq:mb-sigma} along the vertical contour, and the
+residue series with adequately sized truncation and working precision)
+confirms agreement to $10^{-28}$--$10^{-44}$ at $n=0.7$, $x=8,10$ ---
+precisely where errors of $3600\%$ had been reported. Mode B was an
+evaluation bug, not mathematics. The practical large-$x$ limits in double
+precision are quantified in \S\ref{sec:budget}.
+\end{remark}
+
+% ======================================================================
+\section{Resonances: pole collisions and paired residues}\label{sec:pairs}
+% ======================================================================
+
+The two pole strings collide when $-k/n = 1-2j$, i.e.
+\begin{equation}\label{eq:res-cond}
+k = n(2j-1)\qquad(k,j\in\mathbb{N}),
+\end{equation}
+possible exactly when $n=p/q$ in lowest terms with $q$ odd --- e.g.\
+$n\in\{6/5,\,4/3,\,7/5,\dots\}$ --- and for \emph{every} integer $n$ (all
+odd $k$). Near such $n$, define for the candidate pair $(k,j)$
+\begin{equation}
+\varepsilon \equiv \frac kn - (2j-1),
+\end{equation}
+so that $\Gamma\big({-\tfrac12}-\tfrac{k}{2n}\big) =
+\Gamma\big({-j}-\tfrac\varepsilon2\big)$ in $A_k$ (hence also in
+$D_k = -\tfrac{n+k}{3n+k}A_k$) and $\Gamma(n-2nj) =
+\Gamma(-k+n\varepsilon)$ in $S_j$ both blow up like $1/\varepsilon$, with
+opposite-signed divergent parts (the double-pole residue is finite). Numerically, $n$ within $\sim\!10^{-16}$ of a resonant
+rational (e.g.\ the double $1.2$) makes both coefficients $\sim10^{16}$ and
+their naive sum pure roundoff --- this, not slow convergence, is the actual
+instability of the $1<n<3/2$ regime, and at exactly representable resonant
+$n$ one of the gammas is an \texttt{inf}.
+
+\paragraph{Exact paired form.} Let $c_1$ be the full first-track coefficient
+($A_k$ or $D_k$) and $c_2$ the full second-track coefficient ($S_j$ or
+$T_j$). The pair's contribution is, identically in $\varepsilon\neq0$,
+\begin{equation}\label{eq:pair}
+c_1 x^{2j+\varepsilon} + c_2 x^{2j}
+= x^{2j}\Big[\,p\,L\,\varphi(\varepsilon L) + s\,\Big],
+\qquad
+p \equiv c_1\varepsilon,\quad s\equiv c_1+c_2,\quad
+L=\ln x,\quad \varphi(y)=\frac{e^{y}-1}{y}.
+\end{equation}
+Both $p$ and $s$ are $O(1)$: the $1/\varepsilon$ parts cancel inside $s$
+analytically. Precomputing $(\varepsilon, p, s)$ once per $n$ in extended
+precision and evaluating \eqref{eq:pair} with \texttt{expm1} is stable
+uniformly in $\varepsilon$, including $\varepsilon\to0$, where
+\begin{equation}\label{eq:pair-limit}
+c_1 x^{2j+\varepsilon}+c_2 x^{2j} \;\longrightarrow\;
+\frac{(-1)^{k+j}\,2\,x^{2j}}{k!\,(j\!-\!1)!\,\Gamma(\tfrac12-j)\,(j\!+\!1)}
+\Big[\,n\psi(k+1) - \ln x + \tfrac12\psi(j+1)
+- \tfrac12\psi(\tfrac12-j)\,\Big]
+\end{equation}
+(shown here for the $\Delta\Sigma$ pair; $\psi$ is the digamma), i.e.\ the
+logarithmic terms of the integer-$n$ ``case 2/3'' series emerge continuously
+in $n$. Because \eqref{eq:pair} is exact for every $\varepsilon$, pairing is
+applied generously ($|\varepsilon|<1/4$; uniqueness of the $k\mapsto j$ map
+only requires $1/n$ larger than twice the window).
+
+\begin{lemma}[$\varepsilon$ must be formed in extended precision]
+$\varepsilon$ is a small difference of $O(1)$ quantities: computed in
+precision $d$ digits it retains only $d - |\log_{10}\varepsilon|$ correct
+digits, and this error enters $p$, $s$, and the exponent of
+\eqref{eq:pair} multiplicatively. (A $d=16$ evaluation of $\varepsilon\sim
+10^{-8}$ poisons the pair at the $10^{-8}$ level --- observed directly
+during validation.)
+\end{lemma}
+
+% ======================================================================
+\section{Double-precision budget and self-calibrated switching}
+\label{sec:budget}
+% ======================================================================
+
+The largest first-track term at radius $x$ is $\max_k z^k/k! \simeq
+e^{z}/\sqrt{2\pi z}$, $z=x^{1/n}$, while $\Sigma\sim e^{-z}$ and
+$\Delta\Sigma$ stays algebraic. Empirically (and consistent with these
+scalings) the alternating sums lose
+\begin{equation}
+\text{digits}(\Sigma) \simeq 0.87\,z, \qquad
+\text{digits}(\Delta\Sigma) \simeq 0.5\,z\;+\;\delta(n),
+\end{equation}
+where $\delta(n)$ grows toward $n=3/2$ (near-resonant coefficient
+enhancement outside the pairing window). Rather than trusting the model, the
+implementation \emph{measures} $\log_{10}(\max_k|{\rm term}_k| / |{\rm
+sum}|)$ on a $z$ grid at build time and places the switch $z_{\rm sw}$ where
+the measured loss exhausts the budget $15.9 + \log_{10}({\rm tol}) - 1.2$.
+Typical values at tol $=10^{-9}$: $z_{\rm sw}^{\Sigma}\simeq7$,
+$z_{\rm sw}^{\Delta\Sigma}\simeq9$--$14$.
+
+% ======================================================================
+\section{Beyond the budget: the $E_\nu$ representation}\label{sec:enu}
+% ======================================================================
+
+For $z>z_{\rm sw}$ the Catalan representation
+(\texttt{einasto\_proj\_density.tex}, Theorem~1),
+\begin{equation}
+\Sigma = 2\rho_0 n R \sum_{k\ge0}(k{+}1)c_k E_{\nu_k}(z),\qquad
+\Delta\Sigma = \frac{M_{\rm 3D}(R)}{\pi R^2}
+- 2\rho_0 n R \sum_{k\ge1} k\,c_k E_{\nu_k}(z),
+\end{equation}
+$c_k = \mathrm{Cat}_k/4^k$, $\nu_k = 2kn-n+1$, has \emph{all-positive}
+terms: no cancellation at large $z$ (its own weakness, the near-cancellation
+of $M_{\rm 3D}/\pi R^2$ against the sum as $z\to0$, lies safely below
+$z_{\rm sw}$). Two numerical ingredients:
+
+\paragraph{$E_\nu$ evaluation.} The upward recurrence
+$E_{s+1}=(e^{-z}-zE_s)/s$ is exponentially unstable for $z\gg\nu$ (error
+factor $z/s$ per step). Dispatch instead: $\nu<1$ via
+$E_p(z)=z^{p-1}\Gamma(1-p,z)$ [DLMF~8.19.1; this also covers the negative
+index $\nu_0=1-n$ for $n>1$]; $1\le\nu<160$ via the Lentz continued
+fraction
+\begin{equation}
+E_\nu(z) = e^{-z}\Big/\Big(z+\nu-\cfrac{1\cdot\nu}{z+\nu+2-
+\cfrac{2(\nu+1)}{z+\nu+4-\cdots}}\Big),
+\end{equation}
+machine-exact for $z\gtrsim1.5$ at any $\nu\ge1$ (verified for
+$\nu\in[2,4200]\times z\in[7,60]$); $\nu\ge160$ via the DLMF~8.20(ii)
+uniform large-$\nu$ expansion (5 terms, error $\nu^{-5}<10^{-11}$ uniformly
+in $z/\nu\ge0$).
+
+\paragraph{Closed-form tails.} The weights decay only algebraically,
+$k c_k \sim k^{-1/2}(1-\tfrac{9}{8k})/\sqrt\pi$ [$(k{+}1)c_k$: same with
+$-\tfrac1{8k}$], so a truncation at $K$ leaves an integrable tail. With
+$E_\nu(z) \simeq e^{-z}\big[\tfrac{1}{z+\nu} + \tfrac{\nu}{(z+\nu)^3}\big]$
+(8.20(ii) through $A_1$), $b=z+1-n$, $K'=K+\tfrac12$,
+$s=\sqrt{2nK'/b}$, $P=\tfrac\pi2-\arctan s$, $Q=s/(1+s^2)$:
+\begin{align}
+I_{1/2}&=\int_{K'}^\infty\!\frac{k^{-1/2}{\rm d}k}{2nk+b}
+=\frac{2P}{\sqrt{2nb}}, &
+I_{3/2}&=\int_{K'}^\infty\!\frac{k^{-3/2}{\rm d}k}{2nk+b}
+=\frac{2}{b\sqrt{K'}}-\frac{2\sqrt{2n}\,P}{b^{3/2}},\\
+G_2&=\int_{K'}^\infty\!\frac{k^{-1/2}{\rm d}k}{(2nk+b)^2}
+=\frac{P-Q}{\sqrt{2n}\,b^{3/2}}, &
+G_3&=\int_{K'}^\infty\!\frac{k^{-1/2}{\rm d}k}{(2nk+b)^3}
+=\frac{\tfrac32P-2Q-\tfrac{s(1-s^2)}{2(1+s^2)^2}}{2\sqrt{2n}\,b^{5/2}},
+\end{align}
+\begin{equation}
+\text{tail} = \frac{e^{-z}}{\sqrt\pi}\Big(I_{1/2} + G_2 - z\,G_3
++ a_1 I_{3/2}\Big),\qquad
+a_1 = -\tfrac18\ (\Sigma),\quad -\tfrac98\ (\Delta\Sigma).
+\end{equation}
+With $K=6000$ this bounds the tail error at the $10^{-9}$--$10^{-10}$
+relative level throughout the switched region.
+
+% ======================================================================
+\section{Exact anchors}\label{sec:anchors}
+% ======================================================================
+
+\paragraph{$n=1/2$ (Gaussian).}
+$\Sigma = \sqrt\pi\rho_0 h\,e^{-x^2}$,\quad
+$M_{\rm 2D} = \pi^{3/2}\rho_0 h^3\,(1-e^{-x^2})$,\quad
+$\Delta\Sigma = \sqrt\pi\rho_0 h\big[\tfrac{1-e^{-x^2}}{x^2} -
+e^{-x^2}\big]$, with $1-e^{-x^2}$ evaluated as \texttt{-expm1}.
+
+\paragraph{$n=1$ (exponential).}
+$\Sigma = 2\rho_0 R\,K_1(x)$,\quad
+$M_{\rm 2D} = 4\pi\rho_0h^3\,[\,2-x^2K_2(x)\,]$,\quad
+$\Delta\Sigma = \rho_0 h\,[\,8/x^2 - 4K_2(x) - 2xK_1(x)\,]$.
+Both bracketed forms self-cancel as $x\to0$; below $x=0.1$ use the verified
+expansions ($\tilde L = \ln\tfrac x2+\gamma$, $\bar L = \tilde L-\tfrac34$):
+\begin{align}
+\frac{\Delta\Sigma}{\rho_0 h} &=
+-\frac{x^2}{2}\Big(\tilde L-\frac14\Big)
+-\frac{x^4}{12}\Big(\tilde L-\frac76\Big)
+-\frac{x^6}{256}\Big(\tilde L-\frac{13}{8}\Big)+O(x^8\ln x),\\
+\frac{M_{\rm 2D}}{4\pi\rho_0h^3} &=
+\frac{x^2}{2}+\frac{x^4}{8}\bar L
++\frac{x^6}{96}\Big(\bar L-\frac23\Big)
++\frac{x^8}{3072}\Big(\bar L-\frac{25}{24}\Big)+O(x^{10}\ln x).
+\end{align}
+
+% ======================================================================
+\section{The power spectrum}\label{sec:pk}
+% ======================================================================
+
+The same program applies to
+$P(\tilde k) = \tilde\rho(kh)/(4\pi)^2$, $\tilde k = kh$. From the Mellin
+pair $\int_0^\infty y^{w-1}\sin y\,{\rm d}y = \Gamma(w)\sin(\pi w/2)$
+applied to the master integral
+$P = \frac{\rho_0 n h^3}{4\pi}\int_0^\infty u^{3n-1}e^{-u}\,
+\mathrm{sinc}(\tilde k u^n)\,{\rm d}u$:
+\begin{equation}\label{eq:pk-mb}
+P(\tilde k) = \frac{\rho_0\, n\, h^3}{4\pi\tilde k}\;\frac{1}{2\pi i}
+\int_{c-i\infty}^{c+i\infty}
+\Gamma(w)\,\sin\!\Big(\frac{\pi w}{2}\Big)\,\Gamma(2n-nw)\;
+\tilde k^{-w}\,{\rm d}w, \qquad 0<c<1 .
+\end{equation}
+The two pole strings, $w=-(2j+1)$ and $w = 2+m/n$, lie on opposite sides of
+the origin and can never collide: $P(k)$ has \emph{no resonances}. Their
+residues reproduce the two known series,
+\begin{equation}\label{eq:pk-series}
+P = \frac{\rho_0 n h^3}{4\pi}\sum_{m\ge0} A_m^+
+\Big(\frac{\tilde k}{2}\Big)^{2m},
+\qquad
+P = \frac{\rho_0 h^3}{4\pi\tilde k^3}\sum_{m\ge1} A_m^-\,\tilde k^{-m/n},
+\end{equation}
+with $A_m^+ = (-1)^m\Gamma(3n+2nm)/[m!\,(3/2)_m]$ and
+$A_m^- = \frac{(-1)^{m+1}}{m!}\Gamma(2+\tfrac mn)\sin(\tfrac{\pi m}{2n})$,
+and mirror-symmetric validity (by the same closure estimates as
+Theorem~\ref{thm:valid}): for $n>1$ the $A_m^-$ series converges for all
+$\tilde k$ and $A_m^+$ is asymptotic; for $n<1$ the roles swap. The
+correction to the earlier code documentation is that for $n<1$ the $A_m^-$
+series, though divergent, is a \emph{valid asymptotic expansion}
+(Watson/Erd\'elyi): truncated at its smallest term its error is
+$\sim e^{-c\,\tilde k^{1/(1-n)}}$, machine-negligible beyond a modest
+$\tilde k$.
+
+\paragraph{Anti-cancellation (Kummer) form.} For $n<1$ the convergent
+$A_m^+$ series self-cancels in fp64 (at $n=\tfrac12$ it is literally the
+Taylor series of $e^{-\tilde k^2/4}$). Absorb the cancellation once, at
+build time:
+\begin{equation}\label{eq:pk-kummer}
+P = \frac{\rho_0 n h^3}{4\pi}\,e^{-\tilde k^2/4}
+\sum_{m\ge0} b_m\Big(\frac{\tilde k}{2}\Big)^{2m},
+\qquad
+b_m = \sum_{i=0}^{m}\frac{A_i^+}{(m-i)!},
+\end{equation}
+with $b_m$ evaluated in extended precision ($b_m = \delta_{m0}$ exactly at
+$n=\tfrac12$). For $n\lesssim0.93$ the runtime sum is cancellation-free at
+\emph{every} $\tilde k$ --- including $n<\tfrac12$, where $\tilde\rho$
+oscillates ($e^{-|x|^{1/n}}$ is positive-definite only for $n\ge\tfrac12$)
+and $b_m\simeq f(-m)/m!$ varies slowly instead of alternating. As
+$n\to1^-$ the entire order $1/(2-2n)$ of the series diverges and the build
+is disabled.
+
+\paragraph{Contour and Filon quadratures.} Following the
+trapezoidal-contour method of Aceto \& Durastante \cite{AcetoDurastante22}
+for Wright functions, the kernel \eqref{eq:pk-mb} is also evaluated
+directly by the trapezoidal rule along $w=-\tfrac12+i\tau$: the integrand
+decays like $e^{-(\pi/2)n|\tau|}$ (the sine \emph{grows} like
+$e^{+(\pi/2)|\tau|}$) and is analytic in $-1<\mathrm{Re}\,w<2$ (the $w=0$
+pole is killed by the sine zero), so convergence is geometric, the node
+count is independent of $\tilde k$, and the gammas are shared across the
+$k$ grid --- the cheapest evaluator in its window, verified to
+$\le8\times10^{-12}$ for $n\in[0.45,2.5]$, $\tilde k\in[10^{-8},12]$. Its
+limits: amplitude cancellation $\sim\tilde k^{-(c+1)}$ at large $\tilde k$
+(where the convergent series is trivial anyway) and phase undersampling
+$\sim n\ln n$ for $n\gtrsim3$, where the crack is instead covered by Filon
+quadrature of the $t=u^n$ master integral
+$P = \frac{\rho_0h^3}{4\pi\tilde k}\int_0^{t_{\rm hi}} t\,e^{-t^{1/n}}
+\sin(\tilde k t)\,{\rm d}t$ (piecewise-linear envelope, exact sine
+integrals per interval: nodes follow the envelope, not the
+$\sim\tilde k(2n)^n$ oscillations that break Gauss--Laguerre at large
+$n$).
+
+\paragraph{Dispatch.} Cost-ordered cascade, each branch with a computable
+error estimate, later (costlier) branches touching only uncertified
+points. For $n<1$: Kummer \eqref{eq:pk-kummer} or the plain series, the
+optimally-truncated $A_m^-$ series, then the MB contour (a window
+$\tilde k\sim1.3$--$2$ for $n\gtrsim0.93$ only). For $n>1$: the plateau
+series (optimal truncation), the direct $A_m^-$ series (estimate covering
+both cancellation and the unsummed tail), then MB ($n\le3$) or Filon
+($n>3$). Validated against mpmath master-integral quadrature:
+$\le1.2\times10^{-11}$ for $n\in\{0.45,0.7,0.9,0.97\}$,
+$\tilde k\in[0.1,60]$ (the FFTLog path this replaces was $\sim2\times
+10^{-3}$, issue \#2); $\le3.3\times10^{-10}$ for $n\in\{1.05,1.2,2.5,4\}$;
+$\le8.5\times10^{-8}$ for $n=10$ over the physical $k r_s$ range (the
+legacy Gauss--Laguerre filler was wrong by up to $4\%$ in the $n=10$
+turnover, and the legacy dispatch misrouted deep-plateau points into the
+large-$k$ Wright series for $n\gtrsim3$).
+
+% ======================================================================
+\section{Validation and implementation}\label{sec:impl}
+% ======================================================================
+
+Implementation: \texttt{src/clenspy/halo/einasto\_lown.py}
+(\texttt{EinastoLowN}), dispatched from \texttt{EinastoProfile} for
+\emph{every} $n>0$ except the closed-form anchors. The extension beyond the
+original $n\le3/2$ scope was forced by measurement: the legacy Catalan
+$E_\nu$ evaluation of $\Delta\Sigma$ carries an \emph{absolute}
+$O(K^{-1/2})$ truncation error, i.e.\ 30--200\% relative error at every
+radius for $n=3.3$--$10$ (unfixable by raising $K$; $10^{-3}$ would need
+$K\sim10^{10}$). Integer $n$ --- where every $j\ge1$ is an exact resonance
+--- evaluates through the $\varepsilon\to0$ pairing limits
+\eqref{eq:pair-limit}, computed at build time by an $n$-nudge at
+$\sim$400-digit precision; this reproduces the case-2/3 logarithmic series
+continuously and reaches $10^{-14}$ against quadrature references at
+$n=5,10$. For $n>3/2$ the compressed $z=x^{1/n}$ range keeps every physical
+radius inside the series zone (the $E_\nu$ branch never fires), so the
+backend is also \emph{faster} than the legacy path there. Against mpmath
+Abel/cap quadrature references (40--50 digits), over
+$n\in\{0.35,0.45,0.55,\dots,1.499\}$ including the resonant $6/5$, $4/3$,
+$7/5$, and $x\in[10^{-2},40]$:
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+ & series zone ($z\le z_{\rm sw}$) & $E_\nu$ zone ($z>z_{\rm sw}$)\\
+\midrule
+$\Sigma$ & $\le 3.9\times10^{-9}$ & $\le 2.5\times10^{-10}$\\
+$\Delta\Sigma$ & $\le 2.9\times10^{-9}$ & $\le 2.9\times10^{-9}$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent and over $n\in\{2.5,\,10/3,\,5,\,10\}$ (integer-resonant regime,
+$x\in[10^{-2},20]$): $\Sigma\le2.4\times10^{-14}$,
+$\Delta\Sigma\le9.2\times10^{-14}$ --- machine precision, since every
+physical radius sits in the series zone there.
+
+\noindent Near-resonance stress tests: $n = 1.2\pm10^{-12}$ and
+$n=1+10^{-7}$ agree with the exact-rational/integer limits to
+$10^{-10}$/$10^{-5}$ (the latter limited by genuine $O(|n-1|)$ profile
+difference). Naive (unpaired) evaluation at double precision fails at
+resonant $n$: $2510\%$ error at $n=6/5$, $x=5$; \texttt{NaN}s at $n=4/3$.
+Build cost $\sim$5\,ms per $n$ (mpmath touched only for resonant pairs);
+evaluation $\sim$0.1--0.4\,ms per radius including the $E_\nu$ branch.
+
+\begin{thebibliography}{9}
+\bibitem{RetanaMontenegro2012}
+E.~Retana-Montenegro, E.~Van~Hese, G.~Gentile, M.~Baes \& F.~Camps,
+Astron.\ Astrophys.\ \textbf{540}, A70 (2012); arXiv:1202.5242.
+\bibitem{DLMF}
+NIST DLMF, \S\S8.11, 8.19--8.20, \url{https://dlmf.nist.gov/}.
+\bibitem{AcetoDurastante22}
+L.~Aceto \& F.~Durastante, ESAIM: M2AN \textbf{56} (2022) 2181;
+efficient computation of the Wright function by trapezoidal inversion of
+a Laplace-transform contour integral.
+\end{thebibliography}
+
+\end{document}

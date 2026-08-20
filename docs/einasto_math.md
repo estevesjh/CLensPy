@@ -1,65 +1,21 @@
 # Einasto Profile: Mathematics and Current Implementation
 
-This document reflects the actual state of `src/clenspy/halo/einasto.py` as of
-this writing. It supersedes the old `einasto_pitfalls.md`, which described a
-design (hard rejection of `n <= 3/2`) that is no longer true. See
-{doc}`development` for how this fits the module layout, and the GitHub issue
-tracker for open follow-up work (linked at the bottom).
+Reflects the actual state of `src/clenspy/halo/einasto.py` and
+`einasto_lown.py`. Full derivations: `docs/einasto_proj_density_v4.tex`.
+See {doc}`development` for module layout.
 
 ## Definition
 
+The Einasto profile is defined as:
+
 ```{math}
 \rho(r) = \rho_0 \exp\!\left[-(r/h)^{1/n}\right], \qquad n = 1/\alpha, \quad
-h = \frac{r_s}{(2n)^n}
+h = \frac{r_s}{(2n)^n} \, ,
 ```
 
 `alpha`, `rho_0`, `r_s` are `EinastoProfile`'s constructor parameters; `n`
-(the Einasto index) and `h` (the natural length scale) are derived.
-
-## Regime map
-
-The 3D quantities (`density`, `enclosed_mass`, `total_mass`) use the
-incomplete-gamma closed form and are **exact for any `n > 0`** — nothing
-below affects them.
-
-The projected quantities (`sigma`, `deltasigma`, `enclosed_mass_2D`) and the
-Fourier transform (`power_spectrum`/`fourier`) are more involved, because no
-single elementary closed form covers every `n`. `EinastoProfile.__init__`
-only rejects `n <= 0`; everything else dispatches internally:
-
-```{list-table}
-:header-rows: 1
-
-* - Regime
-  - `sigma` / `deltasigma`
-  - `enclosed_mass_2D`
-  - `power_spectrum` / `fourier`
-* - `n = 1/2` (Gaussian)
-  - exact closed form
-  - Catalan series (n>3/2 only) — see below
-  - exact closed form
-* - `n = 1` (exponential)
-  - exact closed form (Bessel K)
-  - Catalan series (n>3/2 only)
-  - exact closed form
-* - `0 < n <= 3/2`, other
-  - numerical (Abel projection / cumtrapz)
-  - **raises `NotImplementedError`**
-  - numerical (FFTLog)
-* - `n > 3/2`
-  - Catalan series
-  - Catalan series
-  - analytic series (+ GL quadrature fallback)
-```
-
-`self._series = (n_index > 1.5)` is the flag the class uses internally to
-pick between the Catalan series and the numerical fallback for
-`sigma`/`deltasigma`; the `n = 1/2` and `n = 1` exact forms are checked
-*before* that flag and bypass both paths entirely, at any `n_index` (though
-in practice they only matter in the `n <= 3/2` regime, since for `n > 3/2`
-the Catalan series is already fast and exact-in-the-limit).
-
-## 3D quantities (exact for any `n > 0`)
+(the Einasto index) and `h` (the natural length scale) are derived. The 3D
+quantities are exact for any `n > 0`:
 
 ```{math}
 M_{\rm 3D}(r) = 4\pi \rho_0\, n\, h^3\, \gamma\!\left(3n,\, (r/h)^{1/n}\right),
@@ -67,318 +23,383 @@ M_{\rm 3D}(r) = 4\pi \rho_0\, n\, h^3\, \gamma\!\left(3n,\, (r/h)^{1/n}\right),
 M_{\rm tot} = 4\pi \rho_0\, n\, h^3\, \Gamma(3n)
 ```
 
-where `gamma` is the lower incomplete gamma function. Implemented directly
-with `scipy.special.gammainc`/`gamma` — no series, no restriction on `n`.
+An example of the analytic functions implemented in this repository is presented
+below:
 
-## Catalan series (`n > 3/2`)
+```{figure} _static/img/einasto_profiles_overview.png
+:alt: Einasto rho(r), Sigma(R), DeltaSigma(R) at n = 4, analytic vs numerical
+:width: 100%
+:align: center
 
-For `n = 1/alpha > 3/2`, `sigma`, `deltasigma`, and `enclosed_mass_2D` use
-the projected-density series (`docs/einasto_proj_density.tex`). With
-`x = (R/h)^{1/n}`, `c_k = \mathrm{Cat}_k/4^k` (Catalan numbers over powers of
-4), and `nu_k = 2kn - n + 1`:
+`rho(r)`, `Sigma(R)`, and `DeltaSigma(R)` at `n = 4` over
+`R/r_s = 10^{-2.2}`–`10^{2.2}` (analytic backend in firebrick, numerical
+cross-checks dashed black). Note `DeltaSigma -> 0` at the center — a cored
+profile has `Sigmabar -> Sigma` there, unlike NFW.
+```
+
+## Regime map
+
+`EinastoProfile.__init__` only rejects `n <= 0`; everything else dispatches
+internally:
+
+```{list-table}
+:header-rows: 1
+
+* - Regime
+  - `sigma` / `deltasigma` / `enclosed_mass_2D`
+  - `power_spectrum` / `fourier`
+* - `n = 1/2` (Gaussian)
+  - exact closed forms
+  - exact closed form
+* - `n = 1` (exponential)
+  - exact closed forms (Bessel K + small-x Taylor)
+  - exact closed form
+* - any other `n > 0`
+  - series backend (`einasto_lown.EinastoLowN`)
+  - analytic series dispatch (`n > 1` and `n < 1` branches below)
+```
+
+Anchor checks use a tight `1e-12` tolerance (`np.isclose`'s default
+`rtol=1e-5` would silently misroute e.g. `n = 1 + 1e-7`, which the backend
+handles exactly via resonance pairing).
+
+## The series backend (all non-anchor `n`)
+
+`docs/einasto_proj_density_v4.tex` has the derivations; summary:
+
+**Residue series** (`z = (R/h)^{1/n} <= z_sw`). Each quantity has its own
+Mellin–Barnes kernel; for `DeltaSigma`, with `x = R/h` and `1 < c < 3`,
 
 ```{math}
-\Sigma(R) = 2\rho_0 n R \sum_{k \ge 0} (k+1)\, c_k\, E_{\nu_k}(x)
+\Delta\Sigma(x) = 2\sqrt{\pi}\,\rho_0 h\, \frac{n}{2\pi i}
+\int_{c-i\infty}^{c+i\infty}
+\frac{\Gamma(ns)\,\Gamma\!\big(\tfrac{s+1}{2}\big)}
+     {\Gamma\!\big(\tfrac{s}{2}\big)\,(3-s)}\; x^{1-s}\, {\rm d}s .
+```
+
+Closing the contour left picks up the two pole strings `s = -k/n` and
+`s = 1-2j`, giving:
+
+```{math}
+\Sigma(x) = \sqrt{\pi}\rho_0 h \Big[ \sum_{k\ge1} A_k\, x^{k/n+1}
+ + \sum_{j\ge0} S_j\, x^{2j} \Big], \qquad
+\Delta\Sigma(x) = \sqrt{\pi}\rho_0 h \Big[ \sum_{k\ge1} D_k\, x^{k/n+1}
+ + \sum_{j\ge1} T_j\, x^{2j} \Big]
 ```
 
 ```{math}
-M_{\rm 2D}(R) = M_{\rm 3D}(R) + 2\pi\rho_0 n R^3 \sum_{k \ge 0} c_k\, E_{\nu_k}(x)
+A_k = \frac{(-1)^k}{k!}
+\frac{\Gamma\!\big({-\tfrac12}-\tfrac{k}{2n}\big)}
+     {\Gamma\!\big({-\tfrac{k}{2n}}\big)}, \qquad
+D_k = -\frac{n+k}{3n+k}\, A_k \, .
 ```
 
 ```{math}
-\Delta\Sigma(R) = \frac{M_{\rm 3D}(R)}{\pi R^2}
-- 2\rho_0 n R \sum_{k \ge 1} k\, c_k\, E_{\nu_k}(x)
-```
-
-where `E_nu` is the generalized exponential integral.
-
-### Why `n > 3/2` specifically
-
-These series converge algebraically (~`K^{-1/2}`), not geometrically. Series
-order `K` needed for 1%/0.1% relative error, from `docs/einasto_pitfalls.md`'s
-original measurements:
-
-| n (shape) | K for 1% | K for 0.1% |
-|-----------|----------|------------|
-| 0.5       | impractical | — |
-| 1.0       | ~5000 | >50000 |
-| 2.0       | ~1500 | ~15000 |
-| 4.0       | ~160  | ~15000 |
-| 5.0       | ~40   | ~4000 |
-| 6.0       | ~10   | ~900 |
-
-`n <= 3/2` is where this becomes impractical — hence the cutoff. `n = 4-6`
-(spiral haloes) and `n = 2-3` (clusters) are comfortably in the "workable"
-zone.
-
-### `E_nu(x)` dispatch
-
-`expn_fast` picks one of four branches (no external dependency needed for
-integer `n`):
-
-1. Integer `nu >= 1`: `scipy.special.expn` (exact, vectorized, ~microseconds)
-2. `nu >= nu_asymp(rtol)`: DLMF 8.20 uniform asymptotic expansion (polynomial
-   recurrence, vectorized)
-3. `nu < 1`: `E_p(z) = z^{p-1}\, \Gamma(1-p, z)` via `scipy.special.gammaincc`
-   (only valid for `a = 1-p > 0`)
-4. Otherwise (non-integer `nu` in `(1, nu_asymp)`): `mpmath.expint` (~0.25
-   ms/point — the only branch requiring `mpmath`, and only hit for
-   non-integer `n`, e.g. `n = 4.5`)
-
-For integer `n` (4, 5, 6 - the physically common cases), all `nu_k` are
-integers, so only branches 1-2 ever fire and `mpmath` is never called.
-
-### `DeltaSigma`'s small-`z` cancellation
-
-Below `z = (R/h)^{1/n} < _DS_ASYMP_ZMAX = 0.15`, the native `DeltaSigma`
-series suffers catastrophic cancellation (`M_3D/(pi R^2)` and the k-sum are
-both `~z^n` and nearly cancel; the true result is `~z^{n+1}`). Below that
-threshold, `_deltasigma_asymp` is used instead — a small-`z` asymptotic
-series (4 terms, ~1% accurate out to `z ~ 0.15`) derived from the "dual form"
-in `docs/einasto_proj_density_v2.tex`:
-
-```{math}
-\Delta\Sigma(R) = \sum_{p \ge 1} C_p\, z^{n+p}, \qquad
-C_p = -A_p \frac{n+p}{3n+p}, \qquad
-A_p = \frac{2\rho_0 n h (-1)^p}{p!}\, \Phi_\Sigma(p)
+S_j = \frac{2n(-1)^j}{j!}
+\frac{\Gamma(n-2nj)}{\Gamma(\tfrac12-j)}, \qquad
+T_j = -\frac{j}{j+1}\, S_j \quad (T_0 = 0),
 ```
 
 ```{math}
-\Phi_\Sigma(p) = \sum_{k} \frac{(k+1)\, c_k}{2nk - n - p}
+\bar\Sigma = \Sigma + \Delta\Sigma, \qquad
+M_{\rm 2D} = \pi R^2\, \bar\Sigma .
 ```
 
-(`Phi_Sigma` converges only as `K^{-1/2}` too, so it's evaluated with a
-dedicated `K=200000`-term sum, independent of the profile's own `order`.)
+The series equals the exact profile at **all** radii, for every `n > 0` —
+proved by contour closure and verified by a triangle test (mpmath Abel
+quadrature = numerical Mellin–Barnes contour integral = series, to
+`1e-40`). An earlier claim of a finite domain of validity
+({doc}`einasto_series_investigation`, "Mode B") was refuted; that document
+is retained as history with a correction notice.
 
-### `order_for_tol`: automatic order selection
-
-Since the series converges algebraically, a last-term criterion
-underestimates the true error by a factor of `~K`. `order_for_tol` instead
-estimates the tail via the known power-law decay exponent per quantity
-(`Sigma`/`DeltaSigma`: `p=3/2`; `M_2D`: `p=5/2`):
+**Resonance pairing.** The two pole strings collide at `k = n(2j-1)` (any
+`n = p/q` with odd `q` — 6/5, 4/3, 7/5 — and *every* `j` for integer `n`).
+Writing `\varepsilon \equiv k/n - (2j-1)`, the colliding coefficients of a
+pair `(k, j)` — `c_1 \in \{A_k, D_k\}` and `c_2 \in \{S_j, T_j\}` — both
+diverge like `1/\varepsilon` (naive fp64: 2510% error at `n = 6/5`, NaNs at
+`n = 4/3`). Their joint contribution is evaluated with the exact identity
 
 ```{math}
-R_K \sim \sum_{k>K} u_k \sim u_K \cdot \frac{K}{p - 1}, \qquad
-\text{relative error} = \frac{R_K}{|S_K|}
+c_1\, x^{k/n+1} + c_2\, x^{2j}
+= x^{2j}\big(p \ln x\; \varphi(\varepsilon \ln x) + s\big), \qquad
+p \equiv c_1\varepsilon,\quad s \equiv c_1 + c_2,\quad
+\varphi(y) \equiv \tfrac{e^y-1}{y},
 ```
 
-Validated against Abel-transform ground truth. Only usable when
-`self._series` is True — raises `NotImplementedError` otherwise (there's no
-"order" concept for the numerical fallback).
+where `p` and `s` are finite (the `1/\varepsilon` parts cancel inside `s`)
+and are precomputed in extended precision at build time. For integer `n`
+the `\varepsilon \to 0` limits reproduce the case-2/3 logarithmic series
+continuously in `n`.
 
-## Exact closed forms: `n = 1/2` and `n = 1`
+**fp64 budget and switch.** The alternating series loses `~0.5 z` digits to
+cancellation for `DeltaSigma` (`~0.87 z` for `Sigma`). The switch point
+`z_sw` is *measured* at build time (max-term/result scan) against the
+tolerance budget. For `n > 3/2`, `z = x^{1/n}` is so compressed that every
+physical radius sits in the series zone.
 
-Two special values of `n` have genuine elementary closed forms and bypass
-*both* the Catalan series and the numerical fallback entirely, regardless of
-which regime they'd otherwise fall in.
+**`E_nu` branch** (`z > z_sw`). The all-positive Catalan representation
+(below) with a Lentz continued fraction for `E_nu` (stable at `z >> nu`,
+where upward recurrence explodes), DLMF 8.20(ii) above `nu = 160`,
+DLMF 8.19.1 for `nu < 1`, and closed-form integral tail corrections for the
+algebraic `k^{-1/2}/(2nk+b)` tail.
 
-### `n = 1/2`: Gaussian profile
+**Accuracy** (vs mpmath quadrature): `<= 4e-9` for `n in [0.35, 1.5]`,
+`R/h in [0.01, 40]` (incl. resonant 6/5, 4/3, 7/5); `<= 1e-13` for
+`n in {2.5, 10/3, 5, 10}`, `R/h in [0.01, 20]`. Cost: ~5–200 ms build per
+`n` (mpmath touched only for resonant pairs), ~1–100 ms per 500 radii.
 
-`rho(r) = rho_0 exp(-(r/h)^2)`. Because the projection of a 3D Gaussian is
-again Gaussian:
+### Accuracy and cost by shape parameter
+
+Max relative error vs mpmath references (dps 40) over `x = R/h` in
+`[0.01, 20]`; eval time = `sigma` + `deltasigma` on 500 radii each; build
+is once per profile. Default constructor settings.
+
+| `alpha` | `n` | `Sigma` | `DeltaSigma` | build | eval (2×500) | method |
+|---|---|---|---|---|---|---|
+| 0.1 | 10.0 | 2.2e-16 | 5.8e-15 | 192 ms | 2.5 ms | series (all physical `x`), 21 ε=0 pairs |
+| 0.2 | 5.0 | 4.4e-16 | 1.0e-14 | 34 ms | 1.9 ms | series, 24 ε=0 pairs |
+| 0.3 | 3.33 | 2.4e-14 | 9.2e-14 | 8 ms | 1.6 ms | series, 27 pairs |
+| 0.9 | 1.11 | 1.4e-12 | 2.9e-11 | 11 ms | 25 ms | series (`z<=10`) + `E_nu` |
+| 1.0 | 1.0 | 4.4e-16 | 1.6e-11 | ~0 | 0.4 ms | exact Bessel + Taylor |
+| 1.1 | 0.91 | 5.9e-11 | 4.3e-12 | 9 ms | 38 ms | series (`z<=10.5`) + `E_nu` |
+| 2.0 | 0.5 | 2.2e-16 | 1.3e-12 | ~0 | ~0 | exact Gaussian |
+| 5.0 | 0.2 | 2.2e-09 | 5.6e-16 | 22 ms | 119 ms | series (`z<=15.5`) + `E_nu`, 60 pairs |
+
+For comparison, the legacy Catalan path this replaced gave `DeltaSigma`
+errors of 1.7e0 / 1.3e0 / 1.3e0 at `alpha = 0.1 / 0.2 / 0.3` (`Sigma`:
+8e-8 / 1.5e-3 / 1.4e-2), at comparable or slower eval time.
+
+```{figure} _static/img/einasto_deltasigma_validation.png
+:alt: Einasto DeltaSigma, analytic series backend vs Abel+cumtrapz numerical cross-check, n = 4
+:width: 85%
+
+`DeltaSigma(R)` at `n = 4`: analytic series backend (firebrick) vs the
+retained numerical cross-check (dashed black, Abel projection + cumulative
+trapezoid). Inset: fractional difference at ±0.05% limits — the deviations
+are the *numerical* method's documented cumtrapz errors; the backend is
+exact to ~1e-14 here. Regenerate with `docs/make_einasto_figures.py`.
+```
+
+## Exact anchors: `n = 1/2` and `n = 1`
+
+`n = 1/2` (Gaussian; projection of a Gaussian is Gaussian):
 
 ```{math}
-\Sigma(R) = \rho_0 h \sqrt{\pi}\, e^{-(R/h)^2}, \qquad
-\Delta\Sigma(R) = \frac{\rho_0 h^3 \sqrt{\pi}}{R^2}
-\left(1 - e^{-(R/h)^2}\right) - \Sigma(R)
+\Sigma = \rho_0 h \sqrt{\pi}\, e^{-x^2}, \quad
+M_{\rm 2D} = \pi^{3/2}\rho_0 h^3 (1 - e^{-x^2}), \quad
+\Delta\Sigma = \frac{\rho_0 h\sqrt{\pi}}{x^2}(1-e^{-x^2}) - \Sigma
 ```
+
+with `1 - e^{-x^2}` evaluated as `-expm1(-x^2)`.
+
+`n = 1` (exponential):
 
 ```{math}
-P(k) = \frac{\rho_0 h^3}{16\sqrt{\pi}}\, e^{-(kh)^2/4}
+\Sigma = 2\rho_0 R\, K_1(x), \quad
+M_{\rm 2D} = 4\pi\rho_0 h^3 [2 - x^2 K_2(x)], \quad
+\Delta\Sigma = \rho_0 h \Big[\tfrac{8}{x^2} - 4K_2(x) - 2xK_1(x)\Big]
 ```
 
-(`power_spectrum`'s own `P = \tilde\rho(k)/(4\pi)^2` convention.) Note: only
-`power_spectrum` currently special-cases `n=1/2` in the code; `sigma`/
-`deltasigma` at `n=1/2` go through the general numerical fallback below (not
-this closed form) - both give equivalent results, since the numerical path
-was validated *against* this exact formula (see Validation, below).
+The bracketed forms self-cancel as `x -> 0`; below `x = 0.1` verified
+Taylor expansions are used (`_expdisk_deltasigma_factor` /
+`_expdisk_m2d_factor`; coefficients in v4.tex "Exact anchors").
 
-### `n = 1`: exponential profile
+## Legacy Catalan series (internals only)
 
-`rho(r) = rho_0 exp(-r/h)`. Its projection is expressible via modified
-Bessel functions of the second kind:
+The native `E_nu` representation (`docs/einasto_proj_density.tex`), with
+`z = (R/h)^{1/n}`, `c_k = \mathrm{Cat}_k/4^k`, `nu_k = 2kn - n + 1`:
 
 ```{math}
-\Sigma(R) = 2\rho_0 R\, K_1(R/h)
+\Sigma = 2\rho_0 n R \sum_{k \ge 0} (k{+}1) c_k E_{\nu_k}(z), \qquad
+\Delta\Sigma = \frac{M_{\rm 3D}}{\pi R^2}
+- 2\rho_0 n R \sum_{k \ge 1} k\, c_k E_{\nu_k}(z)
 ```
 
-using `K_1(x) = \int_0^\infty e^{-x\cosh t}\cosh(t)\, dt` (the Abel
-projection integral, directly matching the Bessel integral representation).
-From `M_{\rm 2D}(R) = 4\pi\rho_0 h^3\left[2 - x^2 K_2(x)\right]` and
-`d(x^2 K_2(x))/dx = -x^2 K_1(x)`:
-
-```{math}
-\Delta\Sigma(R) = \rho_0 h \left[\frac{8}{x^2} - 4 K_2(x) - 2x K_1(x)\right],
-\qquad x = R/h
-```
-
-```{math}
-P(k) = \frac{\rho_0 h^3}{2\pi\left(1 + (kh)^2\right)^2}
-```
-
-`sigma`/`deltasigma` check `np.isclose(n_index, 1.0)` *before* checking
-`self._series`, so this closed form is used even though `n=1 <= 3/2` would
-otherwise route to the numerical fallback.
-
-## Numerical fallback (generic `0 < n <= 3/2`, excluding `n=1/2, 1`)
-
-No elementary closed form and no usable series exist for the rest of this
-range. Three independent numerical techniques are used instead, one per
-quantity - all built directly from `density(r)`, so they inherit its
-exactness rather than any series approximation:
-
-**`Sigma(R)`** — direct Abel (line-of-sight) projection, via
-`compute_sigma_quadvec` (adaptive `quad_vec` quadrature):
-
-```{math}
-\Sigma(R) = 2\int_R^\infty \rho(r)\, \frac{r\, dr}{\sqrt{r^2 - R^2}}
-```
-
-**`DeltaSigma(R)`** — computed from a dense `Sigma(R)` grid (1600
-log-spaced points from `1e-4 h` to `40^n h`) via cumulative-trapezoid
-enclosed mass (`sigma_to_deltasigma_cumtrapz`), then log-log interpolated
-onto the requested `R`. This inherits that function's documented caveat:
-the cumulative integral assumes ~0 enclosed mass below the grid's first
-point, which is a poor approximation deep in a cored/smooth profile's
-center, where `DeltaSigma` itself is small (near-cancellation of
-`Sigmabar(<R)` and `Sigma(R)`). See Validation and Known limitations below
-for the actual accuracy this achieves as a function of `R/h`.
-
-**`P(k)`** — FFTLog transform (`mcfit.xi2P`) of `density(r)` directly, in
-`power_spectrum`'s own `P = \tilde\rho(k)/(4\pi)^2` convention. This replaces
-the mathematically-valid-but-numerically-useless small-`k` series (below).
+**No longer a user-facing evaluation path**: its terms are all positive
+(good — it is the backend's large-`z` branch, where it has no cancellation),
+but as a direct evaluator its truncation error is *absolute*
+`O(K^{-1/2})` while `DeltaSigma` is small — measured at 30–200% relative
+error at every radius for `n = 3.3`–`10`, unfixable by raising the order.
+The machinery (`self._series`, `order`, `order_for_tol`, `expn_fast`) is
+still built for `n > 3/2` because `power_spectrum` reuses `self.order` and
+research code uses the rest.
 
 ## Power spectrum `P(k)`
 
-`power_spectrum(k, branch="auto")` (the default) dispatches on `n`
-independently of the `sigma`/`deltasigma` split above:
+`power_spectrum(k, branch="auto")` dispatches on `n` independently of the
+projected quantities:
 
-- **`n = 1`**: exact closed form (above).
-- **`n = 1/2`**: exact closed form (above).
-- **`0 < n < 1`, other**: the small-`k` series below is a convergent Cauchy
-  series for *all* `k` mathematically, but its finite-precision partial sums
-  suffer catastrophic cancellation well before the asymptotic regime (no
-  anti-cancellation decomposition like the `n>1` Wright form has been
-  derived for it - see Known limitations). Uses the FFTLog numerical
-  fallback instead.
-- **`n > 1`**: the analytic large-`k` series, which *does* have a working
-  anti-cancellation decomposition (below), used via an adaptive per-`k`
-  dispatch.
-
-### `n > 1`: large-k analytic series
+All representations descend from one Mellin–Barnes kernel (`\tilde k = kh`,
+`0 < c < 1`; derived from the Mellin pair
+`\int_0^\infty y^{w-1}\sin y \, {\rm d}y = \Gamma(w)\sin(\pi w/2)`):
 
 ```{math}
-P(k) = \frac{\rho_0 h^3}{4\pi \tilde k^3} \sum_{m \ge 1} A_m^-\, \tilde
-k^{-m/n}, \qquad
-A_m^- = \frac{(-1)^{m+1}}{m!}\, \Gamma\!\left(2+\frac{m}{n}\right)
-\sin\!\left(\frac{\pi m}{2n}\right), \qquad \tilde k \equiv kh
+P(\tilde k) = \frac{\rho_0\, n\, h^3}{4\pi \tilde k}\, \frac{1}{2\pi i}
+\int_{c-i\infty}^{c+i\infty}
+\Gamma(w)\, \sin\!\big(\tfrac{\pi w}{2}\big)\, \Gamma(2n - nw)\;
+\tilde k^{-w}\, {\rm d}w .
 ```
 
-This converges for all `k`, but the plateau (small-`\tilde k`) region needs
-a different representation numerically. The `"auto"` dispatch, for a given
-`n` and `\tilde k`, picks per-point between:
+Its two pole strings cannot collide (`w = -(2j+1) < 0` vs `w = 2 + m/n > 0`),
+so `P(k)` has no resonances. Closing left/right gives the two series
 
-1. **Plateau series** (small `\tilde k`): a related series in
-   `(\tilde k^2/4)^m` with coefficients `Gamma(3n+2nm)`, summed only up to
-   the smallest truncation `M` where the partial sum's relative contribution
-   drops below `tol=1e-2` (an adaptive-order strategy, not a fixed count).
-2. **Gauss-Laguerre quadrature** (`_einasto_pk_GL`): a direct numerical
-   evaluation of the defining integral,
-   `P(k) = \frac{\rho_0 n h^3}{4\pi}\int_0^\infty u^{3n-1} e^{-u}
-   \mathrm{sinc}(\tilde k u^n)\, du`, exact at `\tilde k=0` and valid
-   for a wide `\tilde k` range with enough nodes (`N_GL`, scaled with `n`).
-3. **Wright asymptotic series** (`_einasto_pk_wright_real`, `n>1` only):
-   used only where GL's node count would need to be excessive - stable for
-   `\tilde k \gtrsim 10^{-4}` and `n>1` specifically (not valid for `n<=1`,
-   see below).
+```{math}
+P = \frac{\rho_0 n h^3}{4\pi} \sum_{m \ge 0} A_m^+
+\Big(\frac{\tilde k}{2}\Big)^{2m}, \qquad
+A_m^+ = \frac{(-1)^m\, \Gamma(3n+2nm)}{m!\, (3/2)_m},
+```
 
-For `n <= 1`, the dispatch above skips the Wright series entirely (it's
-mathematically invalid there) and falls back to GL quadrature alone for any
-point the plateau series doesn't converge on - validated against the exact
-`n=1/2` closed form to ~1e-14 relative error out to `P(k)/P(0) ~ 1e-17`
-(i.e. across the entire practically relevant range).
+```{math}
+P = \frac{\rho_0 h^3}{4\pi \tilde k^3} \sum_{m \ge 1} A_m^- \tilde k^{-m/n},
+\qquad
+A_m^- = \frac{(-1)^{m+1}}{m!}\, \Gamma\!\big(2+\tfrac mn\big)
+\sin\!\big(\tfrac{\pi m}{2n}\big),
+```
 
-## Validation (current test suite: `tests/test_einasto.py`)
+with mirror-symmetric validity: for `n > 1` the `A_m^-` series converges for
+all `\tilde k` and the `A_m^+` series is asymptotic; for `n < 1` the roles
+swap — the `A_m^+` series converges everywhere (but self-cancels in fp64),
+and the `A_m^-` series is a valid *asymptotic* expansion whose
+optimally-truncated error is `\sim e^{-c \tilde k^{1/(1-n)}}`.
 
-`TestSpiralHalo` (native series, `n=4,5`): `Sigma` vs. direct Abel
-quadrature, `1e-2` rtol; `order_for_tol` hits its target tolerance within
-1.5x; `P(k)` large-k series coefficients match `einasto_power_spectrum.tex`
-Table I to `atol=5e-5`.
+Dispatch by `n`:
 
-`TestNumericalFallback` (n≤3/2 path, Fourier→ξ→Σ→ΔΣ end to end):
+- **`n = 1`**: `P = \rho_0 h^3 / [2\pi(1+\tilde k^2)^2]`.
+- **`n = 1/2`**: `P = \rho_0 h^3 e^{-\tilde k^2/4} / (16\sqrt{\pi})`.
+- **`n > 1`**: cost-ordered cascade, each branch with a computable error
+  estimate and later (costlier) branches touching only the points earlier
+  ones could not certify: (1) plateau `A_m^+` series, optimally truncated;
+  (2) direct convergent `A_m^-` series (log-space; estimate covers both
+  cancellation and the unsummed tail); (3) crack filler — trapezoidal
+  Mellin–Barnes contour quadrature for `n <= 3` (see below), Filon
+  quadrature of the master integral for larger `n`, where the integrand
+  oscillates `~kt (2n)^n` times against the weight and both Gauss–Laguerre
+  and the MB contour undersample. The legacy Wright-rotation branch and the
+  1%-tolerance plateau acceptance are retired from the auto path.
+- **`0 < n < 1`, other**: per-`k` best-of-three among analytic forms, each
+  with a computable error estimate, falling to GL only if none meets
+  `1e-9`:
+  1. the **Kummer form** — the anti-cancellation decomposition of the
+     convergent series,
 
-- `n=1/2` (Gaussian anchor): `P(k)` matches the closed form to `rtol=1e-12`;
-  `Sigma` to `rtol=1e-10`; `DeltaSigma` to `rtol=1e-2`.
-- `n=1` (exponential/Bessel anchor): `Sigma` and `DeltaSigma` both match
-  their closed forms to `rtol=1e-13`.
-- `n=0.7` (generic, no exact anchor): `P(k)` matches an independent
-  brute-force `scipy.integrate.quad` of the defining Hankel integral to
-  `rtol=2e-3`.
-- Full pipeline (`n=1/2`): `power_spectrum` → FFTLog `xi(r)` recovers
-  `density(r)/(4\pi)^2` to `<1e-3`; Abel-projecting that `xi(r)` into
-  `Sigma(R)` matches the class's own `sigma()` to `<1e-3`; cumtrapz-deriving
-  `DeltaSigma` from that grid matches the class's own `deltasigma()` to
-  `<1e-2` for `R > h` (the innermost points are excluded - see below).
+     ```{math}
+     P = \frac{\rho_0 n h^3}{4\pi}\, e^{-\tilde k^2/4}
+     \sum_{m\ge0} b_m \Big(\frac{\tilde k}{2}\Big)^{2m},
+     \qquad
+     b_m = \sum_{i=0}^{m} \frac{A_i^+}{(m-i)!},
+     ```
 
-## Known limitations (tracked as GitHub issues for future sessions)
+     with `b_m` precomputed once per `n` in mpmath (adaptive precision;
+     the alternating cancellation is absorbed at build). Exactly
+     `b_m = \delta_{m0}` at `n = 1/2`; cancellation-free at runtime for
+     `n \lesssim 0.93` (machine precision at every `\tilde k`, including
+     the oscillating `\tilde\rho < 0` regime at `n < 1/2`). The build
+     diverges as `n \to 1` (the entire order `1/(2-2n)` of the series
+     grows), where it is disabled;
+  2. the **plain convergent `A_m^+` series** (log-space terms, measured
+     digits lost);
+  3. the **optimally-truncated `A_m^-` asymptotic series** (stop at the
+     smallest term; estimate = smallest term / sum).
 
-- **[#1](https://github.com/estevesjh/CLensPy/issues/1)** - tracking issue
-  for finishing `n <= 3/2` support generally.
-- **[#2](https://github.com/estevesjh/CLensPy/issues/2)** - `P(k)` for
-  generic (non-anchor) `n <= 3/2` is only cross-validated to `~2e-3`
-  (against a limited-precision brute-force reference); target `1e-9`.
-- **[#3](https://github.com/estevesjh/CLensPy/issues/3)** - `DeltaSigma(R)`
-  accuracy is regime-dependent, not a flat `1e-3` everywhere:
-  - The numerical (cumtrapz) path is excellent for `R \gtrsim 0.3-0.8\, h`
-    (sub-percent, improving to `<1e-4` by `R \sim h`), but degrades sharply
-    approaching `R \to 0` (deep in a cored profile's center, where
-    `DeltaSigma` itself is small) - e.g. for the Gaussian anchor, ~1-3% at
-    `R \sim 0.03-0.05\, h`, and effectively 0 (100% error) at `R=0.01h`.
-  - `EinastoProfileV3` (Retana-Montenegro et al. 2012 case-1 series, a
-    *separate* class - see below) is machine-precision accurate at *small*
-    `x=R/h` (down to `x=0.01`, no cancellation issue at all), but gives
-    wrong answers beyond `x \sim 1-1.2` for small `n` (confirmed: `K=60,
-    200, 500, 2000` all give the *same wrong* answer at `x=3` for `n=0.5`).
-    A follow-up investigation ({doc}`einasto_series_investigation`) found
-    this is actually **two separable problems**: at `n=0.5` specifically it
-    is pure under-truncation (the default `J=5` second-track terms are far
-    too few - the first track is identically zero there, so the whole
-    series collapses onto a bare Taylor series of `e^{-x^2}` needing many
-    more terms), while a second, genuine finite-domain-of-validity issue
-    (more precision/terms provably does not help) sets in separately around
-    `x \sim 7-8` for `n=0.7`. See that document for the full breakdown and
-    the approved follow-up plan.
-  - These two are complementary (small-`x` vs. large-`x` strengths); a
-    hybrid dispatch between them is the likely fix, not yet implemented in
-    the main `EinastoProfile` class.
+  The fallback (only `n \gtrsim 0.93`, `\tilde k \sim 1.3`–`2`) is the
+  MB contour quadrature below. Validated to `<= 1.2e-11` against mpmath
+  master-integral quadrature for `n = 0.45, 0.7, 0.9, 0.97` over
+  `\tilde k \in [0.1, 60]` (previous FFTLog path: `~2e-3`).
 
-## Related research modules (not part of the primary path)
+### Contour and Filon quadratures (the crack fillers)
 
-- **`einasto_v2.py`** (`EinastoProfileV2`) - an "inner-zone dual form"
-  re-derivation of the Catalan series for `z=(R/h)^{1/n} < 1`, trading
-  per-point special-function calls for a precomputed polynomial evaluation.
-  Explicitly marked in its own docstring as a benchmark/research
-  implementation - `EinastoProfile` (this document) remains the
-  recommended path. See `docs/einasto_proj_density_v2.tex`.
-- **`einasto_v3.py`** (`EinastoProfileV3`) - the Retana-Montenegro et al.
-  (2012) case-1 elementary gamma-ratio series referenced above, valid (where
-  it converges) for any non-integer `n`, 75-90x faster than the native `E_nu`
-  series where both apply. Not currently wired into `EinastoProfile` itself
-  - see Known limitations. See `docs/einasto_proj_density_v3.tex`.
+Following the trapezoidal-contour approach of Aceto & Durastante (2022,
+M2AN 56) for Wright functions, the kernel itself is integrated along
+`w = -\tfrac12 + i\tau`:
+
+```{math}
+P(\tilde k) = \frac{\rho_0 n h^3}{4\pi \tilde k}\, \frac{h_\tau}{\pi}
+\sum_{j} \mathrm{Re}\Big[\Gamma(w_j)\sin\!\big(\tfrac{\pi w_j}{2}\big)
+\Gamma(2n-nw_j)\, \tilde k^{-w_j}\Big], \qquad w_j = -\tfrac12 + i \tau_j .
+```
+
+The integrand decays like `e^{-(\pi/2) n |\tau|}` (the sine *grows* like
+`e^{+(\pi/2)|\tau|}` — the gamma pair alone decays faster) and is analytic
+in `-1 < \mathrm{Re}\, w < 2`, so the trapezoidal rule converges
+geometrically; node count is independent of `\tilde k` and the gammas are
+reusable across the `k` grid. Validated to `<= 8e-12` for
+`n \in [0.45, 2.5]` over `\tilde k \in [10^{-8}, 12]`, at ~1–7 ms per 1000
+points — the cheapest evaluator in its window. For `n \gtrsim 3` its phase
+gradient `\sim n \ln n` is undersampled; there the crack is covered by
+Filon quadrature of the `t = u^n` master integral,
+
+```{math}
+P = \frac{\rho_0 h^3}{4\pi \tilde k} \int_0^{t_{\rm hi}}
+t\, e^{-t^{1/n}} \sin(\tilde k t)\, {\rm d}t ,
+```
+
+with the smooth envelope interpolated piecewise-linearly and the sine
+integrated exactly per interval — the node count follows the envelope, not
+the oscillation count. Validated to `<= 8.5e-8` at `n = 4, 10` over the
+physical `k r_s` range (Gauss–Laguerre, which it replaces there, was wrong
+by up to 4% in the `n = 10` turnover).
+
+```{figure} _static/img/einasto_pk_validation.png
+:alt: Einasto P(k), analytic dispatch vs FFTLog numerical cross-check, n = 4
+:width: 85%
+:align: center
+
+`P(k)` at `n = 4` over `k r_s = 10^{-2.2}`–`10^{2.2}`: analytic dispatch
+(firebrick) vs the retained FFTLog cross-check (dashed black). Inset:
+fractional difference at ±0.05% limits — the residual wiggles are
+FFTLog's. Plotting this densely in the plateau exposed (and led to the fix
+of) a legacy mis-routing that sent deep-plateau points to the Wright
+large-k series. Regenerate with `docs/make_einasto_figures.py`.
+```
+
+## Validation (`tests/test_einasto.py`, 55 tests)
+
+- `TestLowNSeries`: `Sigma`/`DeltaSigma` vs hardcoded mpmath references
+  (dps 40–50) at `rtol=1e-8` for `n = 0.7, 6/5, 4/3, 1.45, 2.5, 5, 10`
+  over `x = 0.01`–`25` (both dispatch zones; resonant and integer-resonant
+  indices); `M_2D` consistency; `n = 1{+}10^{-7}` continuity with the
+  Bessel anchor (pairing regression); `DeltaSigma -> 0` smoothly as
+  `R -> 0`; the `n=1` small-x Taylor branch.
+- Anchors: Gaussian `Sigma`/`DeltaSigma`/`P(k)` at `rtol = 1e-14/1e-12/
+  1e-12` (down to `R = 0.001 h`); exponential at `1e-13`.
+- `TestPowerSpectrumLowN`: `P(k)` vs hardcoded mpmath master-integral
+  references at `rtol=1e-8` for `n = 0.45, 0.7, 0.9, 0.97` over
+  `kt = 0.1`–`60` (all three analytic branches + the GL bridge; includes
+  the oscillating `n < 1/2` regime).
+- `n=0.7` `P(k)` vs brute-force Hankel quadrature at `2e-3`; full
+  Fourier→ξ→Σ→ΔΣ pipeline consistency at the Gaussian anchor.
+- `TestSpiralHalo`: legacy-series internals (`order_for_tol` calibration,
+  `P(k)` coefficient table).
+
+## Open issues
+
+- **[#1](https://github.com/estevesjh/CLensPy/issues/1)** — umbrella for
+  `n <= 3/2` support: projected quantities and `P(k)` both done (this
+  page).
+- **[#2](https://github.com/estevesjh/CLensPy/issues/2)** — **resolved**:
+  `P(k)` for generic `n < 1` was `~2e-3` (FFTLog); the analytic dispatch
+  above delivers `<= 1.2e-11` (target was `1e-9`).
+- **[#3](https://github.com/estevesjh/CLensPy/issues/3)** — **resolved**:
+  `DeltaSigma` target was `1e-3` everywhere; delivered `<= 4e-9`
+  (`n <= 3/2`) and `~1e-14` (`n > 3/2`).
+
+## Related research modules (not on the evaluation path)
+
+- **`einasto_v2.py`** — inner-zone dual form; benchmark/research only.
+- **`einasto_v3.py`** — original case-1 transcription (fixed `K=60/J=5`, no
+  resonance pairing → unusable near `n = 6/5, 4/3, 7/5`); superseded by
+  `einasto_lown.py`.
 
 ## References
 
-- `docs/einasto_proj_density.tex` - the native Catalan series (this is the
-  main path, `n > 3/2`).
-- `docs/einasto_proj_density_v2.tex` - the inner-zone dual form
-  (`einasto_v2.py`; also the source of `DeltaSigma`'s small-`z` asymptotic,
-  used directly in the main class).
-- `docs/einasto_proj_density_v3.tex` - the Retana-Montenegro case-1 series
-  (`einasto_v3.py`).
-- `docs/einasto_power_spectrum.tex` - the `P(k)` series (both the `n>1`
-  large-k form and the `n<1` small-k form) and the exact `n=1/2`, `n=1`
-  closed forms.
-- `docs/fractional_derivative_einasto.tex` - the fractional-calculus
-  interpretation underlying the v3 series's gamma-ratio coefficients.
+- `docs/einasto_proj_density_v4.tex` — **the production math**
+  (`einasto_lown.py`): per-quantity Mellin–Barnes kernels, global validity
+  theorem, resonance pairing, fp64 budget, `E_nu` continued fraction + tails.
+- `docs/einasto_proj_density.tex` — the Catalan `E_nu` representation (the
+  backend's large-`z` branch).
+- `docs/einasto_proj_density_v2.tex`, `_v3.tex`,
+  `docs/fractional_derivative_einasto.tex` — historical/research notes.
+- `docs/einasto_power_spectrum.tex` — the `P(k)` series and closed forms.
 - Retana-Montenegro, E., Van Hese, E., Gentile, G., Baes, M. & Camps, F.
-  (2012), A&A 540, A70; arXiv:1202.5242. Case 1 of Sec. 3.1 (Eqs. 17-18).
+  (2012), A&A 540, A70; arXiv:1202.5242 (case 1, Sec. 3.1).
+- NIST DLMF §§8.11, 8.19–8.20 (incomplete gamma / `E_p` asymptotics).
