@@ -248,14 +248,38 @@ class NfwProfile:
         deltasigma = rs * rho_s * self._gNfw(x)
         return deltasigma
 
-    @staticmethod
-    def _fNfw(x):
+    # Taylor coefficients of f(1+d) and g(1+d) about the x=1 kink of the
+    # piecewise closed forms, where the direct expressions lose ~1e-16/|x-1|
+    # to 0/0 cancellation. Exact values (sympy, series in w^2=(1-x)/(1+x)):
+    #   f: 1/3, -2/5, 13/35, -20/63, 61/231, -94/429, 1181/6435,
+    #      -1896/12155, 6223/46189
+    #   g: p_n + (-1)^(n+1) 4(n+1) ln2, p_n = 10/3, -88/15, 296/35,
+    #      -3508/315, 1373/99, -49930/3003, 9601/495, -186556/8415,
+    #      11521457/461890
+    # With |x-1| <= _SERIES_WINDOW the truncation error is |c_9| d^9 ~ 1e-19
+    # while the direct branch outside the window is accurate to <~2e-14.
+    _F_SERIES = np.array([
+        1 / 3, -2 / 5, 13 / 35, -20 / 63, 61 / 231, -94 / 429,
+        1181 / 6435, -1896 / 12155, 6223 / 46189,
+    ])
+    _G_SERIES = np.array([
+        10 / 3 - 4 * np.log(2), -88 / 15 + 8 * np.log(2),
+        296 / 35 - 12 * np.log(2), -3508 / 315 + 16 * np.log(2),
+        1373 / 99 - 20 * np.log(2), -49930 / 3003 + 24 * np.log(2),
+        9601 / 495 - 28 * np.log(2), -186556 / 8415 + 32 * np.log(2),
+        11521457 / 461890 - 36 * np.log(2),
+    ])
+    _SERIES_WINDOW = 1e-2
+
+    @classmethod
+    def _fNfw(cls, x):
         """Projected NFW profile kernel f(x)."""
         x = np.array(x, dtype=float)
         result = np.zeros_like(x)
-        mask1 = x < 1
-        mask2 = x == 1
-        mask3 = x > 1
+        eps = cls._SERIES_WINDOW
+        mask1 = x < 1 - eps
+        mask3 = x > 1 + eps
+        mask2 = ~(mask1 | mask3)
         x1 = x[mask1]
         x3 = x[mask3]
         # For x < 1
@@ -264,8 +288,10 @@ class NfwProfile:
             / (x1**2 - 1.0)
             * (1 - 2 / np.sqrt(1 - x1**2) * np.arctanh(np.sqrt((1 - x1) / (1 + x1))))
         )
-        # For x == 1
-        result[mask2] = 1.0 / 3.0
+        # For |x - 1| <= eps: Taylor series (direct form is 0/0 at x=1)
+        result[mask2] = np.polynomial.polynomial.polyval(
+            x[mask2] - 1.0, cls._F_SERIES
+        )
         # For x > 1
         result[mask3] = (
             1.0
@@ -274,17 +300,20 @@ class NfwProfile:
         )
         return result
 
-    @staticmethod
-    def _gNfw(x, eps=1e-9):
+    @classmethod
+    def _gNfw(cls, x, eps=None):
         """Mean enclosed projected NFW kernel g(x)."""
+        if eps is None:
+            eps = cls._SERIES_WINDOW
         x = np.array(x, dtype=float)
         res = np.zeros_like(x)
-        # x == 1 (central value, analytic)
-        mask_c = np.abs(x - 1) <= eps
-        res[mask_c] = 10.0 / 3.0 + 4 * np.log(1 / 2.0)
-
-        # x < 1
         mask_l = x < 1 - eps
+        mask_g_ = x > 1 + eps
+        # near x = 1: Taylor series (direct form is 0/0 at x=1)
+        mask_c = ~(mask_l | mask_g_)
+        res[mask_c] = np.polynomial.polynomial.polyval(
+            x[mask_c] - 1.0, cls._G_SERIES
+        )
         sqrt1mx2 = np.sqrt(1.0 - x[mask_l] ** 2)
         atanh = np.arctanh(sqrt1mx2 / (1.0 + x[mask_l]))
         term1 = 8.0 * atanh / (x[mask_l] ** 2 * sqrt1mx2)
@@ -294,7 +323,7 @@ class NfwProfile:
         res[mask_l] = term1 + term2 + term3 + term4
 
         # x > 1
-        mask_g = x > 1 + eps
+        mask_g = mask_g_
         sqrtx2m1 = np.sqrt(x[mask_g] ** 2 - 1.0)
         atan = np.arctan(sqrtx2m1 / (1.0 + x[mask_g]))
         term1 = 8.0 * atan / (x[mask_g] ** 2 * sqrtx2m1)

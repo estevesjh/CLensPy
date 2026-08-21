@@ -95,4 +95,5 @@ api/index
 development
 Einasto profile math <einasto_math>
 Einasto series investigation <einasto_series_investigation>
+Miscentering math <miscentering_math>
 ```
