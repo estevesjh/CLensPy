@@ -1,0 +1,328 @@
+r"""FFTLog engine for bin-averaged double-Bessel covariance integrals.
+
+Evaluates, for log-spaced (geometric) radial bins with edge ratio
+:math:`\rho`,
+
+.. math::
+
+    G_d(\theta) = \int_0^\infty d\ell\, \ell\, C(\ell)\,
+        \bar J_2(\ell; \theta, \rho\theta)\,
+        \bar J_2(\ell; \alpha_d\theta, \rho\alpha_d\theta),
+    \qquad \alpha_d = \rho^d
+
+— the :math:`\ell`-integral of the Gaussian :math:`\Delta\Sigma`
+covariance for the radial-bin pair :math:`(i, i+d)` — as ONE FFTLog
+transform per diagonal offset :math:`d`, replacing the brute-force
+trapz over :math:`\ln\ell`.
+
+Method (see ``docs/covariance_fftlog_math.md`` for the full derivation):
+with :math:`\psi(x) = 2J_0(x) + xJ_1(x)` the annulus-averaged kernel is
+
+.. math::
+
+    \bar J_2(\ell; a, \rho a) = \frac{2\,[\psi(u) - \psi(\rho u)]}
+        {(\rho^2 - 1)\, u^2}, \qquad u = \ell a,
+
+so the product kernel :math:`K_d(u) = \bar J_2(u)\bar J_2(\alpha_d u)`
+depends only on :math:`u = \ell\theta` and the fixed ratio
+:math:`\alpha_d`.  Expanding :math:`\psi\psi` yields 16 elementary
+:math:`u^{p-4} J_\mu(c_1 u) J_\nu(c_2 u)` terms whose Mellin transforms
+are closed forms (Gradshteyn–Ryzhik 6.574.1, via
+``mcfit.kernels.Mellin_DoubleBesselJ``); they are **summed at the
+Mellin-coefficient level** before the single inverse FFT, so the four
+orders of small-:math:`u` cancellation (:math:`K_d \sim u^4`) happen
+exactly in the analytic continuation rather than in floating point
+(cf. Fang, Eifler & Krause 2020).
+
+Usage: pass ``F = ell**2 * C(ell)``; the transform returns
+:math:`G_d` on its output :math:`\theta` grid,
+
+.. math::
+
+    G_d(\theta) = \int_0^\infty \frac{dx}{x}\, F(x)\, K_d(x\theta).
+
+Constant (white-noise) :math:`C_\ell` components must be removed first
+and added back with :func:`white_noise_diagonal` — orthogonality of the
+bin-averaged kernels makes them exactly diagonal:
+
+.. math::
+
+    \int_0^\infty \ell\, d\ell\, \bar J_2^{(i)} \bar J_2^{(j)}
+        = \delta_{ij}\, \frac{2}{\theta_{i,\max}^2 - \theta_{i,\min}^2}.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+from scipy.special import j0, j1
+
+import mcfit
+from mcfit.kernels import Mellin_DoubleBesselJ
+
+__all__ = [
+    "j2_bin_averaged",
+    "BinAveragedJ2DoubleBessel",
+    "white_noise_diagonal",
+    "GaussianCovFFTLog",
+]
+
+
+def j2_bin_averaged(ell, theta_min: float, theta_max: float):
+    r"""Annulus-averaged Bessel kernel :math:`\bar J_2(\ell; a, b)`.
+
+    .. math::
+
+        \bar J_2 = \frac{2}{\ell^2 (b^2 - a^2)}
+            \left[ 2J_0(\ell a) - 2J_0(\ell b)
+                   + \ell a J_1(\ell a) - \ell b J_1(\ell b) \right]
+
+    (from :math:`x J_2 = 2J_1 - xJ_0 \Rightarrow \int x J_2\,dx =
+    -2J_0 - xJ_1`).  Exact closed form — used by the legacy trapz path
+    and as the FFTLog validation reference.
+
+    For :math:`\ell b < 10^{-2}` the bracket cancels to
+    :math:`O((\ell b)^4/32)`, below the float64 noise floor of the direct
+    expression (a latent defect of the legacy ``j2_bin``), so the Taylor
+    series is used instead:
+
+    .. math::
+
+        \bar J_2 = \frac{\ell^2 (a^2 + b^2)}{16}
+            - \frac{\ell^4 (a^4 + a^2 b^2 + b^4)}{288} + O(\ell^6)
+    """
+    ell = np.asarray(ell, dtype=float)
+    a, b = theta_min, theta_max
+    xa, xb = ell * a, ell * b
+    direct = (
+        2.0
+        / (ell**2 * (b**2 - a**2))
+        * (2.0 * j0(xa) - 2.0 * j0(xb) + xa * j1(xa) - xb * j1(xb))
+    )
+    series = ell**2 * (a**2 + b**2) / 16.0 - ell**4 * (
+        a**4 + a**2 * b**2 + b**4
+    ) / 288.0
+    return np.where(xb < 1e-2, series, direct)
+
+
+_MK_CACHE: dict = {}
+
+
+def _mellin_binavg_j2j2(rho: float, alpha: float):
+    r"""Mellin transform :math:`U(s) = \int_0^\infty u^{s-1} K_d(u)\,du`
+    of the product kernel
+
+    .. math::
+
+        K_d(u) = \frac{4\,[\psi(u) - \psi(\rho u)]
+            [\psi(\alpha u) - \psi(\rho\alpha u)]}
+            {(\rho^2-1)^2\, \alpha^2\, u^4}
+
+    as the exact 16-term sum of shifted/rescaled double-Bessel Mellin
+    transforms:
+
+    .. math::
+
+        \int_0^\infty u^{\sigma-1} J_\mu(c_1 u) J_\nu(c_2 u)\, du
+            = c_1^{-\sigma}\, M_{\mu\nu}^{(c_2/c_1)}(\sigma).
+
+    Summation happens here, in the analytic continuation, so the
+    :math:`u^{-4}` tails of the individual terms cancel exactly.
+    """
+    rho = float(rho)
+    alpha = float(alpha)
+    A = 4.0 / ((rho**2 - 1.0) ** 2 * alpha**2)
+
+    # (c1, sign1) x (c2, sign2); psi(c u) = 2 J0(c u) + c u J1(c u)
+    pieces = []
+    for c1, s1 in ((1.0, +1.0), (rho, -1.0)):
+        for c2, s2 in ((alpha, +1.0), (rho * alpha, -1.0)):
+            beta = c2 / c1
+            sign = s1 * s2
+            # (mu, nu, p, coeff): u^{p-4} coeff J_mu(c1 u) J_nu(c2 u)
+            for mu, nu, p, coeff in (
+                (0, 0, 0, 4.0),
+                (0, 1, 1, 2.0 * c2),
+                (1, 0, 1, 2.0 * c1),
+                (1, 1, 2, c1 * c2),
+            ):
+                pieces.append(
+                    (sign * coeff, c1, p, Mellin_DoubleBesselJ(beta, mu, nu))
+                )
+
+    def MK(z):
+        z = np.asarray(z)
+        out = np.zeros_like(z, dtype=complex)
+        for coeff, c1, p, M in pieces:
+            sigma = z + (p - 4)
+            out = out + coeff * c1 ** (-sigma) * np.asarray(
+                M(sigma), dtype=complex
+            )
+        return A * out
+
+    return MK
+
+
+class BinAveragedJ2DoubleBessel(mcfit.mcfit):
+    r"""FFTLog transform with the summed bin-averaged :math:`\bar J_2
+    \bar J_2` Mellin kernel.
+
+    Computes :math:`G_d(\theta) = \int_0^\infty F(\ell)\,
+    K_d(\ell\theta)\, d\ell/\ell` — pass ``F = ell**2 * C(ell)`` to get
+    the covariance :math:`\ell`-integral
+    :math:`\int d\ell\,\ell\, C(\ell) \bar J_2^{(i)} \bar J_2^{(i+d)}`
+    evaluated at :math:`\theta = \theta_{i,\min}` for every ``i`` at once.
+
+    Parameters
+    ----------
+    ell : ndarray
+        Log-spaced multipole grid.
+    rho : float
+        Geometric edge ratio of the radial binning
+        (:math:`\theta_{\max}/\theta_{\min}` per bin).
+    alpha : float
+        Bin-pair scale ratio :math:`\rho^d` for diagonal offset ``d``.
+    q : float
+        FFTLog tilt.  The summed kernel is analytic for
+        :math:`-4 < \mathrm{Re}\,s < 3`, but the *individual* terms have
+        poles at :math:`s \in \{0, 2\}` — keep ``q`` well inside
+        ``(0, 2)``; the default 1.0 maximizes the distance to both.
+    lowring : bool
+        Low-ringing output-grid condition.
+    """
+
+    def __init__(self, ell, rho: float, alpha: float, q: float = 1.0,
+                 lowring: bool = True, **kwargs) -> None:
+        key = (round(float(rho), 12), round(float(alpha), 12))
+        if key not in _MK_CACHE:
+            _MK_CACHE[key] = _mellin_binavg_j2j2(rho, alpha)
+        MK = _MK_CACHE[key]
+        super().__init__(np.asarray(ell, dtype=float), MK, q,
+                         lowring=lowring, **kwargs)
+        self.rho = float(rho)
+        self.alpha = float(alpha)
+
+
+def white_noise_diagonal(theta_edges, noise: float, f_sky: float):
+    r"""Exact diagonal of the constant-:math:`C_\ell` covariance term.
+
+    For :math:`C_\ell = N` (white noise) and disjoint annuli, bin-averaged
+    :math:`J_2` orthogonality gives
+
+    .. math::
+
+        {\rm Cov}^{\rm white}_{ij} = \delta_{ij}\,
+            \frac{N}{4\pi^2 f_{\rm sky}
+            (\theta_{i,\max}^2 - \theta_{i,\min}^2)}
+            = \delta_{ij}\, \frac{N}{A_{\rm survey}\, A_i / \pi}
+
+    with :math:`A_i = \pi(\theta_{i,\max}^2 - \theta_{i,\min}^2)` the
+    annulus solid angle.  Returns the diagonal vector (length
+    ``len(theta_edges) - 1``).
+    """
+    theta_edges = np.asarray(theta_edges, dtype=float)
+    return noise / (
+        4.0 * np.pi**2 * f_sky * (theta_edges[1:] ** 2 - theta_edges[:-1] ** 2)
+    )
+
+
+class GaussianCovFFTLog:
+    r"""Gaussian covariance matrix over geometric angular bins via FFTLog.
+
+    .. math::
+
+        {\rm Cov}_{ij} = \frac{1}{4\pi f_{\rm sky}} \int
+            \frac{\ell\, d\ell}{2\pi}\, C_{\rm smooth}(\ell)\,
+            \bar J_2^{(i)}(\ell)\, \bar J_2^{(j)}(\ell)
+            \;+\; \delta_{ij}\, {\rm Cov}^{\rm white}_{ii}
+
+    One :class:`BinAveragedJ2DoubleBessel` per diagonal offset ``d``
+    (kernels cached per binning geometry — reusable across redshift/
+    richness bins and cosmologies); the smooth :math:`C(\ell)` must decay
+    at high :math:`\ell` (strip the constant noise terms and pass them via
+    ``noise_const``).
+
+    Parameters
+    ----------
+    ell : ndarray
+        Log-spaced grid on which ``C_smooth`` will be provided.
+    theta_edges : ndarray
+        Geometric angular bin edges [rad]; ``edges[i+1]/edges[i]`` must be
+        constant.
+    f_sky : float
+    q : float
+        FFTLog tilt (see :class:`BinAveragedJ2DoubleBessel`).
+    """
+
+    def __init__(self, ell, theta_edges, f_sky: float, q: float = 1.0) -> None:
+        self.ell = np.asarray(ell, dtype=float)
+        self.theta_edges = np.asarray(theta_edges, dtype=float)
+        ratios = self.theta_edges[1:] / self.theta_edges[:-1]
+        rho = ratios[0]
+        if not np.allclose(ratios, rho, rtol=1e-8):
+            raise ValueError(
+                "theta_edges must be geometric (constant ratio); got "
+                f"ratios in [{ratios.min():.6g}, {ratios.max():.6g}]"
+            )
+        self.rho = float(rho)
+        self.n_bins = self.theta_edges.size - 1
+        self.f_sky = float(f_sky)
+        self.q = float(q)
+        self._transforms: dict[int, BinAveragedJ2DoubleBessel] = {}
+
+    def _transform(self, d: int) -> BinAveragedJ2DoubleBessel:
+        if d not in self._transforms:
+            self._transforms[d] = BinAveragedJ2DoubleBessel(
+                self.ell, self.rho, self.rho**d, q=self.q
+            )
+        return self._transforms[d]
+
+    def covariance(self, C_smooth, noise_const: float = 0.0) -> np.ndarray:
+        r"""Assemble the (n_bins, n_bins) covariance.
+
+        Parameters
+        ----------
+        C_smooth : ndarray
+            Decaying part of the total :math:`C(\ell)` on ``self.ell``.
+        noise_const : float
+            Constant (white) part of :math:`C(\ell)`, added analytically
+            on the diagonal.
+        """
+        C_smooth = np.asarray(C_smooth, dtype=float)
+        F = self.ell**2 * C_smooth
+        theta_lo = self.theta_edges[:-1]
+        cov = np.zeros((self.n_bins, self.n_bins))
+        for d in range(self.n_bins):
+            tr = self._transform(d)
+            y, G = tr(F, extrap=True)
+            # log-linear interpolation of G at theta_{i,min}
+            g_i = np.interp(np.log(theta_lo[: self.n_bins - d]), np.log(y), G)
+            for i, g in enumerate(g_i):
+                cov[i, i + d] = g
+                cov[i + d, i] = g
+        cov /= 8.0 * np.pi**2 * self.f_sky
+        if noise_const != 0.0:
+            cov[np.diag_indices_from(cov)] += white_noise_diagonal(
+                self.theta_edges, noise_const, self.f_sky
+            )
+        return cov
+
+    def covariance_trapz_reference(
+        self, C_total, dlnell: float = 1e-3, ell_range=(1e-1, 1e7)
+    ) -> np.ndarray:
+        """Legacy brute-force trapz over ln(ell) with the closed-form
+        bin-averaged kernels — slow validation reference ONLY."""
+        lnell = np.arange(np.log(ell_range[0]), np.log(ell_range[1]), dlnell)
+        ell = np.exp(lnell)
+        C = np.interp(ell, self.ell, np.asarray(C_total, dtype=float),
+                      left=C_total[0], right=0.0)
+        kernels = [
+            j2_bin_averaged(ell, self.theta_edges[i], self.theta_edges[i + 1])
+            for i in range(self.n_bins)
+        ]
+        cov = np.zeros((self.n_bins, self.n_bins))
+        for i in range(self.n_bins):
+            for j in range(i, self.n_bins):
+                integrand = ell**2 * C * kernels[i] * kernels[j]
+                val = np.trapezoid(integrand, lnell)
+                cov[i, j] = cov[j, i] = val
+        return cov / (8.0 * np.pi**2 * self.f_sky)
