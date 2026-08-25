@@ -13,6 +13,7 @@ Modules
 """
 
 from .halomodel import BinHaloModelSpectra
+from .intrinsic_variance import IntrinsicProfileVariance
 from .kernels import (
     AnalyticLogNormalKernel,
     EmgRichnessKernel,
@@ -46,6 +47,7 @@ from .weights import (
 
 __all__ = [
     "BinHaloModelSpectra",
+    "IntrinsicProfileVariance",
     "SigmoidBias",
     "SelectionBiasTable",
     "SelBiasEngine",
