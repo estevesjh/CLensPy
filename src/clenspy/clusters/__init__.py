@@ -12,6 +12,7 @@ Modules
 ``survey``         Survey solid-angle functions Omega(z).
 """
 
+from .halomodel import BinHaloModelSpectra
 from .kernels import (
     AnalyticLogNormalKernel,
     EmgRichnessKernel,
@@ -44,6 +45,7 @@ from .weights import (
 )
 
 __all__ = [
+    "BinHaloModelSpectra",
     "SigmoidBias",
     "SelectionBiasTable",
     "SelBiasEngine",
