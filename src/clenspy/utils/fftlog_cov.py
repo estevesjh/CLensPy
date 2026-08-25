@@ -151,13 +151,34 @@ def _mellin_binavg_j2j2(rho: float, alpha: float):
 
     def MK(z):
         z = np.asarray(z)
+        # disk cache: the mpmath 2F1 evaluations cost ~seconds per call
+        # and depend only on (rho, alpha, sampled z line) — never on
+        # cosmology — so persist them across processes.
+        import hashlib
+        import os
+        import tempfile
+
+        key = hashlib.md5(
+            np.asarray([rho, alpha]).tobytes() + np.ascontiguousarray(z).tobytes()
+        ).hexdigest()
+        cache_dir = os.environ.get(
+            "CLENSPY_FFTLOG_CACHE",
+            os.path.join(tempfile.gettempdir(), "clenspy_fftlog_cache"),
+        )
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_file = os.path.join(cache_dir, key + ".npy")
+        if os.path.exists(cache_file):
+            return np.load(cache_file)
+
         out = np.zeros_like(z, dtype=complex)
         for coeff, c1, p, M in pieces:
             sigma = z + (p - 4)
             out = out + coeff * c1 ** (-sigma) * np.asarray(
                 M(sigma), dtype=complex
             )
-        return A * out
+        out = A * out
+        np.save(cache_file, out)
+        return out
 
     return MK
 
