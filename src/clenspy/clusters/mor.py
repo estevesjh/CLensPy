@@ -88,12 +88,34 @@ class HodParams:
 
     @classmethod
     def des_y1(cls, h: float) -> "HodParams":
-        """DES Y1 NC+3x2pt best fit (Costanzi 2026), converted from Msun/h."""
+        """DES Y1 NC+3x2pt best fit (Costanzi 2026), converted from Msun/h.
+
+        NOTE: keeps ``epsilon = 0`` (the widePlanck convention).  The
+        Buzzard mocks were generated with the epsilon-corrected constants
+        — use :meth:`buzzard` for any Buzzard comparison.
+        """
         return cls(
             M_min=10.0**11.3852818 / h,
             M1=10.0**12.6964410 / h,
             alpha=0.858693714,
             sigma_intr=0.180949022,
+        )
+
+    @classmethod
+    def buzzard(cls, h: float) -> "HodParams":
+        """Tan Xing's EXACT Buzzard-mock constants (the values file the
+        mock data vectors were generated with:
+        ``des-nersc-cluster-scripts/cosmosis-models/
+        mock_mcmc_buzzard_values.ini``), converted from Msun/h.
+        Differs from :meth:`des_y1` by ``epsilon = 0.283887020``.
+        """
+        return cls(
+            M_min=10.0**11.3852818 / h,
+            M1=10.0**12.6964410 / h,
+            alpha=0.858693714,
+            sigma_intr=0.180949022,
+            epsilon=0.283887020,
+            z_pivot=0.4544,
         )
 
 

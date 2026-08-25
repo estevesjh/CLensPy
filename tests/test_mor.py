@@ -88,3 +88,16 @@ def test_lambda_mean_below(hod):
     # truncation reduces the mean
     trunc = hod.lambda_mean_below(M, 0.3, hod.ltr_mean(M, 0.3))
     assert trunc < full
+
+
+def test_buzzard_params_match_mock_values_file():
+    """Tan Xing's EXACT Buzzard-mock constants (mock_mcmc_buzzard_values.ini):
+    the epsilon fix (0.283887020) lives in the Buzzard file; des_y1 keeps 0."""
+    p = HodParams.buzzard(H)
+    assert np.isclose(p.M_min, 10.0**11.3852818 / H)
+    assert np.isclose(p.M1, 10.0**12.6964410 / H)
+    assert p.alpha == 0.858693714
+    assert p.sigma_intr == 0.180949022
+    assert p.epsilon == 0.283887020
+    assert p.z_pivot == 0.4544
+    assert HodParams.des_y1(H).epsilon == 0.0
