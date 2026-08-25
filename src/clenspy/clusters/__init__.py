@@ -34,6 +34,7 @@ from .observables import (
     duffy08_concentration,
 )
 from .selection import BinDefinition, SelectionFunctionBuilder, SelectionTable
+from .selection_bias import SelBiasEngine, SelectionBiasTable, SigmoidBias, XiNL
 from .survey import omega_z_const_factory, omega_z_des, omega_z_sdss
 from .weights import (
     MassZWeights,
@@ -43,6 +44,10 @@ from .weights import (
 )
 
 __all__ = [
+    "SigmoidBias",
+    "SelectionBiasTable",
+    "SelBiasEngine",
+    "XiNL",
     "MassZWeights",
     "ZResolvedWeights",
     "build_mass_weights",
