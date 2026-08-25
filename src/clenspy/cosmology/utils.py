@@ -219,10 +219,35 @@ def hubble_parameter(z: float, cosmology: FlatLambdaCDM) -> float:
     return H_z.to(u.km / u.s / u.Mpc).value
 
 
+def comoving_volume_element(z, cosmology: FlatLambdaCDM):
+    r"""Differential comoving volume :math:`dV/(dz\,d\Omega)` in Mpc^3/sr.
+
+    .. math::
+
+        \frac{dV}{dz\,d\Omega} = \frac{c}{H(z)}\, D_C^2(z)
+
+    Parameters
+    ----------
+    z : float or array_like
+        Redshift(s).
+    cosmology : astropy.cosmology.FlatLambdaCDM
+        Astropy cosmology object.
+
+    Returns
+    -------
+    float or ndarray
+        Comoving volume element in Mpc^3 per steradian (scalar in, scalar out).
+    """
+    z_arr = np.atleast_1d(np.asarray(z, dtype=float))
+    dv = cosmology.differential_comoving_volume(z_arr).to_value(u.Mpc**3 / u.sr)
+    return float(dv[0]) if np.isscalar(z) or np.ndim(z) == 0 else dv
+
+
 __all__ = [
     "sigma_critical",
     "comoving_to_theta",
     "theta_to_comoving",
     "critical_density",
     "hubble_parameter",
+    "comoving_volume_element",
 ]

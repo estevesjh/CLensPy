@@ -3,6 +3,7 @@ Utility functions for coordinate transformations and mathematical operations.
 """
 
 from .decorators import default_rvals_z, scalar_array_output, time_method
+from .gl import gl_nodes
 from .integrate import (
     compute_sigma_grid,
     compute_sigma_leggauss,
@@ -15,6 +16,7 @@ from .interpolate import LogGridInterpolator
 
 __all__ = [
     "LogGridInterpolator",
+    "gl_nodes",
     "default_rvals_z",
     "time_method",
     "scalar_array_output",
