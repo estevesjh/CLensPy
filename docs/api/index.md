@@ -44,6 +44,8 @@
    PkGrid
    sigma_critical
    comoving_to_theta
+   fiducial_cosmology
+   mean_matter_density
 ```
 
 ## `clenspy.utils`
@@ -64,11 +66,24 @@
    compute_sigma_quadvec
    sigma_to_deltasigma_cumtrapz
    pk_to_xi_fftlog
+   RichnessBin
+   BinCollection
 ```
 
-## `clenspy.config`
+```{eval-rst}
+.. automodule:: clenspy.utils.constants
+   :members:
+```
+
+## Miscentering tables
+
+The miscentered profiles are interpolated from a packaged grid, never
+integrated at runtime. See {doc}`../miscentering_math` section 9.
 
 ```{eval-rst}
-.. automodule:: clenspy.config
+.. automodule:: clenspy.halo.miscentering_table
+   :members:
+
+.. automodule:: clenspy.halo.miscentering_kernel
    :members:
 ```
