@@ -31,7 +31,12 @@ them is a factor of :math:`4\pi`.
 
 from . import counts, deltasigma
 from .counts import CountsCovariance
-from .deltasigma import ALL_TERMS, DeltaSigmaCovariance, j2_bin
+from .deltasigma import (
+    ALL_TERMS,
+    J2_SERIES_CUTOFF,
+    DeltaSigmaCovariance,
+    j2_bin,
+)
 
 __all__ = [
     "counts",
@@ -40,4 +45,5 @@ __all__ = [
     "DeltaSigmaCovariance",
     "j2_bin",
     "ALL_TERMS",
+    "J2_SERIES_CUTOFF",
 ]

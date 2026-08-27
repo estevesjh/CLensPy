@@ -177,6 +177,36 @@ property of the universe.
    :members:
 ```
 
+### The Bessel kernel and the FFTLog engine
+
+$\hat J_2$ has **one** copy in the package, here, because two consumers
+need it and `kernels` is the lowest layer both may import: the direct
+quadrature in `clenspy.covariance.deltasigma` and the Mellin kernel in
+`fftlog_cov`. Two implementations of a kernel with a delicate cancellation
+branch is how they drift apart — and they had.
+
+`GaussianCovFFTLog` evaluates the bin-averaged **double**-Bessel covariance
+integral as one FFTLog per diagonal offset. That is possible because for
+**geometric** bins the pair ratio $\alpha_d = \rho^d$ depends only on the
+offset, so the product kernel is a function of $u = \ell\theta$ alone —
+the reason the geometric check in its constructor is a precondition, not a
+convenience. The 16 Mellin coefficients are summed *before* the inverse
+FFT, so the $K_d \sim u^4$ cancellation happens in analytic continuation
+rather than in floating point.
+
+Measured against the direct quadrature on matched geometry: comparable on
+the diagonal, and **~560× more accurate off-diagonal at equal cost** (5.3e-6
+with 4096 nodes against 3.0e-3 with 8192; the quadrature needs 262144 nodes
+to match). Derivation in {doc}`../covariance_fftlog_math`.
+
+```{eval-rst}
+.. automodule:: clenspy.kernels.bessel
+   :members:
+
+.. automodule:: clenspy.kernels.fftlog_cov
+   :members:
+```
+
 ## `clenspy.utils`
 
 ```{eval-rst}

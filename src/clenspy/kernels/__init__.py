@@ -24,6 +24,13 @@ Contents
     `LimberProjector`: the Wu et al. (2019) angular power spectra, written
     as **one** projection with :math:`F_{\rm h}` / :math:`F_\Sigma` passed
     in, which is how the paper writes them.
+`bessel`
+    :math:`\hat J_2`, the annulus-averaged Bessel kernel. One copy, shared
+    by the direct quadrature and the FFTLog engine.
+`fftlog_cov`
+    The FFTLog engine for the bin-averaged **double**-Bessel covariance
+    integral: one transform per diagonal offset, with the Mellin
+    coefficients summed before the inverse FFT.
 
 NOTE: the two modules use **different** :math:`\Sigma_{\rm crit}`
 conventions and the difference is exactly :math:`(1+z_l)^2`.
@@ -34,6 +41,7 @@ dimensionless. Both are named for what they return.
 
 """
 
+from .bessel import J2_SERIES_CUTOFF, j2_bin
 from .lensing_kernel import LensingKernel, sigma_crit_comoving
 from .limber import ARCMIN_TO_RAD, LimberProjector, limber
 from .photoz import gaussian_cdf, photoz_counts, photoz_projection
@@ -49,4 +57,6 @@ __all__ = [
     "LimberProjector",
     "limber",
     "ARCMIN_TO_RAD",
+    "j2_bin",
+    "J2_SERIES_CUTOFF",
 ]
