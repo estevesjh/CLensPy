@@ -84,6 +84,39 @@ relation while `NfwProfile` and the Tinker mass function use $M_{200m}$.
    :members:
 ```
 
+### Growth, variance, and the mass function
+
+$\sigma(M)$ is computed **once**, in `SigmaGrid`, because the Tinker (2008)
+mass function and the Tinker (2010) bias are two fits to the *same* peak
+height $\nu = \delta_c/\sigma(M)$ — computing it twice from one $P(k)$ is
+how they silently drift apart.
+
+Ported from `y3_cluster_cpp`'s in-repo replacement for CosmoSIS's
+`MfTinker` (`mf_tinker_cpp/python/tinker_core.py`), whose Gauss–Legendre
+panel evaluator agrees with arbitrary-precision mpmath to 4.4e-16.
+
+Three conventions carried across, all of which bite:
+
+- the integration limits are $k \in [10^{-4},\,20/R]$ — the **upper limit
+  depends on $R$**, and it is algorithm-defining, not a convergence cutoff;
+- **FFTLog cannot express an $R$-dependent limit**, so the fast path
+  computes the untruncated quantity and must be validated against
+  `truncate=False`;
+- $d\sigma^2/d\ln R$ is taken under the integral sign, and the moving
+  boundary contributes a Leibniz term that a finite difference of the
+  truncated $\sigma^2$ is the only honest way to verify.
+
+```{eval-rst}
+.. automodule:: clenspy.cosmology.growth
+   :members:
+
+.. automodule:: clenspy.cosmology.sigma
+   :members:
+
+.. automodule:: clenspy.cosmology.mass_function
+   :members:
+```
+
 ## `clenspy.survey`
 
 What the dataset is, as distinct from what the universe is. Three separate

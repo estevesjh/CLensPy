@@ -34,6 +34,8 @@ __all__ = [
     "catalan_over_4k",
     "expint_asymptotic",
     "expn_fast",
+    "tophat_w",
+    "tophat_dw",
 ]
 
 
@@ -210,6 +212,78 @@ def expn_fast(nu, x, rtol=1e-9, nterms=NTERMS_ASYMP):
         # Non-integer 1 < nu < threshold: upward recurrence (no mpmath).
         out[is_rest] = _expint_recurrence(nu_b[is_rest], x_b[is_rest])
 
+    return out
+
+
+# ----------------------------------------------------------------------
+# Spherical top-hat window, and its derivative
+# ----------------------------------------------------------------------
+#: Below this argument the closed forms cancel catastrophically and the
+#: Taylor series is used instead. At x = 0.1 the retained series terms are
+#: already O(1e-9), so the two branches agree to well past fp64 need while
+#: the closed form has lost ~6 digits to cancellation.
+TOPHAT_SERIES_CUTOFF = 0.1
+
+
+def tophat_w(x):
+    r"""Fourier transform of the spherical top-hat, :math:`W(x)`.
+
+    .. math::
+        W(x) = \frac{3\left(\sin x - x\cos x\right)}{x^{3}}
+             = 1 - \frac{x^2}{10} + \frac{x^4}{280}
+                 - \frac{x^6}{15120} + O(x^8)
+
+    with :math:`x = kR`. Normalised to :math:`W(0) = 1`.
+
+    NOTE: the series branch below `TOPHAT_SERIES_CUTOFF` is not an
+    optimisation -- it is required. As :math:`x \to 0` the closed form is
+    the difference of two nearly equal quantities divided by
+    :math:`x^3`, so it loses roughly :math:`3\log_{10}(1/x)` digits;
+    at :math:`x = 10^{-3}` only ~7 remain, and the resulting
+    :math:`\sigma^2` noise appears at large :math:`R` where the integrand
+    should be smoothest.
+
+    NOTE: dimensionless in and out.
+    """
+    x = np.atleast_1d(np.asarray(x, dtype=float))
+    out = np.empty_like(x)
+    small = np.abs(x) < TOPHAT_SERIES_CUTOFF
+    x2 = x[small] ** 2
+    out[small] = (1.0 - x2 / 10.0 + x2 * x2 / 280.0
+                  - x2 * x2 * x2 / 15120.0)
+    xl = x[~small]
+    out[~small] = 3.0 * (np.sin(xl) - xl * np.cos(xl)) / xl**3
+    return out
+
+
+def tophat_dw(x):
+    r"""Derivative of the top-hat window, :math:`dW/dx`.
+
+    .. math::
+        \frac{dW}{dx} = \frac{3\left(x^2\sin x - 3\sin x
+                              + 3x\cos x\right)}{x^{4}}
+                      = x\left(-\frac15 + \frac{x^2}{70}
+                               - \frac{x^4}{2520}\right) + O(x^7)
+
+    Needed to differentiate :math:`\sigma^2(R)` under the integral sign
+    rather than finite-differencing it -- see
+    `clenspy.cosmology.sigma.SigmaGrid.dsigma2_dlnr`.
+
+    NOTE: same cancellation caveat as `tophat_w`, one power worse: the
+    closed form divides by :math:`x^4`.
+
+    NOTE: dimensionless in and out. :math:`dW/dx`, not
+    :math:`dW/d\ln x`.
+    """
+    x = np.atleast_1d(np.asarray(x, dtype=float))
+    out = np.empty_like(x)
+    small = np.abs(x) < TOPHAT_SERIES_CUTOFF
+    xs = x[small]
+    x2 = xs**2
+    out[small] = xs * (-1.0 / 5.0 + x2 / 70.0 - x2 * x2 / 2520.0)
+    xl = x[~small]
+    out[~small] = 3.0 * (xl * xl * np.sin(xl) - 3.0 * np.sin(xl)
+                         + 3.0 * xl * np.cos(xl)) / xl**4
     return out
 
 

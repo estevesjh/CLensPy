@@ -12,7 +12,10 @@ the universe.
 from .concentration import child18, child18_powerlaw, duffy08, m_star_hinv
 from .distances import comoving_to_theta, theta_to_comoving
 from .fiducial import fiducial_cosmology, mean_matter_density
+from .growth import growth_factor, growth_unnormalised
+from .mass_function import TinkerMassFunction, consumed_mask
 from .pkgrid import PkGrid
+from .sigma import LinearPk, SigmaGrid, lnr_grid
 
 __all__ = [
     "comoving_to_theta",
@@ -24,6 +27,13 @@ __all__ = [
     "child18_powerlaw",
     "duffy08",
     "m_star_hinv",
+    "growth_factor",
+    "growth_unnormalised",
+    "LinearPk",
+    "SigmaGrid",
+    "lnr_grid",
+    "TinkerMassFunction",
+    "consumed_mask",
 ]
 
 
