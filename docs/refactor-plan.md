@@ -571,19 +571,30 @@ So the **Kernel layer's public surface is three callables** —
 `q_sigma`, `mean_sigma_crit`, `f_src_behind` — plus $\Sigma_{\rm crit}$
 itself. Nothing else is required of it.
 
-Modules `cluster-lensing-cov` imports that this branch does **not** have:
+Modules `cluster-lensing-cov` imports that this branch did **not** have,
+and where each ended up:
 
 ```
-clenspy.lensing.limber.LimberProjector
-clenspy.utils.fftlog_cov          (j2_bin_averaged)
-clenspy.halo.mass_function        (SigmaGrid: .rho_m0, __call__(M, z))
-clenspy.clusters.BinHaloModelSpectra
-clenspy.IntrinsicProfileVariance
-docs/covariance_fftlog_math.md
+clenspy.lensing.limber.LimberProjector  -> kernels/limber.py  (step 12)
+clenspy.utils.fftlog_cov                -> kernels/fftlog_cov.py  (ported)
+  (j2_bin_averaged)                        -> kernels/bessel.py::j2_bin
+clenspy.halo.mass_function              -> cosmology/{sigma,mass_function}.py
+clenspy.clusters.BinHaloModelSpectra    -> halo/binned_spectra.py  (pending)
+clenspy.IntrinsicProfileVariance        -> covariance/halo_to_halo.py
+                                           ::HaloToHaloCovariance
+docs/covariance_fftlog_math.md          -> ported as-is
 ```
 
-All of these exist on the `codex/clusters` branch. **They are to be
-rebuilt, not merged.** That branch does not follow the skill — modules
+All of these existed on the `codex/clusters` branch. Most were **rebuilt**
+from the papers rather than merged; the FFTLog engine and its derivation
+were **ported**, because that engine is measurably better than the
+quadrature it competes with (see step 16) and re-deriving a Mellin kernel
+to get a worse answer would have been perverse. The rule is therefore:
+rebuild what the skill's structure changes, port what is already correct
+and self-contained, and in both cases check rather than assume -- the
+port turned up a live `NfwProfile.fourier` broadcast bug, two vendored
+data tables my own docstrings claimed were absent, and an `EmgParams` API
+that could not express the production kernel. That branch does not follow the skill — modules
 carry several physical concepts at once, integrands are hard to follow
 against the papers, and `clusters/` bundles survey, selection, kernels,
 photo-z, MOR and observables into one flat package. Use it only to locate

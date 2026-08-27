@@ -300,7 +300,7 @@ modes. Conflating them is a factor of $4\pi$.
    :members:
 ```
 
-### The sixth term: intrinsic profile variance
+### The sixth term: halo-to-halo covariance
 
 Not a Gaussian-field contribution. Each cluster in a stack carries its own
 $\Delta\Sigma$, so the stack inherits the **population** covariance of
@@ -315,7 +315,7 @@ scatter propagates both to the one-halo amplitude and to $b(M)$ — variance
 on all scales, not only where the one-halo term lives.
 
 ```{eval-rst}
-.. automodule:: clenspy.covariance.intrinsic
+.. automodule:: clenspy.covariance.halo_to_halo
    :members:
 ```
 

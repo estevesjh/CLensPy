@@ -563,12 +563,12 @@ def test_annulus_area_is_in_mpc_squared():
     np.testing.assert_allclose(cov.annulus_area(), expected, rtol=1e-14)
 
 
-# -- the intrinsic (halo-to-halo) term -------------------------------------
+# -- the halo-to-halo term -------------------------------------
 
 
-def _intrinsic(**kw):
+def _halo_to_halo(**kw):
     from clenspy.cosmology.fiducial import fiducial_cosmology, mean_matter_density
-    from clenspy.covariance import IntrinsicProfileVariance
+    from clenspy.covariance import HaloToHaloCovariance
     from clenspy.halo.bias import BiasModel
     from clenspy.halo.twohalo import TwoHaloTerm
     from clenspy.observables import ClusterAbundance
@@ -599,38 +599,38 @@ def _intrinsic(**kw):
                   bias=BiasModel(k, pk, cosmo=cosmo),
                   rho_m0=mean_matter_density(cosmo), z_eff=0.28)
     kwargs.update(kw)
-    return IntrinsicProfileVariance(**kwargs), abundance
+    return HaloToHaloCovariance(**kwargs), abundance
 
 
-R_INTR = np.logspace(-0.7, 1.0, 5)
+R_HH = np.logspace(-0.7, 1.0, 5)
 
 
-def test_intrinsic_covariance_is_symmetric_and_psd():
-    iv, _ = _intrinsic()
-    c = iv.cov(R_INTR, 0, 0)
+def test_halo_to_halo_covariance_is_symmetric_and_psd():
+    iv, _ = _halo_to_halo()
+    c = iv.cov(R_HH, 0, 0)
     np.testing.assert_allclose(c, c.T, rtol=1e-14)
     ev = np.linalg.eigvalsh(c)
     assert ev.min() >= -1e-8 * ev.max()
 
 
 def test_the_mass_population_is_normalised():
-    iv, _ = _intrinsic()
+    iv, _ = _halo_to_halo()
     for i in range(4):
         assert iv.mass_population(i, 0).sum() == pytest.approx(1.0)
         assert np.all(iv.mass_population(i, 0) >= 0.0)
 
 
-def test_the_intrinsic_term_scales_as_one_over_n_cl():
+def test_the_halo_to_halo_term_scales_as_one_over_n_cl():
     r"""The signature scaling: only more clusters help.
 
     Verified against the abundance's own counts, which is also the check
     that this term and the counts describe the same sample.
     """
-    iv, abundance = _intrinsic()
-    c = iv.cov(R_INTR, 0, 0)
+    iv, abundance = _halo_to_halo()
+    c = iv.cov(R_HH, 0, 0)
     # rebuild the population covariance by hand and divide by N_cl
     joint = (iv.mass_population(0, 0)[:, None] * iv._c_weight[None, :])
-    prof = iv.profiles(R_INTR)
+    prof = iv.profiles(R_HH)
     mean = np.einsum("kc,kcr->r", joint, prof)
     second = np.einsum("kc,kcr,kcs->rs", joint, prof, prof)
     expected = (second - np.outer(mean, mean)) / abundance.counts()[0, 0]
@@ -644,36 +644,36 @@ def test_zero_concentration_scatter_still_leaves_mass_scatter():
     both the one-halo amplitude and :math:`b(M)`. A term that vanished here
     would be modelling c-scatter only.
     """
-    iv, _ = _intrinsic(sigma_lnc=0.0)
-    assert np.all(np.diag(iv.cov(R_INTR, 0, 0)) > 0.0)
+    iv, _ = _halo_to_halo(sigma_lnc=0.0)
+    assert np.all(np.diag(iv.cov(R_HH, 0, 0)) > 0.0)
 
 
 def test_concentration_scatter_increases_the_small_scale_variance():
-    small = _intrinsic(sigma_lnc=0.0)[0].cov(R_INTR, 0, 0)[0, 0]
-    large = _intrinsic(sigma_lnc=0.25)[0].cov(R_INTR, 0, 0)[0, 0]
+    small = _halo_to_halo(sigma_lnc=0.0)[0].cov(R_HH, 0, 0)[0, 0]
+    large = _halo_to_halo(sigma_lnc=0.25)[0].cov(R_HH, 0, 0)[0, 0]
     assert large > small
 
 
 def test_the_mean_profile_uses_the_same_population_as_the_covariance():
     """Otherwise a mean and a covariance could describe different samples."""
-    iv, _ = _intrinsic()
+    iv, _ = _halo_to_halo()
     joint = (iv.mass_population(0, 0)[:, None] * iv._c_weight[None, :])
-    expected = np.einsum("kc,kcr->r", joint, iv.profiles(R_INTR))
-    np.testing.assert_allclose(iv.mean_profile(R_INTR, 0, 0), expected,
+    expected = np.einsum("kc,kcr->r", joint, iv.profiles(R_HH))
+    np.testing.assert_allclose(iv.mean_profile(R_HH, 0, 0), expected,
                                rtol=1e-14)
 
 
 def test_the_profiles_are_a_max_not_a_sum():
     r"""Hayashi & White composition. A sum double-counts the transition."""
-    iv, _ = _intrinsic()
-    prof = iv.profiles(R_INTR)
-    one = iv._nfw.deltasigma(R_INTR).reshape(prof.shape)
+    iv, _ = _halo_to_halo()
+    prof = iv.profiles(R_HH)
+    one = iv._nfw.deltasigma(R_HH).reshape(prof.shape)
     assert np.all(prof >= one - 1e-6 * np.abs(one))   # never below the 1h
     assert np.any(prof > one * (1.0 + 1e-9))          # and sometimes above
 
 
-def test_intrinsic_rejects_bad_parameters():
+def test_halo_to_halo_rejects_bad_parameters():
     with pytest.raises(ValueError, match="sigma_lnc"):
-        _intrinsic(sigma_lnc=-0.1)
+        _halo_to_halo(sigma_lnc=-0.1)
     with pytest.raises(ValueError, match="n_c"):
-        _intrinsic(n_c=0)
+        _halo_to_halo(n_c=0)

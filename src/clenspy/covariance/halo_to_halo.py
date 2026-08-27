@@ -1,4 +1,4 @@
-r"""Intrinsic (halo-to-halo) profile variance of a stacked bin.
+r"""Halo-to-halo covariance of a stacked profile.
 
 The term the Gaussian covariance does not contain. Wu et al. (2019)
 `eq:cov_DS` treats the halo field and the matter field as Gaussian and
@@ -70,7 +70,7 @@ import numpy as np
 
 from ..halo.nfw import NfwProfile
 
-__all__ = ["IntrinsicProfileVariance"]
+__all__ = ["HaloToHaloCovariance"]
 
 #: Diemer & Kravtsov (2015): ~0.16 for relaxed samples, ~0.25 spans the
 #: full population. The DES Y1 config carries 0.16.
@@ -80,7 +80,7 @@ SIGMA_LNC_DEFAULT = 0.16
 N_C_DEFAULT = 8
 
 
-class IntrinsicProfileVariance:
+class HaloToHaloCovariance:
     r"""Population covariance of per-cluster max-model profiles.
 
     NOTE: units -- ``R`` in Mpc, result in
@@ -236,7 +236,7 @@ class IntrinsicProfileVariance:
         return np.einsum("kc,kcr->r", joint, self.profiles(R))
 
     def __repr__(self):
-        return (f"IntrinsicProfileVariance(z_eff={self.z_eff:g}, "
+        return (f"HaloToHaloCovariance(z_eff={self.z_eff:g}, "
                 f"sigma_lnc={self.sigma_lnc:g}, n_c={self.n_c})")
 
 
@@ -274,7 +274,7 @@ if __name__ == "__main__":
     twohalo = TwoHaloTerm(k, pk, zvec=np.array([0.28]))
     bias = BiasModel(k, pk, cosmo=cosmo)
 
-    intrinsic = IntrinsicProfileVariance(abundance, twohalo, bias, rho_m0,
+    intrinsic = HaloToHaloCovariance(abundance, twohalo, bias, rho_m0,
                                          z_eff=0.28)
     print(intrinsic, "\n")
 
@@ -305,7 +305,7 @@ if __name__ == "__main__":
 
     print("\nconcentration scatter is what the Gauss-Hermite nodes buy:")
     for sig in (0.0, 0.16, 0.25):
-        iv = IntrinsicProfileVariance(abundance, twohalo, bias, rho_m0,
+        iv = HaloToHaloCovariance(abundance, twohalo, bias, rho_m0,
                                       z_eff=0.28, sigma_lnc=sig)
         s = np.sqrt(np.diag(iv.cov(radii, 0, 0)))
         print(f"  sigma_lnc = {sig:4.2f}: sigma_intr at R = "

@@ -13,9 +13,9 @@ returned only the total would make the paper unwritable.
     :math:`{\rm Cov}[\Delta\Sigma(r_p), \Delta\Sigma(r_p')]`, the
     Gaussian-field expression of Wu et al. (2019), whose bracket expands
     into five terms.
-`intrinsic`
+`halo_to_halo`
     The **sixth** term, and not a Gaussian-field one: the halo-to-halo
-    population variance of the per-cluster profiles in a stack. It scales
+    population covariance of the per-cluster profiles in a stack. It scales
     as :math:`1/N_{\rm cl}`, so unlike shape noise it does not improve
     with survey depth -- only with more clusters.
 
@@ -34,7 +34,7 @@ enters the :math:`\Delta\Sigma` covariance as
 them is a factor of :math:`4\pi`.
 """
 
-from . import counts, deltasigma, intrinsic
+from . import counts, deltasigma, halo_to_halo
 from .counts import CountsCovariance
 from .deltasigma import (
     ALL_TERMS,
@@ -42,16 +42,16 @@ from .deltasigma import (
     DeltaSigmaCovariance,
     j2_bin,
 )
-from .intrinsic import IntrinsicProfileVariance
+from .halo_to_halo import HaloToHaloCovariance
 
 __all__ = [
     "counts",
     "deltasigma",
-    "intrinsic",
+    "halo_to_halo",
     "CountsCovariance",
     "DeltaSigmaCovariance",
     "j2_bin",
     "ALL_TERMS",
     "J2_SERIES_CUTOFF",
-    "IntrinsicProfileVariance",
+    "HaloToHaloCovariance",
 ]
