@@ -491,7 +491,13 @@ Each step is independently reviewable and leaves the package working.
    `hubble_parameter` wrappers were deleted rather than moved -- one-line
    passthroughs to `astropy` with no caller, the same dead-export case as
    `RHOCRIT` in P0 §0.2.
-8. **Lazy `LensingProfile`** — stop running CAMB in `__init__`.
+8. **Lazy `LensingProfile`** — done. `Pkvec`, `two_halo_profile`,
+   `bias_model`, `bias`, `halo_profile` and `sigma_crit` are
+   `functools.cached_property`; construction is ~5 ms and does not even
+   import `camb`. `halo_profile=`, `two_halo=`, `bias=` and `k_grid=` are
+   constructor arguments, so a driver can supply collaborators or reuse one
+   P(k). `_validate_inputs` stays eager. `tests/test_lensing_profile.py`
+   asserts the laziness structurally, so it cannot regress silently.
 9. **`validation/`** — move the pyccl and cluster_toolkit comparisons out of `tests/`.
 10. **`docs/notation.md`**, then the unit `NOTE:` sweep.
 11. **`survey/survey.py`** — the new capability, once the spine is in place.

@@ -8,6 +8,7 @@ from dark matter halo profiles.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Union
 
 import numpy as np
@@ -21,14 +22,24 @@ from ..kernels import sigma_critical
 __all__ = ["LensingProfile", "LensingProfileInfo"]
 
 #: Halo profile models `LensingProfile` can build, as normalised (lower-case)
-#: names. This tuple and `_setup_halo_profile` are the only authority on what
-#: is supported; `_validate_inputs` reads it so an unsupported name is rejected
-#: before any Boltzmann solver is started.
+#: names. This tuple and the `halo_profile` property are the only authority
+#: on what is supported; `_validate_inputs` reads it so an unsupported name
+#: is rejected in the constructor, before anything is built.
 #:
 #: "einasto" is deliberately absent: `EinastoProfile` is parameterised by
 #: (alpha, rho_0, r_s) and has no M_200m-based constructor, so wiring it here
 #: needs a mass-to-(rho_0, r_s) inversion that does not exist yet.
 SUPPORTED_MODELS = ("nfw",)
+
+#: Default wavenumber grid for the 2-halo term [1/Mpc].
+#:
+#: NOTE: the extent is set by the radii the 2-halo term is asked for, not by
+#: taste. `TwoHaloTerm` FFTLogs P(k) to xi(r) and then projects, so the grid
+#: must bracket 1/R over the useful range R ~ 0.1-100 Mpc with a decade of
+#: margin at each end: k_min = 1e-3, k_max = 10 /Mpc. 100 points is ~25 per
+#: decade, which the FFTLog of a smooth linear P(k) converges at. Pass
+#: ``k_grid=`` to override.
+K_GRID_2HALO = np.logspace(-3, 1, 100)
 
 @dataclass
 class LensingProfileInfo:
@@ -85,10 +96,20 @@ class LensingProfile:
         `PkGrid` backend used for the 2-halo term's P(k) ("camb" or
         "pyccl").
     z_source : float
-        Source redshift used for `_sigma_crit`.
+        Source redshift used for `sigma_crit`.
 
     Notes
     -----
+    **The constructor stores; it does not compute.** `Pkvec`,
+    `two_halo_profile`, `bias_model`, `bias`, `halo_profile` and
+    `sigma_crit` are `functools.cached_property`, so
+    ``LensingProfile(z_cluster=0.3, m200=1e14)`` costs nothing and only
+    `Pkvec` starts a Boltzmann solver -- on the first call that needs it.
+    Pass ``two_halo=``, ``bias=`` or ``halo_profile=`` to supply a
+    collaborator instead, which is how a driver reuses one P(k) across many
+    halos. Only ``_validate_inputs`` runs eagerly, so a bad redshift or mass
+    still raises at construction rather than pages later.
+
     `deltasigma`'s 2-halo term previously multiplied by a hardcoded
     ``1e12`` instead of ``self.rho_m`` (the factor `sigma`'s 2-halo term
     correctly uses - `TwoHaloTerm.sigma`/`deltasigma` are both derived from
@@ -110,6 +131,10 @@ class LensingProfile:
         include_2halo: bool = True,
         backend_2halo: str = "camb",
         z_source: float = 1.0,
+        halo_profile=None,
+        two_halo=None,
+        bias: float | None = None,
+        k_grid=None,
     ) -> None:
         """
         Parameters
@@ -126,13 +151,26 @@ class LensingProfile:
             Halo profile model, case-insensitive and normalised to lower case.
             See `SUPPORTED_MODELS`; only "nfw" is implemented (default: "NFW").
         include_2halo : bool, optional
-            Whether to add the 2-halo term (default: True). If True, builds
-            a `~clenspy.cosmology.PkGrid` (via ``backend_2halo``) and a
-            `TwoHaloTerm` at construction time.
+            Whether to add the 2-halo term (default: True). Nothing is built
+            until an observable is evaluated -- see the class Notes.
         backend_2halo : {"camb", "pyccl"}, optional
             `PkGrid` backend for the 2-halo term's P(k) (default: "camb").
         z_source : float, optional
             Source redshift, must exceed ``z_cluster`` (default: 1.0).
+        halo_profile : optional
+            A pre-built 1-halo profile, e.g. `NfwProfile`. Built from
+            ``model`` if omitted.
+        two_halo : optional
+            A pre-built `TwoHaloTerm`. Built from ``k_grid`` and a fresh
+            `~clenspy.cosmology.PkGrid` if omitted -- which is what runs the
+            Boltzmann solver, so pass one to reuse a P(k).
+        bias : float, optional
+            Linear halo bias :math:`b(M)`. Computed from the same P(k) as
+            ``two_halo`` if omitted. Pass a number to fix it to a published
+            value and skip that computation.
+        k_grid : array-like, optional
+            Wavenumbers for the 2-halo term [1/Mpc]. Defaults to
+            `K_GRID_2HALO`; see the note there for why that extent.
         """
         self.cosmo = fiducial_cosmology() if cosmology is None else cosmology
         self.z_cluster = z_cluster
@@ -140,34 +178,23 @@ class LensingProfile:
         self.concentration = concentration
         self.model = model.lower()
         self.include_2halo = include_2halo
+        self.backend_2halo = backend_2halo
         self.z_source = z_source
         self.omega_m = self.cosmo.Om0
+        self.kvec = K_GRID_2HALO if k_grid is None else np.asarray(k_grid, float)
+
+        # Collaborators the caller supplied, stored verbatim. Each has a
+        # cached_property below that builds it on first use if it is None.
+        self._halo_profile = halo_profile
+        self._two_halo = two_halo
+        self._bias = bias
 
         # Comoving, so no redshift dependence: the 2h tables and NfwProfile
         # are both comoving, and rho_c(z) here would mix in E^2(z).
         self.rho_m = mean_matter_density(self.cosmo)
 
-        # Validate inputs
+        # Cheap, and it must fail before anything expensive is attempted.
         self._validate_inputs()
-
-        # Initialize matter power spectrum grid
-        if self.include_2halo:
-            self.kvec = np.logspace(-3, 1, 100)
-            bPk = PkGrid(cosmo=self.cosmo, backend=backend_2halo)
-            self.Pkvec = bPk(self.kvec, self.z_cluster)
-
-        # Initialize halo profile
-        self._setup_halo_profile()
-
-        # Critical surface density -- lens-source geometry, kernels layer
-        self._sigma_crit = sigma_critical(self.z_cluster, self.z_source, self.cosmo)
-
-        # Halo bias if needed
-        if self.include_2halo:
-            self.bias_model = BiasModel(
-                self.kvec, self.Pkvec, cosmo=self.cosmo, odelta=200
-            )
-            self.bias = self.bias_model.bias(self.m200)
 
     def _validate_inputs(self) -> None:
         if self.z_cluster < 0:
@@ -184,20 +211,52 @@ class LensingProfile:
                 f"Available: {', '.join(SUPPORTED_MODELS)}"
             )
 
-    def _setup_halo_profile(self) -> None:
+    # -- collaborators, built on first use --------------------------------
+
+    @cached_property
+    def halo_profile(self):
+        """The 1-halo profile: as supplied, or built from ``model``."""
+        if self._halo_profile is not None:
+            return self._halo_profile
         if self.model == "nfw":
             # A density, not a cosmology. Passing rho_m here is what makes
             # this class's m200 mean M_200m; we already hold that number.
-            self.halo_profile = NfwProfile(
+            return NfwProfile(
                 m200=self.m200, c200=self.concentration, rho_ref=self.rho_m
             )
-        else:  # pragma: no cover - _validate_inputs rejects anything else first
-            raise NotImplementedError(f"Model '{self.model}' not implemented")
+        # pragma: no cover - _validate_inputs rejects anything else first
+        raise NotImplementedError(f"Model '{self.model}' not implemented")
 
-        if self.include_2halo:
-            self.two_halo_profile = TwoHaloTerm(
-                self.kvec, self.Pkvec, zvec=self.z_cluster
-            )
+    @cached_property
+    def Pkvec(self):
+        """Linear P(k) on `kvec` at ``z_cluster`` [Mpc^3]. Runs the solver."""
+        return PkGrid(cosmo=self.cosmo, backend=self.backend_2halo)(
+            self.kvec, self.z_cluster
+        )
+
+    @cached_property
+    def two_halo_profile(self):
+        """The 2-halo term: as supplied, or built from `Pkvec`."""
+        if self._two_halo is not None:
+            return self._two_halo
+        return TwoHaloTerm(self.kvec, self.Pkvec, zvec=self.z_cluster)
+
+    @cached_property
+    def bias_model(self) -> BiasModel:
+        """`BiasModel` on the same P(k) the 2-halo term uses."""
+        return BiasModel(self.kvec, self.Pkvec, cosmo=self.cosmo, odelta=200)
+
+    @cached_property
+    def bias(self) -> float:
+        r"""Linear halo bias :math:`b(M_{200m})`, as supplied or computed."""
+        if self._bias is not None:
+            return self._bias
+        return self.bias_model.bias(self.m200)
+
+    @cached_property
+    def sigma_crit(self) -> float:
+        r""":math:`\Sigma_{\rm crit}(z_l, z_s)` [Msun/Mpc^2]."""
+        return sigma_critical(self.z_cluster, self.z_source, self.cosmo)
 
     def deltasigma(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         r"""
@@ -254,7 +313,7 @@ class LensingProfile:
             \gamma_t(R) = \frac{\Delta\Sigma(R)}{\Sigma_{\rm crit}}
         """
         _deltasigma = self.deltasigma(R)
-        return _deltasigma / self._sigma_crit
+        return _deltasigma / self.sigma_crit
 
     def convergence(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         r"""
@@ -264,7 +323,7 @@ class LensingProfile:
             \kappa(R) = \frac{\Sigma(R)}{\Sigma_{\rm crit}}
         """
         _sigma = self.sigma(R)
-        return _sigma / self._sigma_crit
+        return _sigma / self.sigma_crit
 
     def reduced_shear(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         r"""
@@ -329,9 +388,9 @@ class LensingProfile:
             concentration=self.concentration,
             r200=self.halo_profile.r200,
             rs=self.halo_profile.rs,
-            sigma_crit=self._sigma_crit,
+            sigma_crit=self.sigma_crit,
             include_2halo=self.include_2halo,
-            H0=self.cosmo.H0.to_value("km/s/Mpc"),
+            H0=self.cosmo.H0.to_value("km / (s Mpc)"),
             Om0=self.cosmo.Om0,
         )
     def __repr__(self) -> str:
@@ -340,3 +399,25 @@ class LensingProfile:
             f"m200={self.m200:.2e}, c={self.concentration:0.2f}), include_2halo={self.include_2halo})"
         )
 
+
+if __name__ == "__main__":
+    import time
+
+    t0 = time.perf_counter()
+    lp = LensingProfile(z_cluster=0.3, m200=1e14, concentration=4.0)
+    print(f"construct: {(time.perf_counter() - t0) * 1e3:.1f} ms  (nothing built)")
+    print(lp)
+
+    R = np.array([0.1, 0.5, 1.0, 5.0])
+    t0 = time.perf_counter()
+    ds = lp.deltasigma(R)
+    print(f"first deltasigma: {time.perf_counter() - t0:.2f} s  (P(k) built here)")
+    print("  R [Mpc]                  ", R)
+    print("  DeltaSigma [Msun/Mpc^2]  ", ds)
+    print(f"  b(M) = {lp.bias:.3f}   Sigma_crit = {lp.sigma_crit:.3e} Msun/Mpc^2")
+
+    ds_1h = LensingProfile(
+        z_cluster=0.3, m200=1e14, include_2halo=False
+    ).deltasigma(R)
+    print("  1-halo only              ", ds_1h)
+    print("  2-halo fraction          ", 1.0 - ds_1h / ds)
