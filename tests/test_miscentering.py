@@ -16,12 +16,12 @@ import numpy as np
 import pytest
 
 from clenspy.halo import NfwProfile
+from clenspy.lensing.miscentering import MiscenteringProfile
 from clenspy.selection.miscentering_kernel import (
     miscentered_deltasigma,
     miscentered_mean_sigma,
     miscentered_sigma,
 )
-from clenspy.lensing.miscentering import MiscenteringProfile
 
 # --- dimensionless NFW closed forms (r_s = 1, 2 r_s rho_s = 1) ---
 
@@ -215,8 +215,8 @@ def test_einasto_has_no_table_and_says_so():
 
 def test_table_matches_its_generator():
     """The packaged table reproduces the quadrature that built it."""
-    from clenspy.selection.miscentering_kernel import nfw_mean_sigma_hat, nfw_sigma_hat
     from clenspy.selection.miscentering import load_nfw_miscentering_table
+    from clenspy.selection.miscentering_kernel import nfw_mean_sigma_hat, nfw_sigma_hat
 
     table = load_nfw_miscentering_table()
     x = np.array([0.05, 0.2, 1.0, 5.0, 40.0])
@@ -231,8 +231,8 @@ def test_table_matches_its_generator():
 
 def test_table_keeps_the_negative_lobe_on_the_cusp():
     """No sign flips at x = x_mis -- the reason for the ratio axes."""
-    from clenspy.selection.miscentering_kernel import nfw_mean_sigma_hat, nfw_sigma_hat
     from clenspy.selection.miscentering import load_nfw_miscentering_table
+    from clenspy.selection.miscentering_kernel import nfw_mean_sigma_hat, nfw_sigma_hat
 
     table = load_nfw_miscentering_table()
     for x_mis in (0.01, 0.05, 0.2, 1.0, 3.0, 20.0):
@@ -250,8 +250,8 @@ def test_table_keeps_the_negative_lobe_on_the_cusp():
 
 def test_zero_offset_is_exact_not_interpolated():
     """r_mis = 0 short-circuits to the analytic centred profile."""
-    from clenspy.selection.miscentering_kernel import nfw_mean_sigma_hat, nfw_sigma_hat
     from clenspy.selection.miscentering import load_nfw_miscentering_table
+    from clenspy.selection.miscentering_kernel import nfw_mean_sigma_hat, nfw_sigma_hat
 
     table = load_nfw_miscentering_table()
     x = np.array([0.1, 1.0, 10.0])
@@ -293,13 +293,13 @@ def test_out_of_range_x_uses_clamp_below_and_centred_above():
 
 def test_centred_extrapolation_is_accurate_at_the_right_edge():
     """Past the right edge, centred == true miscentered to ~1/q^2."""
+    from clenspy.selection.miscentering import load_nfw_miscentering_table
     from clenspy.selection.miscentering_kernel import (
         miscentered_deltasigma,
         miscentered_sigma,
         nfw_mean_sigma_hat,
         nfw_sigma_hat,
     )
-    from clenspy.selection.miscentering import load_nfw_miscentering_table
 
     table = load_nfw_miscentering_table()
     x_hi = table.x_range[1]

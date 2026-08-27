@@ -156,12 +156,12 @@ def _direct(k_max=1e5, n_k=8192):
     chi_h = 1 so that k == ell and rp == theta -- no unit conversion can
     hide a discrepancy between the two routes.
     """
-    from clenspy.covariance import DeltaSigmaCovariance
+    from clenspy.covariance import DeltaSigmaGaussianCovariance
 
     def zero(ell):
         return np.zeros_like(np.asarray(ell, dtype=float))
 
-    return DeltaSigmaCovariance(
+    return DeltaSigmaGaussianCovariance(
         EDGES_CMP, 1.0, F_SKY_CMP, zero,
         lambda ell: _c_smooth(ell) + NOISE_CMP, zero,
         n_h=1.0, shape_noise=0.0, k_range=(1e-2, k_max), n_k=n_k,

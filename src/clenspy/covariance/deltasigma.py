@@ -142,12 +142,18 @@ import numpy as np
 
 from ..kernels.bessel import J2_SERIES_CUTOFF, j2_bin
 
-__all__ = ["ALL_TERMS", "J2_SERIES_CUTOFF", "DeltaSigmaCovariance", "j2_bin"]
+__all__ = [
+    "ALL_TERMS",
+    "J2_SERIES_CUTOFF",
+    "DeltaSigmaGaussianCovariance",
+    "j2_bin",
+]
 
 #: The five terms of the expanded bracket, in the order they are summed.
 ALL_TERMS = ("lss_lss", "lss_shape", "shot_lss", "shot_shape", "cross")
 
-class DeltaSigmaCovariance:
+
+class DeltaSigmaGaussianCovariance:
     r"""Wu et al. (2019) Gaussian-field covariance for
     :math:`\Delta\Sigma`.
 
@@ -339,7 +345,7 @@ class DeltaSigmaCovariance:
             k_range=(self.k[0], self.k[-1]), n_k=self.k.size,
         )
         base.update(kw)
-        return DeltaSigmaCovariance(**base)
+        return DeltaSigmaGaussianCovariance(**base)
 
     def convergence(self):
         r"""Relative change in the diagonal under coarsening **both** axes.
@@ -364,7 +370,7 @@ class DeltaSigmaCovariance:
         }
 
     def __repr__(self):
-        return (f"DeltaSigmaCovariance(n_rp={self.n_rp}, "
+        return (f"DeltaSigmaGaussianCovariance(n_rp={self.n_rp}, "
                 f"chi_h={self.chi_h:.1f} Mpc, f_sky={self.f_sky:.4f}, "
                 f"n_k={self.k.size})")
 
@@ -388,7 +394,7 @@ if __name__ == "__main__":
     n_h = 3.0e5                          # haloes per steradian
     shape_noise = 1.0e26                 # <Sigma_crit>^2 sigma_gamma^2 / n_s
 
-    cov = DeltaSigmaCovariance(rp_edges, chi_h, f_sky, c_hh, c_ss, c_hs,
+    cov = DeltaSigmaGaussianCovariance(rp_edges, chi_h, f_sky, c_hh, c_ss, c_hs,
                                n_h, shape_noise)
     print(cov)
     print(f"f_sky = {f_sky:.5f}  (1500 deg^2)")
@@ -397,7 +403,7 @@ if __name__ == "__main__":
           f"k_max axis {conv['k_max']:.2e}")
 
     # the closure identity, and the precision it buys
-    quad_only = DeltaSigmaCovariance(rp_edges, chi_h, f_sky, c_hh, c_ss,
+    quad_only = DeltaSigmaGaussianCovariance(rp_edges, chi_h, f_sky, c_hh, c_ss,
                                      c_hs, n_h, shape_noise,
                                      exact_shot_shape=False)
     exact_diag = np.diag(cov._shot_shape_exact())

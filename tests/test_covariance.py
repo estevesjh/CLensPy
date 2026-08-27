@@ -20,7 +20,7 @@ from scipy.special import jv
 from clenspy.covariance import (
     ALL_TERMS,
     CountsCovariance,
-    DeltaSigmaCovariance,
+    DeltaSigmaGaussianCovariance,
     j2_bin,
 )
 
@@ -263,7 +263,7 @@ def make_cov(**kw):
                   c_ell_hh=c_hh, c_ell_SS=c_ss, c_ell_hS=c_hs, n_h=N_H,
                   shape_noise=SHAPE_NOISE)
     kwargs.update(kw)
-    return DeltaSigmaCovariance(**kwargs)
+    return DeltaSigmaGaussianCovariance(**kwargs)
 
 
 def test_deltasigma_covariance_is_symmetric_and_positive_definite():
@@ -568,7 +568,7 @@ def test_annulus_area_is_in_mpc_squared():
 
 def _halo_to_halo(**kw):
     from clenspy.cosmology.fiducial import fiducial_cosmology, mean_matter_density
-    from clenspy.covariance import HaloToHaloCovariance
+    from clenspy.covariance import DeltaSigmaHaloToHaloCovariance
     from clenspy.halo.bias import BiasModel
     from clenspy.halo.twohalo import TwoHaloTerm
     from clenspy.observables import ClusterAbundance
@@ -599,7 +599,7 @@ def _halo_to_halo(**kw):
                   bias=BiasModel(k, pk, cosmo=cosmo),
                   rho_m0=mean_matter_density(cosmo), z_eff=0.28)
     kwargs.update(kw)
-    return HaloToHaloCovariance(**kwargs), abundance
+    return DeltaSigmaHaloToHaloCovariance(**kwargs), abundance
 
 
 R_HH = np.logspace(-0.7, 1.0, 5)

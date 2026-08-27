@@ -34,7 +34,7 @@ so mass scatter propagates **both** to the one-halo amplitude at small
 only where the one-halo term lives.
 
 NOTE: this term does **not** go inside
-`clenspy.covariance.DeltaSigmaCovariance`'s five-term bracket. It is a
+`clenspy.covariance.DeltaSigmaGaussianCovariance`'s five-term bracket. It is a
 sixth, independent contribution with a different origin -- a finite-sample
 effect of stacking a heterogeneous population, not a Gaussian field
 property -- so it is added to the total, and kept separately so it can be
@@ -70,7 +70,7 @@ import numpy as np
 
 from ..halo.nfw import NfwProfile
 
-__all__ = ["HaloToHaloCovariance"]
+__all__ = ["DeltaSigmaHaloToHaloCovariance"]
 
 #: Diemer & Kravtsov (2015): ~0.16 for relaxed samples, ~0.25 spans the
 #: full population. The DES Y1 config carries 0.16.
@@ -80,7 +80,7 @@ SIGMA_LNC_DEFAULT = 0.16
 N_C_DEFAULT = 8
 
 
-class HaloToHaloCovariance:
+class DeltaSigmaHaloToHaloCovariance:
     r"""Population covariance of per-cluster max-model profiles.
 
     NOTE: units -- ``R`` in Mpc, result in
@@ -236,7 +236,7 @@ class HaloToHaloCovariance:
         return np.einsum("kc,kcr->r", joint, self.profiles(R))
 
     def __repr__(self):
-        return (f"HaloToHaloCovariance(z_eff={self.z_eff:g}, "
+        return (f"DeltaSigmaHaloToHaloCovariance(z_eff={self.z_eff:g}, "
                 f"sigma_lnc={self.sigma_lnc:g}, n_c={self.n_c})")
 
 
@@ -274,7 +274,7 @@ if __name__ == "__main__":
     twohalo = TwoHaloTerm(k, pk, zvec=np.array([0.28]))
     bias = BiasModel(k, pk, cosmo=cosmo)
 
-    intrinsic = HaloToHaloCovariance(abundance, twohalo, bias, rho_m0,
+    intrinsic = DeltaSigmaHaloToHaloCovariance(abundance, twohalo, bias, rho_m0,
                                          z_eff=0.28)
     print(intrinsic, "\n")
 
@@ -305,7 +305,7 @@ if __name__ == "__main__":
 
     print("\nconcentration scatter is what the Gauss-Hermite nodes buy:")
     for sig in (0.0, 0.16, 0.25):
-        iv = HaloToHaloCovariance(abundance, twohalo, bias, rho_m0,
+        iv = DeltaSigmaHaloToHaloCovariance(abundance, twohalo, bias, rho_m0,
                                       z_eff=0.28, sigma_lnc=sig)
         s = np.sqrt(np.diag(iv.cov(radii, 0, 0)))
         print(f"  sigma_lnc = {sig:4.2f}: sigma_intr at R = "

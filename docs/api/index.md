@@ -76,6 +76,35 @@ a factor that underflows, giving `inf * 0 = nan` for $\tau\sigma \gtrsim
    :members:
 ```
 
+### The selection-affected bias $b_{\rm sel}$
+
+The paper's Section 4.1, and the closed-form alternative to calibrating
+the redMaPPer selection effect on Buzzard light-cones.
+
+**The deliverable is two scalars per bin.** The $\lambda^{\rm tr}$
+marginalisation commutes with the sigmoid — $\sigma(\theta)$ carries no
+$\lambda^{\rm tr}$ — so averaging the plateaus is *exact* rather than an
+approximation, and no $\theta$ grid is ever stored. A test asserts the
+commutation to 1e-12.
+
+One number in this model is not closed-form: the empirical, Buzzard-
+calibrated $0.13$ in $b_{\rm large} = b_{\rm eff}[1 + 0.13\,
+\delta^{\rm prj}]$. It is exposed as `SelBiasEngine.boost_slope` so it can
+be varied, and the docstring says what it is.
+
+$b_{\rm small}$ comes from a **linear inversion**, so it is the one output
+that can go unstable: as $I_2 \to I_1$ the denominator vanishes. The
+closure falls back to $b_{\rm large}$ there rather than returning an
+arbitrarily large number.
+
+```{eval-rst}
+.. automodule:: clenspy.selection.geometry
+   :members:
+
+.. automodule:: clenspy.selection.bsel
+   :members:
+```
+
 ## `clenspy.cosmology`
 
 ```{eval-rst}

@@ -29,10 +29,16 @@ Contents
     :math:`\theta_\lambda`, the disk-overlap fraction :math:`f_A`, and the
     :math:`\sigma(\theta)` sigmoid -- the geometric ingredients of
     :math:`b_{\rm sel}`.
+`bsel`
+    :math:`b_{\rm sel}(\theta)`, the selection-affected halo bias. The
+    paper's Section 4.1 and the closed-form alternative to calibrating the
+    selection effect on simulations. Two scalars per bin, because the
+    :math:`\lambda^{\rm tr}` marginalisation commutes with the sigmoid.
 """
 
 from . import (
     boost,
+    bsel,
     geometry,
     miscentering,
     miscentering_kernel,
@@ -41,6 +47,13 @@ from . import (
     selection_function,
 )
 from .boost import boost_factor_nfw
+from .bsel import (
+    PhysicalMassMor,
+    SelBiasEngine,
+    SelectionBiasTable,
+    SigmoidBias,
+    XiNL,
+)
 from .geometry import (
     area_overlap,
     r_lambda,
@@ -66,6 +79,7 @@ from .selection_function import SelectionFunction
 
 __all__ = [
     "boost",
+    "bsel",
     "geometry",
     "miscentering",
     "miscentering_kernel",
@@ -90,4 +104,9 @@ __all__ = [
     "theta_lambda",
     "area_overlap",
     "sigmoid_theta",
+    "SelBiasEngine",
+    "SigmoidBias",
+    "SelectionBiasTable",
+    "XiNL",
+    "PhysicalMassMor",
 ]

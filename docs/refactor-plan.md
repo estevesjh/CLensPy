@@ -581,7 +581,7 @@ clenspy.utils.fftlog_cov                -> kernels/fftlog_cov.py  (ported)
 clenspy.halo.mass_function              -> cosmology/{sigma,mass_function}.py
 clenspy.clusters.BinHaloModelSpectra    -> halo/binned_spectra.py  (pending)
 clenspy.IntrinsicProfileVariance        -> covariance/halo_to_halo.py
-                                           ::HaloToHaloCovariance
+                                           ::DeltaSigmaHaloToHaloCovariance
 docs/covariance_fftlog_math.md          -> ported as-is
 ```
 

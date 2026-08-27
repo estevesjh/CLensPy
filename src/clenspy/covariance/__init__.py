@@ -39,19 +39,19 @@ from .counts import CountsCovariance
 from .deltasigma import (
     ALL_TERMS,
     J2_SERIES_CUTOFF,
-    DeltaSigmaCovariance,
+    DeltaSigmaGaussianCovariance,
     j2_bin,
 )
-from .halo_to_halo import HaloToHaloCovariance
+from .halo_to_halo import DeltaSigmaHaloToHaloCovariance
 
 __all__ = [
     "counts",
     "deltasigma",
     "halo_to_halo",
     "CountsCovariance",
-    "DeltaSigmaCovariance",
+    "DeltaSigmaGaussianCovariance",
     "j2_bin",
     "ALL_TERMS",
     "J2_SERIES_CUTOFF",
-    "HaloToHaloCovariance",
+    "DeltaSigmaHaloToHaloCovariance",
 ]
