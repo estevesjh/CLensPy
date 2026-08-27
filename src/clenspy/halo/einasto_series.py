@@ -324,3 +324,25 @@ def _pk_asym_eval(n, kt, Mmax=2000):
         est[i] = 10.0 * np.exp(lt[min(mo, Mmax - 1)]) / abs(s) \
             if s != 0 else np.inf
     return out, est
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    print("Einasto series evaluators -- the internals einasto.py selects")
+    print("between. __all__ is deliberately empty: nothing here is public.\n")
+    names = sorted(n for n in dir() if n.startswith("_pk_"))
+    print("available evaluators:", ", ".join(names) if names else "(none)")
+
+    # every branch must agree with its neighbours where they overlap, which
+    # is the whole reason the selection logic in einasto.py exists
+    from .einasto import EinastoProfile
+
+    print("\nbranch agreement across the n where einasto.py switches:")
+    for n in (0.5, 0.9, 1.0, 1.1, 3.0, 5.0):
+        p = EinastoProfile(alpha=1.0 / n, rho_0=1e15, r_s=0.3)
+        s = float(np.ravel(p.sigma(1.0))[0])
+        d = float(np.ravel(p.deltasigma(1.0))[0])
+        print(f"  n={n:4.1f}  Sigma={s:.6e}  DeltaSigma={d:.6e}")
+    print("\nSigma falls smoothly with n -- no discontinuity at a branch")
+    print("boundary is the check that matters here.")

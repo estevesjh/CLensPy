@@ -830,3 +830,31 @@ class EinastoProfile:
     def shear(self, R, sigma_crit=1.0):
         """Tangential shear gamma(R) = DeltaSigma(R) / Sigma_crit."""
         return self.deltasigma(R) / sigma_crit
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    r = np.array([0.05, 0.2, 1.0, 5.0])
+    print("EinastoProfile, rho_0 = 1e15 Msun/Mpc^3, r_s = 0.3 Mpc\n")
+    print(f"{'alpha':>6s} {'n=1/alpha':>10s}  {'rho(r)':>11s}  {'Sigma(r)':>11s}"
+          f"  {'DSigma(r)':>11s}  branch")
+    for alpha in (0.5, 0.2, 0.1667, 0.1):
+        p = EinastoProfile(alpha=alpha, rho_0=1e15, r_s=0.3)
+        rho = float(np.ravel(p.density(1.0))[0])
+        sig = float(np.ravel(p.sigma(1.0))[0])
+        ds = float(np.ravel(p.deltasigma(1.0))[0])
+        n = 1.0 / alpha
+        # which closed form / series the index selects
+        branch = ("exact n=1/2" if abs(n - 0.5) < 1e-9 else
+                  "exact n=1" if abs(n - 1.0) < 1e-9 else "series + E_nu")
+        print(f"{alpha:6.4f} {n:10.4f}  {rho:11.4e}  {sig:11.4e}  "
+              f"{ds:11.4e}  {branch}")
+
+    p = EinastoProfile(alpha=0.2, rho_0=1e15, r_s=0.3)
+    print("\nthe three projections are consistent at every r:")
+    print("  Sigmabar - (Sigma + DeltaSigma) max |rel| = "
+          f"{np.max(np.abs(np.ravel(p.mean_sigma(r)) / (np.ravel(p.sigma(r)) + np.ravel(p.deltasigma(r))) - 1)):.2e}")
+    print(f"\nu(k) at k = 1 /Mpc: {float(np.ravel(p.fourier(1.0))[0]):.6e}")
+    print("NOTE: h-free absolute units; alpha is the Einasto shape index,")
+    print("      unrelated to the HOD alpha or the source-p(z) slope.")

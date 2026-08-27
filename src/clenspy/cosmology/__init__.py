@@ -9,6 +9,7 @@ two redshifts, which makes it lens-source geometry rather than a property of
 the universe.
 """
 
+from .concentration import child18, child18_powerlaw, duffy08, m_star_hinv
 from .distances import comoving_to_theta, theta_to_comoving
 from .fiducial import fiducial_cosmology, mean_matter_density
 from .pkgrid import PkGrid
@@ -19,6 +20,10 @@ __all__ = [
     "PkGrid",
     "fiducial_cosmology",
     "mean_matter_density",
+    "child18",
+    "child18_powerlaw",
+    "duffy08",
+    "m_star_hinv",
 ]
 
 

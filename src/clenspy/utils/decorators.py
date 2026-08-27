@@ -95,3 +95,27 @@ def time_method(func):
         return result
 
     return wrapper
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    class Demo:
+        """A stand-in showing what each decorator changes."""
+
+        @scalar_array_output
+        def square(self, x):
+            return np.atleast_1d(np.asarray(x, dtype=float)) ** 2
+
+        @time_method
+        def slow(self, n):
+            return float(np.sum(np.arange(n, dtype=float)))
+
+    d = Demo()
+    print("scalar_array_output: a scalar in gives a scalar out")
+    print(f"  square(3.0)          = {d.square(3.0)!r}  "
+          f"(ndim {np.ndim(d.square(3.0))})")
+    print(f"  square([1, 2, 3])    = {d.square([1.0, 2.0, 3.0])!r}")
+
+    print("\ntime_method: prints its own wall time")
+    d.slow(1_000_00)

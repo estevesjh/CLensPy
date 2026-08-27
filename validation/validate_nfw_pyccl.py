@@ -128,6 +128,8 @@ def main(plot=False):
         validate_deltasigma(),
     ]
     if plot:
+        import matplotlib
+        matplotlib.use("Agg")  # never open a window
         import matplotlib.pyplot as plt
 
         # One overlay panel per quantity, as the comparison was originally

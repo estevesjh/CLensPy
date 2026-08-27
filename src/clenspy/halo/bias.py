@@ -209,3 +209,25 @@ class BiasModel:
         res += B * nu**b
         res += C * nu**c
         return res
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    # a smooth power-law P(k), so no Boltzmann solver is needed
+    k = np.logspace(-4, 3, 800)
+    P = 2e4 * k**-1.5 / (1.0 + (k / 0.2) ** 2)
+
+    model = BiasModel(k, P)
+    M = np.array([1e13, 1e14, 5e14, 1e15])
+    print("Tinker et al. (2010) linear halo bias, Delta = 200m")
+    print(f"{'M [Msun]':>11s}  {'sigma(M)':>9s}  {'nu':>7s}  {'b(M)':>7s}")
+    for m in M:
+        s = float(np.ravel(model.sigma_tophat(m))[0])
+        nu = float(np.ravel(model.nu_at_mass(m))[0])
+        b = float(np.ravel(model.bias(m))[0])
+        print(f"{m:11.2e}  {s:9.4f}  {nu:7.4f}  {b:7.4f}")
+
+    print("\nb rises with M and nu, as it must: rarer haloes are more biased.")
+    print("NOTE: the Tinker fit is calibrated for nu <~ 4; beyond that b(M)")
+    print("      is an extrapolation. Units are h-free absolute throughout.")

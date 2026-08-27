@@ -256,3 +256,22 @@ __all__ = [
     "load_boost_factor_collection",
     "load_boost_factor_data",
 ]
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    R = np.array([0.1, 0.3, 1.0, 3.0, 10.0])
+    rs = 0.35  # Mpc, an NFW scale radius for M ~ 1e14
+    print("boost factor B(R), McClintock et al. 2019 eq. 27")
+    print(f"  r_s = {rs} Mpc\n")
+    print(f"{'R [Mpc]':>9s}  " + "  ".join(f"B0={b:<6.2f}" for b in
+                                           (0.05, 0.10, 0.20)))
+    rows = [boost_factor_nfw(R, b0, rs) for b0 in (0.05, 0.10, 0.20)]
+    for i, r in enumerate(R):
+        print(f"{r:9.2f}  " + "  ".join(f"{row[i]:9.5f}" for row in rows))
+
+    print("\nB -> 1 at large R (dilution vanishes) and is largest in the")
+    print("core, where the cluster's own members dominate the catalogue.")
+    print("NOTE: dimensionless, R in Mpc. The loaders in this module read")
+    print("      DES Y1 measurement files that are not shipped with clenspy.")

@@ -326,3 +326,30 @@ def prepare_pk_grid(
 
 
 __all__ = ["TwoHaloTerm"]
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    k = np.logspace(-3, 1, 64)
+    Pk = 2e4 * k**-1.5          # a pure power law -> smooth, monotonic output
+    z = 0.25
+
+    th = TwoHaloTerm(k, Pk, zvec=z)
+    R = np.array([0.1, 0.5, 1.0, 5.0, 10.0])
+    print("TwoHaloTerm from a power-law P(k), z = 0.25")
+    print(f"{'R [Mpc]':>9s}  {'xi(r)':>11s}  {'Sigma_hat':>11s}  "
+          f"{'DSigma_hat':>11s}")
+    xi = np.ravel(th.xi(R, z))
+    sig = np.ravel(th.sigma(R, z))
+    ds = np.ravel(th.deltasigma(R, z))
+    for i, r in enumerate(R):
+        print(f"{r:9.2f}  {xi[i]:11.4e}  {sig[i]:11.4e}  {ds[i]:11.4e}")
+
+    print("\nNOTE: Sigma and DeltaSigma above are UNNORMALISED -- units of")
+    print("      Mpc, not Msun/Mpc^2. Multiply by the comoving rho_m:")
+    from ..cosmology import fiducial_cosmology, mean_matter_density
+
+    rho_m = mean_matter_density(fiducial_cosmology())
+    print(f"      rho_m = {rho_m:.4e} Msun/Mpc^3 (comoving, no z dependence)")
+    print(f"      Sigma(1 Mpc) = {sig[2] * rho_m:.4e} Msun/Mpc^2")

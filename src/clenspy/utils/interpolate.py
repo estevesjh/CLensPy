@@ -173,3 +173,28 @@ def valid_mask_2d(values: np.ndarray) -> np.ndarray:
 
 
 __all__ = ["LogGridInterpolator", "make_log_interpolation"]
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    x = np.logspace(-2, 1, 40)
+    z = np.array([0.0, 0.5, 1.0])
+    # a separable power law, so the log-log interpolant is exact
+    values = np.outer(x**-1.5, 1.0 / (1.0 + z))
+
+    interp = LogGridInterpolator(xvec=x, zvec=z, values=values)
+    xq = np.array([0.05, 0.5, 5.0])
+    print("LogGridInterpolator on a separable power law (exact case)")
+    for zq in (0.0, 0.25, 1.0):
+        got = np.ravel(interp(xq, zq))
+        exact = xq**-1.5 / (1.0 + zq)
+        print(f"  z={zq:.2f}  max rel err = {np.max(np.abs(got / exact - 1)):.2e}")
+
+    print("\nscalar-z mode (zvec=None):")
+    flat = LogGridInterpolator(xvec=x, values=x**-1.5)
+    print("  ", np.ravel(flat(xq)))
+
+    print("\nNOTE: interpolation is in log(values), so the result is")
+    print("      strictly positive and non-positive input is masked. A")
+    print("      signed quantity must not be passed through this class.")

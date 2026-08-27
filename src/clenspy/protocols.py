@@ -159,7 +159,10 @@ if __name__ == "__main__":
     print("EinastoProfile satisfies Profile?",
           isinstance(EinastoProfile(alpha=0.2, rho_0=1e15, r_s=0.3), Profile))
 
-    from clenspy.survey import Survey
+    # NOTE: the concrete class and the protocol share the name Survey, so
+    # one must be aliased -- importing both as `Survey` makes the check
+    # compare the class against itself and pass vacuously.
+    from clenspy.survey import Survey as SurveyImpl
 
-    print("Survey satisfies Survey?",
-          isinstance(Survey.des_y1(), Survey))
+    print("Survey impl satisfies Survey protocol?",
+          isinstance(SurveyImpl.from_config("des_y1"), Survey))

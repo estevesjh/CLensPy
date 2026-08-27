@@ -68,6 +68,22 @@ integrated at runtime. See {doc}`../miscentering_math` section 9.
    mean_matter_density
 ```
 
+### Concentration--mass relations
+
+$c(M,z)$ lives here rather than in `clenspy.halo` because it is a
+structure-formation result calibrated on N-body simulations at a fixed
+cosmology, exactly like the mass function and the halo bias.
+
+Two warnings, both load-bearing: these relations are calibrated in
+$h^{-1}M_\odot$ (the one place the package's h-free convention breaks, so
+every mass argument names its unit), and `child18` is an $M_{200c}$
+relation while `NfwProfile` and the Tinker mass function use $M_{200m}$.
+
+```{eval-rst}
+.. automodule:: clenspy.cosmology.concentration
+   :members:
+```
+
 ## `clenspy.survey`
 
 What the dataset is, as distinct from what the universe is. Three separate

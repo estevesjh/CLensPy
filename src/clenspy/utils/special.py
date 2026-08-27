@@ -211,3 +211,29 @@ def expn_fast(nu, x, rtol=1e-9, nterms=NTERMS_ASYMP):
         out[is_rest] = _expint_recurrence(nu_b[is_rest], x_b[is_rest])
 
     return out
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    print(f"EULER_GAMMA   = {EULER_GAMMA:.15f}")
+    print(f"NTERMS_ASYMP  = {NTERMS_ASYMP}")
+
+    print("\nexpn_fast(nu, x) against scipy.special.expn for integer nu:")
+    from scipy.special import expn
+
+    for nu in (1, 2, 3):
+        x = np.array([0.5, 1.0, 5.0, 20.0])
+        mine, ref = expn_fast(nu, x), expn(nu, x)
+        err = np.max(np.abs(mine / ref - 1))
+        print(f"  nu={nu}: max rel err {err:.3e}")
+
+    print("\nnon-integer nu, where scipy has no expn:")
+    for nu in (0.3, 1.7, 2.5):
+        print(f"  E_{nu}(1.0) = {float(np.ravel(expn_fast(nu, 1.0))[0]):.10e}")
+
+    print("\nasymptotic branch, x >> 1 (DLMF 8.20):")
+    for x in (30.0, 100.0):
+        v = float(np.ravel(expint_asymptotic(1.5, x))[0])
+        print(f"  expint_asymptotic(1.5, {x}) = {v:.6e}  "
+              f"(e^-x/x = {np.exp(-x) / x:.6e})")

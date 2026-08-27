@@ -129,6 +129,8 @@ def main(plot=False):
           f"{ref_q.max():.3f}] -- it is SIGNED. Do not clamp it.")
 
     if plot:
+        import matplotlib
+        matplotlib.use("Agg")  # never open a window
         import matplotlib.pyplot as plt
 
         FIG_DIR.mkdir(parents=True, exist_ok=True)
