@@ -555,3 +555,114 @@ def test_the_parameter_sets_stay_in_hinv_msun():
     """
     assert HodMor.buzzard().log10_Mmin == pytest.approx(11.3852818)
     assert HodMor.buzzard().log10_M1 == pytest.approx(12.6964410)
+
+
+# -- the EMG density and the production coefficient table ------------------
+
+
+def test_emg_pdf_is_the_derivative_of_emg_cdf():
+    """The only check that pins both at once."""
+    from clenspy.selection.richness_kernel import emg_pdf
+
+    mu, sigma, tau = 35.0, 3.0, 0.12
+    x = np.linspace(20.0, 120.0, 25)
+    h = 1e-5
+    fd = (emg_cdf(x + h, mu, sigma, tau)
+          - emg_cdf(x - h, mu, sigma, tau)) / (2 * h)
+    np.testing.assert_allclose(emg_pdf(x, mu, sigma, tau), fd, rtol=1e-5)
+
+
+def test_emg_pdf_normalises_to_one():
+    from clenspy.selection.richness_kernel import emg_pdf
+
+    x = np.linspace(0.0, 800.0, 800001)
+    for sigma, tau in ((3.0, 0.12), (5.0, 0.5), (1.0, 2.0)):
+        total = np.trapezoid(emg_pdf(x, 35.0, sigma, tau), x=x)
+        assert total == pytest.approx(1.0, abs=1e-6), (sigma, tau)
+
+
+def test_emg_pdf_survives_where_the_naive_product_would_not():
+    """Same erfcx cure as the CDF, and the same failure without it."""
+    from clenspy.selection.richness_kernel import emg_pdf
+
+    for tau_sigma in (40.0, 80.0):
+        got = emg_pdf(40.0, 35.0, 3.0, tau_sigma / 3.0).item()
+        assert np.isfinite(got) and got > 0.0
+
+
+def test_richness_pdf_is_the_mixture_and_normalises():
+    from clenspy.selection.richness_kernel import emg_pdf, richness_pdf
+
+    params = EmgParams(-1.5, 3.0, 0.3, 0.12)
+    x = np.linspace(0.0, 800.0, 800001)
+    assert np.trapezoid(richness_pdf(x, 35.0, 0.3, params), x=x) == (
+        pytest.approx(1.0, abs=1e-6)
+    )
+    # and it really is (1-f) N + f EMG
+    mu, sigma, tau, f = params.at(35.0, 0.3)
+    gauss = np.exp(-0.5 * ((40.0 - mu) / sigma) ** 2) / (
+        sigma * np.sqrt(2 * np.pi))
+    expected = (1 - f) * gauss + f * emg_pdf(40.0, mu, sigma, tau)
+    assert float(np.ravel(richness_pdf(40.0, 35.0, 0.3, params))[0]) == (
+        pytest.approx(float(np.ravel(expected)[0]))
+    )
+
+
+def test_the_mu_slope_is_not_one_in_the_production_fit():
+    r"""So hardcoding :math:`\mu = \lambda^{\rm tr} + \Delta\mu` is wrong.
+
+    :math:`b_\mu` runs 0.984 to 1.172 across the table -- up to 17% -- which
+    is why `EmgParams` carries ``mu_slope`` instead of assuming it.
+    """
+    params = EmgParams.from_y3_table()
+    lam = 100.0
+    for z, expected_min in ((0.2, 0.98), (0.8, 1.10)):
+        mu = float(np.ravel(params.at(lam, z)[0])[0])
+        slope = float(np.ravel(params.mu_slope(lam, z))[0])
+        assert slope > expected_min
+        # mu is slope*lam + a_mu, not lam + a_mu
+        assert mu != pytest.approx(lam + float(
+            np.ravel(params.delta_mu(lam, z))[0]), rel=1e-6)
+
+
+def test_the_production_table_gives_a_normalised_kernel():
+    from clenspy.selection.richness_kernel import richness_pdf
+
+    params = EmgParams.from_y3_table()
+    x = np.linspace(0.0, 1500.0, 1500001)
+    for lam, z in ((20.0, 0.2), (40.0, 0.5), (100.0, 0.8)):
+        total = np.trapezoid(richness_pdf(x, lam, z, params), x=x)
+        assert total == pytest.approx(1.0, abs=1e-5), (lam, z)
+
+
+def test_the_production_bin_probabilities_are_probabilities():
+    params = EmgParams.from_y3_table()
+    for lam in (20.0, 40.0, 100.0):
+        s = richness_bin_probability(LAM_EDGES, lam, 0.5, params)
+        assert np.all(s >= 0.0)
+        assert s.sum() <= 1.0 + 1e-9
+
+
+def test_f_prj_is_clipped_at_one_by_the_fit():
+    """b_f reaches 0.998 and the sigmoid can push the raw value past 1."""
+    params = EmgParams.from_y3_table()
+    for z in np.linspace(0.1, 0.8, 15):
+        for lam in (20.0, 60.0, 200.0):
+            f = float(np.ravel(params.at(lam, z)[3])[0])
+            assert 0.0 <= f <= 1.0, (lam, z)
+
+
+def test_the_masking_coefficients_are_read_and_discarded():
+    """Explicitly, so their absence is visible rather than a silent slice."""
+    params = EmgParams.from_y3_table()
+    assert params.unused_coefficients == ("afmsk", "bfmsk")
+
+
+def test_the_production_table_shape_is_validated():
+    import tempfile
+
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as fh:
+        fh.write("1.0 2.0 3.0\n4.0 5.0 6.0\n")
+        bad = fh.name
+    with pytest.raises(ValueError, match="coefficient columns"):
+        EmgParams.from_y3_table(bad)

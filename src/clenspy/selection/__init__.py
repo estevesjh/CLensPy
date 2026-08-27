@@ -53,7 +53,14 @@ from .miscentering import (
     load_nfw_miscentering_table,
     require_tabulated_profile,
 )
-from .richness_kernel import EmgParams, emg_cdf, richness_bin_probability
+from .richness_kernel import (
+    Y3_PRJ_PARAMS_FILE,
+    EmgParams,
+    emg_cdf,
+    emg_pdf,
+    richness_bin_probability,
+    richness_pdf,
+)
 from .scaling_relation import HodMor, LogNormalMor
 from .selection_function import SelectionFunction
 
@@ -72,7 +79,10 @@ __all__ = [
     "require_tabulated_profile",
     "EmgParams",
     "emg_cdf",
+    "emg_pdf",
     "richness_bin_probability",
+    "richness_pdf",
+    "Y3_PRJ_PARAMS_FILE",
     "LogNormalMor",
     "HodMor",
     "SelectionFunction",

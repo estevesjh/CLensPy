@@ -69,23 +69,36 @@ units, and :math:`\tau` is an inverse richness. :math:`\mathcal S_i` and
 
 NOTE: the four kernel parameters
 :math:`\{\Delta\mu, \sigma, f^{\rm prj}, \tau\}` are functions of
-:math:`(\lambda^{\rm tr}, z)`, calibrated on synthetic-cluster injections
-in SDSS. In the y3 pipeline they come from spline coefficients
-(``cosmology/prj_params.py::PrjParams.default().splines()``), which are not
-distributed with `clenspy`. `EmgParams` therefore takes them as explicit
-arrays or callables: pass constants for a fixed-parameter study, or a
-callable reading the y3 splines for exactness. The approximation is named,
-not hidden.
+:math:`(\lambda^{\rm tr}, z)`, calibrated on synthetic-cluster injections.
+The DES Y3 ``lss_lin_dep`` fit **is** vendored here
+(``clenspy/data/prj_params_DESY3_lss_lin_dep_getdist_v1.txt``), so
+`EmgParams.from_y3_table` gives the production kernel and `EmgParams`
+with scalars gives a fixed-parameter study. Both are available; the
+approximation is a choice, not a limitation.
+
+NOTE: two of the ten tabulated coefficients, ``afmsk`` and ``bfmsk``, are
+**not used**. They parametrise a masking fraction that the production
+kernel does not apply, and they are read and discarded rather than
+silently indexed past -- see `EmgParams.from_y3_table`.
 """
 
 from __future__ import annotations
 
+import pathlib
+
 import numpy as np
-from scipy.special import erfcx
+from scipy.special import erfc, erfcx
 
 from ..kernels.photoz import gaussian_cdf
 
-__all__ = ["EmgParams", "emg_cdf", "richness_bin_probability"]
+__all__ = [
+    "EmgParams",
+    "Y3_PRJ_PARAMS_FILE",
+    "emg_cdf",
+    "emg_pdf",
+    "richness_bin_probability",
+    "richness_pdf",
+]
 
 _SQRT2 = np.sqrt(2.0)
 
@@ -187,6 +200,97 @@ def emg_cdf(x, mu, sigma, tau):
     return np.clip(gaussian_cdf(z) - tail, 0.0, 1.0)
 
 
+#: The vendored DES Y3 ``lss_lin_dep`` projection-kernel fit: 15 redshift
+#: nodes over [0.10, 0.80] x 10 coefficients.
+Y3_PRJ_PARAMS_FILE = (
+    pathlib.Path(__file__).resolve().parents[1] / "data"
+    / "prj_params_DESY3_lss_lin_dep_getdist_v1.txt"
+)
+
+#: Column order of that file. The last two are read and discarded.
+Y3_PRJ_COEFFICIENTS = (
+    "atau", "btau", "amu", "bmu", "asig",
+    "bsig", "afprj", "bfprj", "afmsk", "bfmsk",
+)
+
+#: Redshift nodes the fit is tabulated on.
+Y3_PRJ_Z_NODES = (0.10, 0.80, 15)
+
+
+def emg_pdf(x, mu, sigma, tau):
+    r"""The EMG **density**, Costanzi et al. (2019a) Eq. 6.
+
+    .. math::
+        p_{\rm EMG}(x) = \frac{\tau}{2}
+            e^{\frac{\tau}{2}\left(2\mu + \tau\sigma^2 - 2x\right)}
+            \operatorname{erfc}\!\left(
+                \frac{\mu + \tau\sigma^2 - x}{\sqrt2\,\sigma}\right)
+
+    NOTE: same overflow problem as `emg_cdf` and the same cure. The
+    exponential grows without bound while the ``erfc`` vanishes, so for
+    :math:`t \ge 0` this uses
+    :math:`e^{a}\operatorname{erfc}(t) =
+    \operatorname{erfcx}(t)\,e^{a - t^2}`, which is exact and keeps both
+    factors bounded. The direct product is used only for :math:`t < 0`,
+    where ``erfc`` is :math:`O(1)` and ``erfcx`` would overflow instead.
+
+    NOTE: this is a **density per unit richness**, not a probability. Use
+    `emg_cdf` for bin membership -- the bin integral of this is analytic
+    and there is no reason to quadrature it.
+
+    Parameters
+    ----------
+    x : float or array-like
+        Observed richness.
+    mu, sigma, tau : float or array-like
+        As for `emg_cdf`.
+
+    Returns
+    -------
+    np.ndarray
+        The density, broadcast over the inputs.
+    """
+    x, mu, sigma, tau = np.broadcast_arrays(
+        *(np.asarray(v, dtype=float) for v in (x, mu, sigma, tau))
+    )
+    if np.any(sigma <= 0.0):
+        raise ValueError("sigma must be positive")
+    if np.any(tau <= 0.0):
+        raise ValueError("tau must be positive")
+
+    exponent = 0.5 * tau * (2.0 * mu + tau * sigma**2 - 2.0 * x)
+    argument = (mu + tau * sigma**2 - x) / (_SQRT2 * sigma)
+    positive = argument >= 0.0
+    # erfcx branch: exact, and neither factor can overflow
+    stable = erfcx(np.where(positive, argument, 0.0)) * np.exp(
+        np.where(positive, exponent - argument**2, 0.0)
+    )
+    # direct branch, only where erfc is O(1)
+    direct = np.exp(np.where(positive, 0.0, exponent)) * erfc(
+        np.where(positive, 0.0, argument)
+    )
+    return 0.5 * tau * np.where(positive, stable, direct)
+
+
+def richness_pdf(x, lambda_true, z, params):
+    r""":math:`P(\lambda^{\rm ob}\mid\lambda^{\rm tr},z)`, the full mixture.
+
+    .. math::
+        P = (1-f^{\rm prj})\,\mathcal N(x;\mu,\sigma)
+            + f^{\rm prj}\,p_{\rm EMG}(x;\mu,\sigma,\tau)
+
+    NOTE: a density. Its bin integral is `richness_bin_probability`, which
+    is analytic -- this function exists for the places that genuinely need
+    the density at a point, notably the :math:`\lambda^{\rm tr}`
+    marginalisation inside :math:`b_{\rm sel}`.
+    """
+    mu, sigma, tau, f_prj = params.at(lambda_true, z)
+    x = np.asarray(x, dtype=float)
+    gauss = (np.exp(-0.5 * ((x - mu) / sigma) ** 2)
+             / (sigma * np.sqrt(2.0 * np.pi)))
+    return (1.0 - f_prj) * gauss + f_prj * emg_pdf(x, mu, sigma, tau)
+
+
 class EmgParams:
     r"""The four kernel parameters as functions of
     :math:`(\lambda^{\rm tr}, z)`.
@@ -210,17 +314,128 @@ class EmgParams:
     Costanzi et al. (2021) exactly, which is the check
     `richness_bin_probability` uses to show the two limits agree.
 
+    NOTE: :math:`\mu = b_\mu\lambda^{\rm tr} + \Delta\mu`, and
+    ``mu_slope`` is :math:`b_\mu`. It defaults to 1, which is the form the
+    Costanzi papers write, but the DES Y3 fit leaves it **free** and it
+    runs **0.984 to 1.172** across the tabulated redshifts -- up to 17%
+    off unity. Hardcoding 1 therefore misrepresents the production kernel,
+    which is why the slope is a parameter rather than an assumption.
+
     Parameters
     ----------
     delta_mu, sigma, f_prj, tau : float or callable
         Each either a scalar or ``f(lambda_true, z) -> array``.
+    mu_slope : float or callable, optional
+        :math:`b_\mu` (default 1.0).
     """
 
-    def __init__(self, delta_mu, sigma, f_prj, tau):
+    def __init__(self, delta_mu, sigma, f_prj, tau, mu_slope=1.0):
         self.delta_mu = delta_mu
         self.sigma = sigma
         self.f_prj = f_prj
         self.tau = tau
+        self.mu_slope = mu_slope
+
+    @classmethod
+    def from_y3_table(cls, path=None):
+        r"""The DES Y3 ``lss_lin_dep`` production kernel, from the table.
+
+        Ten coefficients on 15 redshift nodes over :math:`[0.10, 0.80]`,
+        linearly interpolated, giving
+
+        .. math::
+            \mu = a_\mu + b_\mu\lambda^{\rm tr},
+            \qquad
+            \sigma = b_\sigma\,(\lambda^{\rm tr})^{a_\sigma},
+
+        .. math::
+            \tau = \frac{b_\tau}{(\lambda^{\rm tr})^{a_\tau}},
+            \qquad
+            f^{\rm prj} = \min\!\left[1,\;
+                \frac{b_f}{\left(1 + e^{-\lambda^{\rm tr}}\right)^{a_f}}
+            \right]
+
+        NOTE: :math:`b_\mu` is **not 1**. It runs 0.984 to 1.172 across the
+        table, so the slope-1 form the papers write is an approximation to
+        this fit at the 2-17% level in :math:`\mu`. That is why `EmgParams`
+        carries ``mu_slope`` at all.
+
+        NOTE: :math:`f^{\rm prj}` is **clipped at 1**, in the fit itself --
+        :math:`b_f` reaches 0.998 and the sigmoid can push the raw value
+        past unity. The clip is part of the calibrated model, not a
+        safety net, so it is applied here rather than left to `at`.
+
+        NOTE: ``afmsk`` and ``bfmsk`` are read and **discarded**. They
+        parametrise a masking fraction the production kernel does not
+        apply. Discarding them explicitly, rather than slicing the first
+        eight columns, is what makes their absence visible.
+
+        NOTE: linear interpolation with **constant** extrapolation outside
+        :math:`[0.10, 0.80]`, matching the production spline. Beyond the
+        table the kernel is frozen at the endpoint, not extrapolated -- a
+        higher-order spline would give negative :math:`\sigma`.
+
+        Parameters
+        ----------
+        path : str or pathlib.Path, optional
+            Defaults to `Y3_PRJ_PARAMS_FILE`.
+
+        Returns
+        -------
+        EmgParams
+            With all five parameters as callables of
+            :math:`(\lambda^{\rm tr}, z)`.
+        """
+        from scipy.interpolate import InterpolatedUnivariateSpline
+
+        table = np.loadtxt(Y3_PRJ_PARAMS_FILE if path is None else path)
+        if table.shape[1] != len(Y3_PRJ_COEFFICIENTS):
+            raise ValueError(
+                f"expected {len(Y3_PRJ_COEFFICIENTS)} coefficient columns "
+                f"{Y3_PRJ_COEFFICIENTS}, got {table.shape[1]}"
+            )
+        z_nodes = np.linspace(*Y3_PRJ_Z_NODES)
+        if table.shape[0] != z_nodes.size:
+            raise ValueError(
+                f"expected {z_nodes.size} redshift rows, got {table.shape[0]}"
+            )
+        spline = {
+            name: InterpolatedUnivariateSpline(z_nodes, column, k=1, ext=3)
+            for name, column in zip(Y3_PRJ_COEFFICIENTS, table.T)
+        }
+        # afmsk / bfmsk are deliberately not used; see the NOTE
+        unused = {"afmsk", "bfmsk"}
+
+        def coefficient(name):
+            def evaluate(lambda_true, z):
+                return spline[name](np.asarray(z, dtype=float))
+            return evaluate
+
+        def sigma(lambda_true, z):
+            lam = np.asarray(lambda_true, dtype=float)
+            return coefficient("bsig")(lam, z) * lam ** coefficient(
+                "asig")(lam, z)
+
+        def tau(lambda_true, z):
+            lam = np.asarray(lambda_true, dtype=float)
+            return coefficient("btau")(lam, z) / lam ** coefficient(
+                "atau")(lam, z)
+
+        def f_prj(lambda_true, z):
+            lam = np.asarray(lambda_true, dtype=float)
+            raw = (coefficient("bfprj")(lam, z)
+                   / (1.0 + np.exp(-lam)) ** coefficient("afprj")(lam, z))
+            return np.minimum(1.0, raw)          # the fit's own clip
+
+        params = cls(
+            delta_mu=coefficient("amu"),
+            sigma=sigma,
+            f_prj=f_prj,
+            tau=tau,
+            mu_slope=coefficient("bmu"),
+        )
+        params.unused_coefficients = tuple(sorted(unused))
+        return params
 
     @staticmethod
     def _evaluate(value, lambda_true, z):
@@ -235,7 +450,8 @@ class EmgParams:
         here, once, so no caller can forget it.
         """
         lambda_true = np.asarray(lambda_true, dtype=float)
-        mu = lambda_true + self._evaluate(self.delta_mu, lambda_true, z)
+        mu = (self._evaluate(self.mu_slope, lambda_true, z) * lambda_true
+              + self._evaluate(self.delta_mu, lambda_true, z))
         sigma = self._evaluate(self.sigma, lambda_true, z)
         tau = self._evaluate(self.tau, lambda_true, z)
         f_prj = self._evaluate(self.f_prj, lambda_true, z)
@@ -248,7 +464,7 @@ class EmgParams:
             return "callable" if callable(v) else f"{v:g}"
         return (f"EmgParams(delta_mu={show(self.delta_mu)}, "
                 f"sigma={show(self.sigma)}, f_prj={show(self.f_prj)}, "
-                f"tau={show(self.tau)})")
+                f"tau={show(self.tau)}, mu_slope={show(self.mu_slope)})")
 
 
 def richness_bin_probability(lambda_edges, lambda_true, z, params):
