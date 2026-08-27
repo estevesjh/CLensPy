@@ -16,6 +16,10 @@ Contents
     `LensingKernel`: the source-averaged weights, all **comoving** --
     :math:`\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)` and the three
     callables the covariance consumes.
+`photoz`
+    The **two** photo-z kernels, which are different functions: a Gaussian
+    CDF difference for the counts and a compactly-supported parabola for
+    the projection. Substituting one for the other is a silent bias.
 
 NOTE: the two modules use **different** :math:`\Sigma_{\rm crit}`
 conventions and the difference is exactly :math:`(1+z_l)^2`.
@@ -24,11 +28,19 @@ conventions and the difference is exactly :math:`(1+z_l)^2`.
 :math:`\Delta\Sigma` needs for :math:`\gamma_t` to come out
 dimensionless. Both are named for what they return.
 
-To come (``docs/refactor-plan.md`` A.3): the two photo-z kernels, and the
-Limber projection written once with windows passed in.
+To come (``docs/refactor-plan.md`` A.3): the Limber projection, written
+once with windows passed in.
 """
 
 from .lensing_kernel import LensingKernel, sigma_crit_comoving
+from .photoz import gaussian_cdf, photoz_counts, photoz_projection
 from .sigma_crit import sigma_critical
 
-__all__ = ["sigma_critical", "sigma_crit_comoving", "LensingKernel"]
+__all__ = [
+    "sigma_critical",
+    "sigma_crit_comoving",
+    "LensingKernel",
+    "photoz_counts",
+    "photoz_projection",
+    "gaussian_cdf",
+]

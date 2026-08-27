@@ -23,7 +23,7 @@
     ],
     "_provenance": "LAM_MIN/LAM_MAX/ZOB_MIN/ZOB_MAX/SIGMA_Z of y3_cluster_cpp/test/make_hod_norm_impact.py, quoting cosmosis-models/real_pipeline_extract_prj2h.ini",
     "_note_lam_top_edge": "200 stands in for infinity. cluster-lensing-cov/configs/des_y1.json uses 1000 instead; 200 is kept because the counts and the selection function were computed against it, and it is the upper limit of a lambda integral, so the choice is not free.",
-    "_note_sigma_z": "sigma_z is the photo-z scatter, 0.01. The 0.03 that appears as SIGMA_Z in the y3 production config is the 3-sigma window, not the scatter -- do not use it as sigma_z. One value per richness bin, because the papers allow richness dependence.",
+    "_note_sigma_z": "sigma_z is the photo-z scatter, 0.01. The 0.03 seen in the y3 configs is 3*sigma_z, the window half-width used by the parabolic b_sel projection weight (clenspy.kernels.photoz_projection, n_sigma=3) -- it is NOT the scatter. The counts kernel S_j uses sigma_z itself. Confusing them widens one kernel 3x or narrows the other 3x, in opposite directions and silently.",
     "sigma_z_n_sigma_window": 3.0
   },
   "sources": {

@@ -81,7 +81,7 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 | Mean interior $\Sigma$ | $\bar\Sigma(<R)$ | $\frac{2}{R^2}\int_0^R \Sigma(R')R'dR'$ | $M_\odot\,{\rm Mpc}^{-2}$ | `mean_sigma(R)` | `halo.nfw`, `halo.einasto` | ✅ |
 | Excess surface density | $\Delta\Sigma(R)$ | $\bar\Sigma(<R)-\Sigma(R)$ | $M_\odot\,{\rm Mpc}^{-2}$ | `deltasigma(R)` | `halo.nfw`, `lensing` | ✅ |
 | Critical surface density | $\Sigma_{\rm crit}$ | $\frac{c^2}{4\pi G}\frac{D_s}{D_l D_{ls}}$ | $M_\odot\,{\rm Mpc}^{-2}$ | `sigma_critical()` | `kernels.sigma_crit` | ✅ |
-| **Mean inverse** $\Sigma_{\rm crit}$ | $\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)$ | $h_0\!\int\!dz_s\,p(z_s{+}\Delta z)\frac{4\pi G}{c^2}\frac{D_A(z_l)D_A(z_l,z_s)}{D_A(z_s)}$, clamped $\ge 0$. **Average the inverse, never invert the average** | ${\rm Mpc}^2 M_\odot^{-1}$ | ⬜ | `kernels.sigma_crit` | ⬜ |
+| **Mean inverse** $\Sigma_{\rm crit}$ | $\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)$ | $h_0\!\int\!dz_s\,p(z_s{+}\Delta z)\frac{4\pi G}{c^2}\frac{D_A(z_l)D_A(z_l,z_s)}{D_A(z_s)}$, clamped $\ge 0$. **Average the inverse, never invert the average** | ${\rm Mpc}^2 M_\odot^{-1}$ | `mean_inverse_sigma_crit()` | `kernels.lensing_kernel` | ✅ |
 | Tangential shear | $\gamma_t$ | $\Delta\Sigma\cdot\langle\Sigma_{\rm crit}^{-1}\rangle$. Setting the average to 1 emits $\Delta\Sigma$ | — | `shear(R)` | `halo.einasto` | 🔶 |
 | Convergence | $\kappa$ | $\Sigma/\Sigma_{\rm crit}$ | — | `convergence(R)` | `halo.einasto` | 🔶 |
 | One-halo term | $\Sigma^{1h}$, $\Delta\Sigma^{1h}$ | The cluster's own halo | $M_\odot\,{\rm Mpc}^{-2}$ | `halo_profile` | `lensing.profile` | ✅ |
@@ -117,9 +117,9 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 | Survey solid angle | $\Omega(z)$ | Effective footprint. **In counts; cancels in shear** | sr | `omega_des_y1()`, `omega_des_y3()`, `omega_sdss()` | `survey` | ✅ |
 | Selection function | $\mathcal S_{ij}(\lambda^{\rm tr},z^{\rm tr})$ | Prob. of scattering into bin $(i,j)$; factorises as $\mathcal S_i\mathcal S_j$ | — | ⬜ | `selection` | ⬜ |
 | Richness kernel | $\mathcal S_i$, $\mathcal K_i$ | $(1-f^{\rm prj})\Phi\vert_{\Delta\lambda_i}+f^{\rm prj}F_{\rm EMG}\vert_{\Delta\lambda_i}$ (RSF eq. Ki_final) | — | ⬜ | `selection` | ⬜ |
-| Photo-z kernel (counts) | $\mathcal S_j(z^{\rm tr})$ | $\Phi\big(\frac{z^{\rm ob}-z^{\rm tr}}{\sigma_z}\big)\big\vert_{\Delta z_j}$ — **Gaussian** | — | ⬜ | `selection` | ⬜ |
-| Photo-z weight (projection) | $w_{pz}(z;z^{\rm ob})$ | $1-u^2$ for $\vert u\vert<1$, $u=(z-z^{\rm ob})/\sigma_z(z)$ — **parabolic, a different kernel** | — | ⬜ | `selection` | ⬜ |
-| Photo-z scatter | $\sigma_z(\Delta\lambda_i)$ | Bin-dependent | — | ⬜ | `selection` | ⬜ |
+| Photo-z kernel (counts) | $\mathcal S_j(z^{\rm tr})$ | $\Phi\big(\frac{z_j^{\max}-z^{\rm tr}}{\sigma_z}\big)-\Phi\big(\frac{z_j^{\min}-z^{\rm tr}}{\sigma_z}\big)$ — **Gaussian CDF difference, keyed on the bin edges** | — | `photoz_counts()` | `kernels.photoz` | ✅ |
+| Photo-z weight (projection) | $w_{pz}(z;z^{\rm ob})$ | $1-u^2$ for $\vert u\vert<1$, $u=(z-z^{\rm ob})/(n_\sigma\sigma_z(z))$, $n_\sigma=3$ — **parabolic, compact support, unnormalised**: $\int w_{pz}dz=\frac43 n_\sigma\sigma_z$ | — | `photoz_projection()` | `kernels.photoz` | ✅ |
+| Photo-z scatter | $\sigma_z(\Delta\lambda_i)$ | Bin-dependent, **0.01**. The 0.03 in the y3 configs is $3\sigma_z$, the projection window's half-width — never the scatter | — | `RichnessBin.sigma_z` | `utils.binning`, configs | ✅ |
 | Photo-z bias | $\Delta z$ | Source $p(z)$ shift, marginalised | — | ⬜ | `survey` | ⬜ |
 | EMG CDF | $F_{\rm EMG}(x;\mu,\sigma,\tau)$ | $\Phi(\frac{x-\mu}{\sigma})-e^{-\tau(x-\mu)+\frac{1}{2}\tau^2\sigma^2}\Phi(\frac{x-\mu}{\sigma}-\tau\sigma)$ (RSF eq. exg_cdf) | — | ⬜ | `selection` | ⬜ |
 | Kernel mean | $\mu=\lambda^{\rm tr}+\Delta\mu$ | $\Delta\mu<0$: background subtraction biases low | — | ⬜ | `selection` | ⬜ |

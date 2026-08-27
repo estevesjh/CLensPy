@@ -199,6 +199,13 @@ def sigma_crit_comoving(z_lens, z_source, cosmology, signed=False):
 class LensingKernel:
     r"""Source-averaged :math:`\Sigma_{\rm crit}` weights for one survey.
 
+    NOTE: units and conventions are the module's -- **comoving**
+    :math:`\Sigma_{\rm crit}`, h-free, Msun/Mpc^2.
+
+    NOTE: the constructor stores and computes nothing. The interpolant over
+    :math:`z_l` is built on first use of `kernel_z`, so constructing this
+    object is free.
+
     Parameters
     ----------
     survey : object
@@ -215,13 +222,6 @@ class LensingKernel:
         pipeline's ``unity=T`` option does -- it is how a
         :math:`\Delta\Sigma` data vector is compared against a model
         written for shear, with no second code path.
-
-    NOTE: units and conventions are the module's -- **comoving**
-    :math:`\Sigma_{\rm crit}`, h-free, Msun/Mpc^2.
-
-    NOTE: the constructor stores and computes nothing. The interpolant over
-    :math:`z_l` is built on first use of `kernel_z`, so constructing this
-    object is free.
     """
 
     def __init__(self, survey, cosmology, unity: bool = False) -> None:

@@ -94,6 +94,12 @@ property of the universe.
 ```{eval-rst}
 .. automodule:: clenspy.kernels.sigma_crit
    :members:
+
+.. automodule:: clenspy.kernels.lensing_kernel
+   :members:
+
+.. automodule:: clenspy.kernels.photoz
+   :members:
 ```
 
 ## `clenspy.utils`

@@ -34,18 +34,6 @@ class BiasModel:
     with :math:`A, a, B, b, C, c` fit as functions of the spherical
     overdensity :math:`\Delta` (``odelta``).
 
-    Parameters
-    ----------
-    k : array
-        Wavenumbers [1/Mpc], physical (not h-scaled).
-    P : array
-        Linear power spectrum [Mpc^3], physical (not h-scaled).
-    cosmo : astropy.cosmology instance, optional
-        Cosmology to use (default: `fiducial_cosmology()`).
-    odelta : int, optional
-        Spherical overdensity :math:`\Delta` defining the halo mass, e.g.
-        200 for :math:`M_{200m}` (default: 200).
-
     NOTE: units are h-free absolute throughout -- mass in Msun, length in
     Mpc, wavenumbers in 1/Mpc, P(k) in Mpc^3. This class does *not* use the
     "little h" convention (h/Mpc, Msun/h, (Mpc/h)^3) common in the
@@ -59,6 +47,18 @@ class BiasModel:
     NOTE: the Tinker et al. (2010) fit is calibrated for
     :math:`\Delta = 200`-:math:`1600` and :math:`\nu \lesssim 4`; b(M)
     outside that is an extrapolation.
+
+    Parameters
+    ----------
+    k : array
+        Wavenumbers [1/Mpc], physical (not h-scaled).
+    P : array
+        Linear power spectrum [Mpc^3], physical (not h-scaled).
+    cosmo : astropy.cosmology instance, optional
+        Cosmology to use (default: `fiducial_cosmology()`).
+    odelta : int, optional
+        Spherical overdensity :math:`\Delta` defining the halo mass, e.g.
+        200 for :math:`M_{200m}` (default: 200).
 
     Examples
     --------

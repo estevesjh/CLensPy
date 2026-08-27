@@ -714,7 +714,25 @@ Steps 1–5 are done. Steps 6–10 stand. Then:
     $\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)$ and the three callables the
     covariance consumes, and reproduces the frozen Stage-A reference
     (`validation/frozen_inputs/kernels.npz`) to **2.8e-7** on all four.
-    Still to come: the two photo-z kernels and Limber.
+    **The two photo-z kernels are done too** (`kernels/photoz.py`), and the
+    key point is that they are *different functions*: a Gaussian CDF
+    difference keyed on the bin **edges** for the counts, and a
+    compactly-supported parabola about one $z^{\rm ob}$ for the projection.
+    The counts kernel is a probability with support everywhere and
+    $\int \mathcal S_j\,dz^{\rm tr} = $ the bin width; the projection
+    weight is unnormalised with $\int w_{pz}\,dz = \frac43 n_\sigma\sigma_z$
+    and is exactly zero beyond $n_\sigma\sigma_z$. Substituting one for the
+    other puts weight along the whole line of sight.
+
+    **And this is where the 0.03 finally resolved.** $\sigma_z = 0.01$ is
+    the scatter; the 0.03 in the y3 configs is $3\sigma_z$, the **window
+    half-width of the parabolic $b_{\rm sel}$ weight**. So the projection
+    kernel takes `n_sigma=3` and the counts kernel takes $\sigma_z$ itself.
+    Confusing them widens one kernel threefold or narrows the other
+    threefold, in opposite directions and silently — which is why the two
+    signatures take their width differently and a test asserts the factor.
+
+    Still to come: Limber.
 
     Five things this settled, none of which were guessable:
 
