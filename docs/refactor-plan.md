@@ -710,8 +710,43 @@ Steps 1–5 are done. Steps 6–10 stand. Then:
     that looks right. Same principle as the missing Einasto miscentering
     table.
 
-12. `kernels/` — $\Sigma_{\rm crit}$, $\langle\Sigma_{\rm crit}^{-1}\rangle$,
-    the three covariance callables, the two photo-z kernels, Limber.
+12. `kernels/` — **the lensing kernel is done.** `LensingKernel` holds
+    $\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)$ and the three callables the
+    covariance consumes, and reproduces the frozen Stage-A reference
+    (`validation/frozen_inputs/kernels.npz`) to **2.8e-7** on all four.
+    Still to come: the two photo-z kernels and Limber.
+
+    Five things this settled, none of which were guessable:
+
+    - **The exemplar's $\Sigma_{\rm crit}$ is comoving**, `clenspy`'s
+      existing `sigma_critical` is physical, and the two differ by exactly
+      $(1+z_l)^2$ — verified, not assumed. The y3 module
+      `average_sigma_crit_inv.py` uses a *third* convention (physical,
+      times $h_0$). Comoving is right here, because `clenspy`'s
+      $\Delta\Sigma$ is comoving and $\gamma_t$ must be dimensionless.
+    - **The residual 0.138% against the reference is their rounded $c$.**
+      They use $3\times10^5$ km/s; $(299792.458/3\times10^5)^2 =
+      0.99861687$ accounts for all of it. Applying the correction to the
+      wrong *power* doubles the residual instead of removing it, which is
+      how the direction got caught.
+    - **$\langle\Sigma_{\rm crit}\rangle$ and $q_\Sigma$ are
+      logarithmically divergent.** They exist only relative to the minimum
+      lens-source separation, 0.01, which is a *definition* and a floor —
+      and, through the endpoint's trapezoid weight, to the node count:
+      100 → 800 nodes moves the answer 5%. Both are arguments now, and a
+      test asserts the non-convergence so nobody "fixes" it.
+      $\langle\Sigma_{\rm crit}^{-1}\rangle$ is convergent, which is the
+      deeper reason E.1 says to average the inverse.
+    - **$q_\Sigma$ is signed and must not be clamped.** Its source range
+      is keyed on $z_l$, not $\max(z_l, z_h)$, so it includes sources in
+      front of the halo where $\Sigma_{\rm crit}(z_h, z_s) < 0$; the frozen
+      reference runs $-2.29$ to $+3.91$. It also puts the $z_s = z_h$ pole
+      inside the integral, which is where its $\pm 4$ spikes come from.
+      Faithfully reproduced; documented as an artifact of the definition.
+    - **No Cauchy–Schwarz bound relates the two averages**, tempting as it
+      is: they are not taken against the same measure. The product crosses
+      1 across the bin range (1.09, 1.10, 0.89, 0.55). My first test
+      asserted the bound and was wrong.
 13. `halo/mass_function.py` — `SigmaGrid`, the halo mass function, the
     growth factor. Needed by both counts and covariance.
 14. `selection/` — the EMG richness kernel, the two MORs, $\mathcal S_{ij}$.

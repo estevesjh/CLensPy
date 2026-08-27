@@ -13,10 +13,18 @@ sheet at :math:`z_l`; the formula has no notion of the halo's line-of-sight
 extent. Valid whenever the halo is small compared with
 :math:`D_A(z_l, z_s)`, which for clusters it always is.
 
+NOTE: this returns the **physical** :math:`\Sigma_{\rm crit}`, from
+angular diameter distances. `clenspy.kernels.sigma_crit_comoving` returns
+the **comoving** one, and the two differ by exactly :math:`(1+z_l)^2`. The
+comoving form is the one to use with `clenspy`'s comoving
+:math:`\Delta\Sigma`, since :math:`\gamma_t` has to be dimensionless;
+this one is for a single pair quoted in physical units.
+
 The source-averaged inverse, :math:`\langle\Sigma_{\rm crit}^{-1}\rangle
 (z_l)`, is the quantity an observable actually needs and is a *different*
-function -- average the inverse, never invert the average. It belongs beside
-this one; see ``docs/refactor-plan.md`` errata E.1.
+function -- average the inverse, never invert the average. It is
+`clenspy.kernels.LensingKernel.mean_inverse_sigma_crit`; see
+``docs/refactor-plan.md`` errata E.1.
 """
 
 from __future__ import annotations

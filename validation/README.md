@@ -15,12 +15,14 @@ Every script prints its error norms, exits nonzero on failure, and takes
 | `analytic_nfw.py` | direct quadrature (self-check) | scipy |
 | `validate_nfw_pyccl.py` | `pyccl.halos.HaloProfileNFW` | pyccl |
 | `validate_twohalo_chain.py` | closed-form NFW, per chain stage | cluster_toolkit, clmm, pyccl |
+| `validate_lensing_kernel.py` | `cluster-lensing-cov` frozen Stage-A kernels | `$CLUSTER_LENSING_COV_DIR` |
 | `validate_miscentering_table.py` | `cluster_toolkit.miscentering`, y3 tables | cluster_toolkit, `$Y3_CLUSTER_CPP_DIR` |
 
 ```bash
 python validation/analytic_nfw.py                    # check the reference first
 python validation/validate_nfw_pyccl.py     --plot
-python validation/validate_twohalo_chain.py --plot
+python validation/validate_twohalo_chain.py  --plot
+python validation/validate_lensing_kernel.py --plot
 python validation/validate_miscentering_table.py
 ```
 

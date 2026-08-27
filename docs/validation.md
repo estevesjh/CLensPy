@@ -13,8 +13,9 @@ that shows the agreement.
 ```bash
 python validation/analytic_nfw.py                  # the reference, self-checked
 python validation/validate_nfw_pyccl.py    --plot
-python validation/validate_twohalo_chain.py --plot
-python validation/validate_miscentering_table.py   # needs Y3_CLUSTER_CPP_DIR
+python validation/validate_twohalo_chain.py  --plot
+python validation/validate_lensing_kernel.py --plot   # needs cluster-lensing-cov
+python validation/validate_miscentering_table.py      # needs Y3_CLUSTER_CPP_DIR
 ```
 
 Figures are written to `docs/_static/validation/` so this page can show
@@ -178,6 +179,74 @@ As validation scripts they are held at $10^{-8}$, two decades above the
 measurement, which leaves room for a library difference while still tripping
 on a real algebra change.
 ```
+
+---
+
+## The lensing kernel
+
+**Script:** `validation/validate_lensing_kernel.py`
+**Reference:** `cluster-lensing-cov/validation/frozen_inputs/kernels.npz`
+
+That file was frozen precisely so a refactor could be shown equivalent. It
+holds all four quantities `LensingKernel` computes, for a DES Y1 source
+population.
+
+![LensingKernel against the frozen covariance reference](_static/validation/lensing_kernel_vs_frozen.png)
+
+| quantity | raw residual | after removing $c^2$ |
+|---|---|---|
+| $\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)$ | 1.385e-03 | **2.8e-07** |
+| $\langle\Sigma_{\rm crit}\rangle(z_h)$ | 1.383e-03 | **2.8e-07** |
+| $f_{\rm src}(z_h)$ | 2.8e-07 | — |
+| $q_\Sigma(z_l; z_h)$ | 2.8e-07 | — |
+
+The raw 0.138% on the two quantities carrying $c^2$ is **not an error on
+either side**: the reference uses $c = 3\times10^5$ km/s where `clenspy`
+uses the exact 299792.458, and $(299792.458/3\times10^5)^2 = 0.99861687$
+accounts for all of it. The script corrects by that factor to the correct
+power — $+1$ for a $\Sigma_{\rm crit}$, $-1$ for its inverse, $0$ for a
+probability or a ratio — which is why getting the *direction* wrong showed
+up immediately as a doubled residual rather than a halved one.
+
+### Two of these integrals do not converge
+
+$\Sigma_{\rm crit} \propto 1/(\chi_s - \chi_l)$ diverges as
+$z_s \to z_l$, so $\langle\Sigma_{\rm crit}\rangle$ and $q_\Sigma$ are
+**logarithmically divergent**. Their values are set by two conventions:
+
+- the **minimum lens-source separation**, 0.01 in redshift. A pair closer
+  than that is not treated as a lens-source pair at all. This is a
+  definition, and `MIN_LENS_SOURCE_SEPARATION` is a floor — asking for less
+  raises rather than silently returning a larger number.
+- the **node count**, through the first trapezoid interval's weight. With
+  the floor in place the integral is finite, but refining the grid *lowers*
+  $\langle\Sigma_{\rm crit}\rangle$ rather than settling it: 100 → 800
+  nodes moves it 5%. `tests/test_lensing_kernel.py` asserts that
+  non-convergence, so nobody "fixes" the node count thinking it is a
+  tolerance.
+
+$\langle\Sigma_{\rm crit}^{-1}\rangle$ is the one that *is* convergent —
+its integrand vanishes at the edge. That is the deeper reason errata E.1
+says to average the inverse: **the other average does not exist without a
+convention.**
+
+### $q_\Sigma$ is signed, and its spikes are real
+
+The right-hand panel's excursions to $\pm 4$ are reproduced exactly, and
+they are inherited from the definition, not introduced here. Two properties
+combine to make them:
+
+- the source range is keyed on $z_l$, **not** on $\max(z_l, z_h)$, so for
+  $z_l < z_h$ the integral includes sources in *front* of the halo, where
+  $\Sigma_{\rm crit}(z_h, z_s) < 0$. The frozen reference runs from $-2.29$
+  to $+3.91$, so a $q_\Sigma$ that is everywhere positive is wrong;
+- the same choice puts the $z_s = z_h$ pole *inside* the range, and the
+  trapezoid straddles it.
+
+So the spikes are a grid artifact of the upstream definition. They are not
+physical, and they are also not ours to smooth: clamping the integrand or
+re-keying the range changes the covariance. Recorded here so the shape is
+recognised rather than re-derived.
 
 ---
 
