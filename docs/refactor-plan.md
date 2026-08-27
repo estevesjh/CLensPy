@@ -474,3 +474,151 @@ Each step is independently reviewable and leaves the package working.
 - **Type hints.** The exemplar package has none; you have them and they are good. The
   skill's "no type hints" observation was a description of one author's habit, not a rule —
   ignore it. Keep the hints, keep `Protocol` structural.
+
+---
+
+## Addendum: the Survey, Selection and Kernel layers, and covariance
+
+> Added 2026-08-27, after reading the three role models:
+> `cluster-lensing-cov/` (the exemplar package),
+> `y3_cluster_cpp/src/pipelines/systematics/` and
+> `.../shared/`. Supersedes step 11 and extends the sequence.
+
+The observables these layers exist to serve are the two redMaPPer
+quantities: $N_{ij}$ and $\Delta\Sigma_{ij}$, binned in observed richness
+$\lambda^{\rm ob}$ and observed redshift $z^{\rm ob}$. **The covariance of
+both is computed here too**, which makes the skill's `Estimator` contract
+live rather than hypothetical.
+
+### A.1 The interface is already specified by a consumer
+
+`cluster-lensing-cov` is downstream of CLensPy and already imports from it.
+`clens/covariance/limber.py` is a *thin adapter* over
+`clenspy.lensing.limber.LimberProjector`, and `clens/covariance/inputs.py`
+declares the contract as frozen dataclasses. That fixes the API rather than
+leaving it to taste:
+
+| Contract | Fields |
+|---|---|
+| `CosmologyInputs` | `chi(z)`, `pk_lin(k,z)`, `rho_mean0`, `growth(z)`, `sigma_R0(R)` |
+| `SourceInputs` | `sigma_gamma`, `n_src_arcmin2`, `q_sigma(z_l,z_h)`, `mean_sigma_crit(z_h)`, `f_src_behind(z_h)`, `zs_max` |
+| `LensSample` | bin edges, `counts`, `bias`, `bN`, `volume`, `sigma_w`, optional `pk_hh` / `pk_hm` / `intrinsic_cov` |
+| `SurveyGeometry` | `f_sky`, `area_sr` |
+
+So the **Kernel layer's public surface is three callables** —
+`q_sigma`, `mean_sigma_crit`, `f_src_behind` — plus $\Sigma_{\rm crit}$
+itself. Nothing else is required of it.
+
+Modules `cluster-lensing-cov` imports that this branch does **not** have:
+
+```
+clenspy.lensing.limber.LimberProjector
+clenspy.utils.fftlog_cov          (j2_bin_averaged)
+clenspy.halo.mass_function        (SigmaGrid: .rho_m0, __call__(M, z))
+clenspy.clusters.BinHaloModelSpectra
+clenspy.IntrinsicProfileVariance
+docs/covariance_fftlog_math.md
+```
+
+All of these exist on the `codex/clusters` branch. **They are to be
+rebuilt, not merged.** That branch does not follow the skill — modules
+carry several physical concepts at once, integrands are hard to follow
+against the papers, and `clusters/` bundles survey, selection, kernels,
+photo-z, MOR and observables into one flat package. Use it only to locate
+which equations were already transcribed; take the structure from the skill
+and the numerics from the papers and the C++ core.
+
+`src/clenspy/clusters/` has been removed from this branch. (It survived as a
+bare `__pycache__`, which made `import clenspy.clusters` succeed against
+stale bytecode — worth knowing, since that silently shadows a real module.)
+
+### A.2 `survey/` — the footprint and the source population
+
+Per-survey presets, one per data release: **DES Y1, DES Y3, SDSS**.
+
+Two separable things, and they must not be conflated (errata E.2):
+
+**Footprint $\Omega(z)$** [rad²], the effective solid angle, which falls at
+high $z$ as the red-sequence contrast degrades. Polynomial fits transcribed
+from `y3_cluster_cpp/src/models/omega_z_{des,sdss}.hh`:
+
+- SDSS: one degree-11 fit in $(z - 0.2)$, ~3.13 sr plateau over $z\in[0.1,0.4]$.
+- DES: three-piece fit, breaks at $z = 0.504$ and $0.7$, ~0.45 sr plateau.
+  (The DES header names its coefficient arrays `SDSS_fit` — a copy-paste
+  artifact in the C++. Do not replicate the name.)
+
+$\Omega(z)$ enters $N_{ij}$ and **cancels** in $\Delta\Sigma$. A shared
+weight builder must therefore take it as an explicit per-observable
+argument, never as an ambient survey property.
+
+**Source population** — the `Survey` contract proper: `pz_src(z_s)`
+normalised, `sigma_gamma`, `n_src_arcmin`, `zs_min`, `zs_max`. Three
+$p(z_s)$ forms, following `clens/util/survey.py`:
+
+$$p(z_s) \propto z_s^{m}\exp\!\big[-(z_s/z_\star)^{\beta}\big]$$
+
+(Rozo et al. 2011 eq. 14, the default), a top-hat, or an interpolated
+tabulated $dn/dz$. Two departures from the exemplar: it subclasses `dict`
+and prints on construction — do neither.
+
+### A.3 `kernels/` — $\Sigma_{\rm crit}$, its inverse, and Limber
+
+- `sigma_crit(z_l, z_s)` — already in `cosmology/utils.py`, moves here (step 7).
+- $\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)$ per errata E.1: average the
+  **inverse**, clamp the integrand at zero so foreground sources
+  contribute nothing, use the flat subtraction form for $D_A(z_l,z_s)$, and
+  carry the photo-z bias shift $\Delta z$ in the signature.
+- `mean_sigma_crit(z_h)`, `f_src_behind(z_h)`, `q_sigma(z_l, z_h)` — the
+  three the covariance consumes. The exemplar's `LensingKernel` computes
+  all three by trapezoid over $p(z_s)$; that is the specification.
+- **Two photo-z kernels, deliberately distinct** (errata E.3): a Gaussian
+  CDF difference $\mathcal S_j$ for counts, and the parabolic weight
+  $w_{pz} = 1-u^2$, $u = (z-z^{\rm ob})/\sigma_z(z)$, for the projection.
+  $\sigma_z(z)$ is a 120-node table (`shared/z_kernel.py`).
+- Limber projection, written **once**, with windows passed in — not one
+  `calc_C_ell_*` per spectrum.
+
+### A.4 `selection/` — $\mathcal S_{ij}(\ln M, z)$
+
+The closed-form richness selection of
+`RichnessSelection/docs/richness_selection_function.tex`:
+
+$$\mathcal S_i = (1-f^{\rm prj})\,\Phi\big|_{\Delta\lambda_i} + f^{\rm prj} F_{\rm EMG}\big|_{\Delta\lambda_i}$$
+
+with the EMG CDF in closed form, so only the $\lambda^{\rm tr}$ integral is
+numerical (Gauss–Legendre on the per-$(M,z)$ bracket). Two mass–observable
+relations: log-normal (Costanzi et al. 2021) and the HOD shifted-Poisson.
+`miscentering.py` (already table-backed) and `boost.py` move here from
+`lensing/` per step 6, joined by the $\bar b_{\rm sel}$ sigmoid.
+
+### A.5 `covariance/` — the `Estimator` layer
+
+Keep the decomposition and sum at the end (rule 6); the exemplar's shape:
+
+- **Counts**: Poisson (diagonal) + sample variance (same-$z$ blocks fully
+  correlated across richness, window r.m.s. $\sigma_W = \sigma_R(R_{\rm eff})D(z)$).
+- **$\Delta\Sigma$**, Wu et al. 2019 eq. 22: `cosmic_shear`, `shape_noise`,
+  `cross`, each stored separately with switches to isolate them.
+- FFTLog engine for the $\ell$ integral, plus the trapz-over-$\ln\ell$
+  version kept as a **test-only reference** so equivalence tests isolate the
+  integration method.
+
+### A.6 Revised sequence
+
+Steps 1–5 are done. Steps 6–10 stand. Then:
+
+11. `survey/` — $\Omega(z)$ for DES Y1 / DES Y3 / SDSS, and the `Survey`
+    source-population contract. Add `Survey` to `protocols.py` only once it
+    exists.
+12. `kernels/` — $\Sigma_{\rm crit}$, $\langle\Sigma_{\rm crit}^{-1}\rangle$,
+    the three covariance callables, the two photo-z kernels, Limber.
+13. `halo/mass_function.py` — `SigmaGrid`, the halo mass function, the
+    growth factor. Needed by both counts and covariance.
+14. `selection/` — the EMG richness kernel, the two MORs, $\mathcal S_{ij}$.
+15. `observables/` — $N_{ij}$ and $\Delta\Sigma_{ij}$ as contractions of the
+    weights against an integrand.
+16. `covariance/` — counts and $\Delta\Sigma$ blocks, FFTLog engine,
+    reference implementation, assembly.
+
+Validate each against `cluster-lensing-cov`'s frozen Stage-A snapshots,
+which exist precisely to pin refactor equivalence.
