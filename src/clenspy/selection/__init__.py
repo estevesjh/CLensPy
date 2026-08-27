@@ -24,10 +24,16 @@ Contents
 `selection_function`
     :math:`\mathcal S_{ij}(M, z^{\rm tr}) = S_i\,\mathcal S_j`, the
     factor that turns a mass function into a catalogue prediction.
+`geometry`
+    The redMaPPer aperture: :math:`R_\lambda`, its angle
+    :math:`\theta_\lambda`, the disk-overlap fraction :math:`f_A`, and the
+    :math:`\sigma(\theta)` sigmoid -- the geometric ingredients of
+    :math:`b_{\rm sel}`.
 """
 
 from . import (
     boost,
+    geometry,
     miscentering,
     miscentering_kernel,
     richness_kernel,
@@ -35,6 +41,12 @@ from . import (
     selection_function,
 )
 from .boost import boost_factor_nfw
+from .geometry import (
+    area_overlap,
+    r_lambda,
+    sigmoid_theta,
+    theta_lambda,
+)
 from .miscentering import (
     MiscenteringTableError,
     NfwMiscenteringTable,
@@ -47,6 +59,7 @@ from .selection_function import SelectionFunction
 
 __all__ = [
     "boost",
+    "geometry",
     "miscentering",
     "miscentering_kernel",
     "richness_kernel",
@@ -63,4 +76,8 @@ __all__ = [
     "LogNormalMor",
     "HodMor",
     "SelectionFunction",
+    "r_lambda",
+    "theta_lambda",
+    "area_overlap",
+    "sigmoid_theta",
 ]

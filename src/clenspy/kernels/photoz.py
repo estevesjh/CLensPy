@@ -59,20 +59,43 @@ redshifts; :math:`\sigma_z` is in redshift units. :math:`w_{pz}` carries no
 :math:`dz`, so a caller supplies the measure.
 
 NOTE: :math:`\sigma_z` in the projection kernel is :math:`\sigma_z(z)`, a
-120-node table compiled into ``y3_cluster_cpp/src/models/z_kernel_data.hh``.
-That table is not distributed with `clenspy`, so `photoz_projection`
-accepts either a scalar or a callable: pass the per-bin scalar from a
-config (`~clenspy.utils.RichnessBin.sigma_z`) for the constant-width
-approximation, or a callable reading the y3 header for exactness. The
-approximation is named, not hidden.
+120-node table (``y3_cluster_cpp/src/models/z_kernel_data.hh``, vendored
+here as ``clenspy/data/z_kernel_5perc_ext_z01.txt``). `photoz_projection`
+therefore accepts a scalar *or* a callable: pass a per-bin scalar for the
+constant-width approximation, or `y3_photoz_window` for the exact
+production width. The approximation is named, not hidden.
+
+NOTE: **the tabulated quantity is the window, not the scatter**, and this
+is the third face of the same 0.03 confusion. The table stores
+:math:`{\rm sig}(z)` and the C++ forms
+:math:`1/(100\sqrt{{\rm sig}})`, then uses *that* directly as the
+parabola's half-width -- so its own :math:`\sigma_z` symbol already has
+:math:`n_\sigma` folded in. The values run 0.040 to 0.148, i.e. 4 to 15
+times 0.01, so they are *not* a constant :math:`3\sigma_z = 0.03`. Nor are
+they monotonic: they rise from 0.040 at :math:`z = 0.1` to a peak of 0.148
+near :math:`z = 0.73`, fall to about 0.10 by :math:`z = 0.9`, and dip
+locally on the way (near :math:`z = 0.18` and :math:`z = 0.49`). It is a
+calibrated curve, not a formula, which is why it is shipped as a table and
+interpolated rather than fitted. Hence
+`y3_photoz_window` returns a half-width to be passed with
+``n_sigma=1.0``, and says so, rather than being handed to the default
+``n_sigma=3`` and silently tripling.
 """
 
 from __future__ import annotations
 
+import pathlib
+
 import numpy as np
 from scipy.special import erf
 
-__all__ = ["gaussian_cdf", "photoz_counts", "photoz_projection"]
+__all__ = [
+    "gaussian_cdf",
+    "photoz_counts",
+    "photoz_projection",
+    "y3_photoz_window",
+    "Y3_Z_KERNEL_FILE",
+]
 
 _SQRT2 = np.sqrt(2.0)
 
@@ -193,6 +216,61 @@ def photoz_projection(z, z_ob, sigma_z, n_sigma: float = 3.0):
     # a parabola clipped at its roots, not a parabola plus a mask: the two
     # differ only in how obvious the compact support is
     return np.maximum(0.0, 1.0 - u * u)
+
+
+#: The vendored DES Y3 z-kernel table, 120 nodes over z in [0.1, 0.9].
+Y3_Z_KERNEL_FILE = (
+    pathlib.Path(__file__).resolve().parents[1] / "data"
+    / "z_kernel_5perc_ext_z01.txt"
+)
+
+_Y3_WINDOW_CACHE: dict = {}
+
+
+def y3_photoz_window():
+    r"""The exact DES Y3 projection-window half-width, as a callable.
+
+    Returns ``half_width(z)`` interpolating
+
+    .. math::
+        n_\sigma\,\sigma_z(z) = \frac{1}{100\sqrt{{\rm sig}(z)}}
+
+    from the vendored 120-node table.
+
+    NOTE: **this is the window half-width, already including**
+    :math:`n_\sigma`. Pass it with ``n_sigma=1.0``::
+
+        w = photoz_projection(z, z_ob, y3_photoz_window(), n_sigma=1.0)
+
+    Handing it to the default ``n_sigma=3`` widens the window by rather
+    more than threefold, because the width itself varies across the
+    enlarged support. The values are 0.040 to 0.148 across the table and
+    are **not monotonic in z** -- see the module NOTE.
+
+    NOTE: linear interpolation (``k=1``) with **constant** extrapolation
+    outside :math:`[0.1, 0.9]` (``ext=3``), matching the production
+    spline. A higher-order spline would ring on this table, and letting it
+    extrapolate would give a negative width beyond the ends.
+
+    Returns
+    -------
+    callable
+        ``half_width(z) -> np.ndarray``, in redshift units. Cached, so
+        repeated calls share one spline.
+    """
+    if "spline" not in _Y3_WINDOW_CACHE:
+        from scipy.interpolate import InterpolatedUnivariateSpline
+
+        z_nodes, sig = np.loadtxt(Y3_Z_KERNEL_FILE, unpack=True)
+        _Y3_WINDOW_CACHE["spline"] = InterpolatedUnivariateSpline(
+            z_nodes, 1.0 / 100.0 / np.sqrt(sig), k=1, ext=3
+        )
+    spline = _Y3_WINDOW_CACHE["spline"]
+
+    def half_width(z):
+        return spline(np.asarray(z, dtype=float))
+
+    return half_width
 
 
 if __name__ == "__main__":

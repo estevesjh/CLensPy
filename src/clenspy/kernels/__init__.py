@@ -44,7 +44,13 @@ dimensionless. Both are named for what they return.
 from .bessel import J2_SERIES_CUTOFF, j2_bin
 from .lensing_kernel import LensingKernel, sigma_crit_comoving
 from .limber import ARCMIN_TO_RAD, LimberProjector, limber
-from .photoz import gaussian_cdf, photoz_counts, photoz_projection
+from .photoz import (
+    Y3_Z_KERNEL_FILE,
+    gaussian_cdf,
+    photoz_counts,
+    photoz_projection,
+    y3_photoz_window,
+)
 from .sigma_crit import sigma_critical
 
 __all__ = [
@@ -59,4 +65,6 @@ __all__ = [
     "ARCMIN_TO_RAD",
     "j2_bin",
     "J2_SERIES_CUTOFF",
+    "y3_photoz_window",
+    "Y3_Z_KERNEL_FILE",
 ]

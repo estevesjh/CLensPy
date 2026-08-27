@@ -254,3 +254,83 @@ def test_both_are_vectorised_and_scalar_safe(kernel):
     assert np.size(kernel(0.42, *args)) == 1
     np.testing.assert_allclose(np.ravel(kernel(z, *args))[1],
                                np.ravel(kernel(0.42, *args)))
+
+
+# -- the vendored DES Y3 window table --------------------------------------
+
+
+def test_y3_window_reproduces_the_production_kernel():
+    r"""The exact C++ form: :math:`\max[1 - ((z-z^{ob})/\sigma_z(z))^2, 0]`.
+
+    Their :math:`\sigma_z(z)` is already the window half-width, so it must
+    be passed with ``n_sigma=1``.
+    """
+    from clenspy.kernels.photoz import y3_photoz_window
+
+    half_width = y3_photoz_window()
+    z_ob = 0.4
+    z = np.linspace(0.24, 0.56, 41)
+    mine = photoz_projection(z, z_ob, half_width, n_sigma=1.0)
+    u = (z - z_ob) / half_width(z)
+    theirs = np.where(np.abs(u) < 1.0, 1.0 - u * u, 0.0)
+    np.testing.assert_allclose(mine, theirs, rtol=0.0, atol=0.0)
+
+
+def test_the_y3_window_is_not_a_constant_three_sigma():
+    """It runs 0.040 to 0.148 -- not 0.03, and not monotonic either.
+
+    Two claims pinned. First, anyone substituting a constant
+    3 * 0.01 = 0.03 is wrong by 1.3x at the table's floor and 5x at its
+    peak. Second, it is NOT monotonic in z: it peaks near z = 0.73 and
+    falls after. I asserted monotonicity first and this test failed --
+    it is a calibrated curve, not a formula.
+    """
+    from clenspy.kernels.photoz import y3_photoz_window
+
+    half_width = y3_photoz_window()
+    z = np.linspace(0.1, 0.9, 200)
+    w = half_width(z)
+    assert w.min() == pytest.approx(0.040, abs=2e-3)
+    assert w.max() == pytest.approx(0.148, abs=2e-3)
+    assert np.all(w > 0.03)                    # never as small as 0.03
+    # non-monotonic: it turns over, so both signs of slope appear
+    assert np.any(np.diff(w) > 0.0) and np.any(np.diff(w) < 0.0)
+    assert 0.70 < z[int(np.argmax(w))] < 0.76
+
+
+def test_passing_the_y3_window_to_the_default_n_sigma_triples_it():
+    """The mistake the ``n_sigma=1`` instruction exists to prevent."""
+    from clenspy.kernels.photoz import y3_photoz_window
+
+    half_width = y3_photoz_window()
+    z_ob = 0.4
+    fine = np.linspace(0.0, 1.0, 200001)
+    right = photoz_projection(fine, z_ob, half_width, n_sigma=1.0)
+    wrong = photoz_projection(fine, z_ob, half_width)      # n_sigma=3
+    support_right = fine[right > 0]
+    support_wrong = fine[wrong > 0]
+    width_right = 0.5 * (support_right[-1] - support_right[0])
+    width_wrong = 0.5 * (support_wrong[-1] - support_wrong[0])
+    # more than threefold, not exactly threefold: the width itself varies
+    # over the enlarged support, so the factor is not the naive n_sigma
+    assert width_wrong / width_right > 3.0
+    assert width_wrong / width_right < 4.0
+
+
+def test_the_y3_window_table_is_actually_shipped():
+    """The docstring used to claim it was not. It is."""
+    from clenspy.kernels.photoz import Y3_Z_KERNEL_FILE
+
+    assert Y3_Z_KERNEL_FILE.is_file()
+    z_nodes, sig = np.loadtxt(Y3_Z_KERNEL_FILE, unpack=True)
+    assert z_nodes.size == 120
+    assert z_nodes.min() == pytest.approx(0.1)
+    assert z_nodes.max() == pytest.approx(0.9)
+    assert np.all(sig > 0.0)
+
+
+def test_the_y3_window_spline_is_cached():
+    from clenspy.kernels.photoz import y3_photoz_window
+
+    a, b = y3_photoz_window(), y3_photoz_window()
+    assert a(0.4) == b(0.4)
