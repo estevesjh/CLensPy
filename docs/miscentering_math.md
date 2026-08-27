@@ -323,7 +323,105 @@ The scheme is a fixed matrix–vector product per radius vector (one
 profile evaluation on an $(n_R \times n_{\rm nodes})$ grid), with no
 adaptive quadrature anywhere.
 
-## 9. References
+## 9. Tabulation: making it a lookup
+
+The DES Y3 pipeline (`y3_cluster_cpp`) does not evaluate §5's quadrature per
+call. It reads a precomputed table, and the design is worth adopting.
+
+### 9.1 The scaling that makes one table enough
+
+$\Delta\Sigma_{\rm mis}$ is *universal in units of the scale radius*. Writing
+$x = R/r_s$, $x_{\rm mis} = R_{\rm mis}/r_s$, the whole profile is
+
+$$
+\Delta\Sigma_{\rm mis}(R \mid R_{\rm mis}, M, c)
+= \underbrace{2\, r_s\, \delta_c\, \rho_{\rm ref}}_{\text{amplitude}}
+\;\times\;
+\underbrace{u(x, x_{\rm mis})}_{\text{dimensionless, tabulated once}}
+$$
+
+with
+
+$$
+r_{200} = \left[\frac{3M}{800\pi\rho_{\rm ref}}\right]^{1/3},
+\qquad
+r_s = \frac{r_{200}}{c},
+\qquad
+\delta_c = \frac{200\,c^3/3}{\ln(1+c) - c/(1+c)} .
+$$
+
+Mass, concentration and cosmology enter **only** through the analytic
+prefactor. One dimensionless grid therefore serves every halo, and the
+runtime cost collapses to an interpolation.
+
+Note $\rho_{\rm ref}$ sets **both** the boundary $r_{200}$ and the amplitude
+$\rho_s = \delta_c\rho_{\rm ref}$. Splitting those two conventions is a silent
+normalisation error; keep one $\rho_{\rm ref}$ (see `NfwProfile.rho_ref`).
+
+### 9.2 Store the value, not its log
+
+The natural instinct is to tabulate $\log\Delta\Sigma_{\rm mis}$ and
+exponentiate. **This is wrong**, and for the reason in §7: a log table is
+structurally $\ge 0$, so it deletes the entire negative lobe at
+$R_{\rm mis} > R$. The lobe is what makes the mean-field (random-point)
+projection term cancel — a uniformly distributed halo population is a uniform
+mass sheet and must give zero contrast. With the lobe zeroed it never cancels.
+
+Store the signed linear value. The shipped
+`table_..._deltasigma_signed_single.txt` is 47.6% negative entries; that is
+the physics, not a bug.
+
+### 9.3 Put the cusp on a grid line
+
+$\Delta\Sigma_{\rm mis}$ has a **cusp along $x = x_{\rm mis}$** — it crosses
+zero and turns over where the halo centre sits on the aperture circle.
+Tabulating on axes $(\ln x_{\rm mis}, \ln x)$ puts that ridge at a $45^\circ$
+angle to the grid, so bilinear interpolation cuts *across* it and smooths the
+peak off.
+
+Measured against this module's quadrature (which converges to 11 digits
+against adaptive `quad`), the shipped $250 \times 1000$ table is accurate to
+$\sim\!10^{-4}$ off the diagonal but degrades badly on it:
+
+| $x = x_{\rm mis}$ | rel. error, $(\ln x_{\rm mis}, \ln x)$ axes | rel. error, ratio axes |
+|---|---|---|
+| 0.01 | 6.5 (**sign wrong**) | $8\times10^{-10}$ |
+| 0.1  | 0.33 | $1.3\times10^{-5}$ |
+| 0.37 | 0.10 | $3.9\times10^{-6}$ |
+| 1.0  | 0.064 | $9.0\times10^{-6}$ |
+| 10   | 0.12 | $6.3\times10^{-6}$ |
+| 100  | 0.42 | $2.9\times10^{-5}$ |
+
+The stored values are *correct* — at grid nodes they match this module to
+$10^{-8}$–$10^{-5}$. The error is purely interpolation across the cusp: at
+$x_{\rm mis} = 0.136$, adjacent $x$ nodes hold $-1.372\times10^{-2}$ and
+$+1.028\times10^{-3}$, so the function crosses zero *between two neighbouring
+samples* and bilinear has nothing to work with. The two axes are also
+mismatched — 1000 nodes in $x$ against 250 in $x_{\rm mis}$ — so the ridge
+almost never lands on a grid line.
+
+**Fix: tabulate against the ratio.** Use axes
+$\big(\ln x_{\rm mis},\; \ln(x/x_{\rm mis})\big)$ with $\ln(x/x_{\rm mis}) = 0$
+an exact node. The cusp then lies *along* a grid line and interpolation never
+crosses it. The right-hand column above is a $250 \times 241$ ratio grid —
+four times fewer points than the shipped table and four to nine orders of
+magnitude more accurate where it matters.
+
+$x = x_{\rm mis}$ is not a corner case: with $R_\lambda = (\lambda/100)^{0.2}$,
+$\tau_{\rm mis} = 0.17$ and $c = 4$, a $\lambda \sim 25$, $M \sim 10^{14}$
+cluster sits at $x_{\rm mis} \approx 0.4$ — inside the fitted radial range,
+and in the projection term the "offset" sweeps all $\theta$, so the ridge is
+crossed constantly.
+
+### 9.4 What CLensPy does
+
+`clenspy.lensing.miscentering` evaluates §5 directly, converging to
+$\sim\!10^{-11}$ at the diagonal where a table is weakest, so there is no
+accuracy reason to tabulate. Tabulate for speed if the mass integral demands
+it — and if so, use §9.1's scaling, §9.2's signed storage, and §9.3's ratio
+axes.
+
+## 10. References
 
 - Wright, C. O. & Brainerd, T. G. 2000, ApJ, 534, 34 — closed-form NFW
   $\Sigma$, $\Delta\Sigma$.
