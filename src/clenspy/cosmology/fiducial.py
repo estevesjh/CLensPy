@@ -10,7 +10,7 @@ default visible at the call site.
 
 from astropy.cosmology import FlatLambdaCDM
 
-__all__ = ["fiducial_cosmology"]
+__all__ = ["fiducial_cosmology", "mean_matter_density"]
 
 
 def fiducial_cosmology(H0=70.0, Om0=0.3):
@@ -29,6 +29,27 @@ def fiducial_cosmology(H0=70.0, Om0=0.3):
         A fresh instance on every call.
     """
     return FlatLambdaCDM(H0=H0, Om0=Om0)
+
+
+def mean_matter_density(cosmo=None):
+    r"""Comoving mean matter density :math:`\rho_m = \Omega_{m,0}\rho_{c,0}`.
+
+    Comoving, hence evaluated at z=0 and with no redshift dependence: using
+    :math:`\rho_c(z)` here would fold in :math:`E^2(z)` and overstate the
+    density by 34% at z=0.25.
+
+    Parameters
+    ----------
+    cosmo : astropy.cosmology.Cosmology, optional
+        Defaults to `fiducial_cosmology()`.
+
+    Returns
+    -------
+    float
+        Comoving mean matter density at z=0 [Msun/Mpc^3].
+    """
+    cosmo = fiducial_cosmology() if cosmo is None else cosmo
+    return cosmo.critical_density0.to_value("Msun/Mpc^3") * cosmo.Om0
 
 
 if __name__ == "__main__":

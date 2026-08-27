@@ -11,9 +11,9 @@ from typing import Union
 import numpy as np
 from astropy.cosmology import Cosmology
 
-from ..cosmology.fiducial import fiducial_cosmology
 from ..cosmology import PkGrid, sigma_critical
-from ..halo import NfwProfile, TwoHaloTerm, BiasModel
+from ..cosmology.fiducial import fiducial_cosmology, mean_matter_density
+from ..halo import BiasModel, NfwProfile, TwoHaloTerm
 
 __all__ = ["LensingProfile", "LensingProfileInfo"]
 
@@ -140,12 +140,9 @@ class LensingProfile:
         self.z_source = z_source
         self.omega_m = self.cosmo.Om0
 
-        # comoving mean matter density: Omega_{m,0} * rho_{c,0}, with NO
-        # redshift dependence (critical_density(z) here would mix in
-        # E^2(z) -- 34% high at z=0.25 -- and the 2h tables/NfwProfile
-        # are comoving, matching nfw.py's own rhom convention)
-        rhocrit0 = self.cosmo.critical_density0.to_value("Msun/Mpc^3")
-        self.rho_m = rhocrit0 * self.omega_m
+        # Comoving, so no redshift dependence: the 2h tables and NfwProfile
+        # are both comoving, and rho_c(z) here would mix in E^2(z).
+        self.rho_m = mean_matter_density(self.cosmo)
 
         # Validate inputs
         self._validate_inputs()
@@ -186,8 +183,10 @@ class LensingProfile:
 
     def _setup_halo_profile(self) -> None:
         if self.model == "nfw":
+            # A density, not a cosmology. Passing rho_m here is what makes
+            # this class's m200 mean M_200m; we already hold that number.
             self.halo_profile = NfwProfile(
-                m200=self.m200, c200=self.concentration, cosmo=self.cosmo
+                m200=self.m200, c200=self.concentration, rho_ref=self.rho_m
             )
         else:  # pragma: no cover - _validate_inputs rejects anything else first
             raise NotImplementedError(f"Model '{self.model}' not implemented")

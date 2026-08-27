@@ -8,10 +8,9 @@ density profiles in weak lensing analysis.
 from __future__ import annotations
 
 import numpy as np
-from astropy.cosmology import Cosmology
 from scipy.special import sici
 
-from ..cosmology.fiducial import fiducial_cosmology
+from ..cosmology.fiducial import mean_matter_density
 from ..utils.decorators import scalar_array_output
 
 
@@ -19,10 +18,17 @@ class NfwProfile:
     r"""
     Analytical NFW lensing profile for a single halo or a vector of halos.
 
-    NOTE: masses are **M_200m**, not M_200c. ``r200`` is defined by
-    200 times the *comoving mean matter density* at z=0,
-    :math:`\rho_m = \Omega_{m,0}\,\rho_{c,0}` -- see ``self.rhom`` below.
-    Reading ``m200`` as M_200c is a ~30% mass error.
+    NOTE: **the mass definition is carried by ``rho_ref``**, the reference
+    density that closes :math:`M_{200} = 200\,\rho_{\rm ref}\,
+    \frac{4}{3}\pi r_{200}^3`. This class fixes only the overdensity 200;
+    which density it is measured against is the caller's choice. Pass the
+    comoving mean matter density and ``m200`` means M_200m; pass the
+    critical density and it means M_200c. Mixing the two is a ~30% mass
+    error, so whoever supplies ``rho_ref`` owns that decision.
+
+    NOTE: this class carries no cosmology. That one density is the only
+    cosmological input an NFW profile needs; everything else is geometry.
+    Pass the density, not a cosmology.
 
     NOTE: all quantities are h-free absolute units -- mass in Msun,
     lengths in Mpc, densities in Msun/Mpc^3, wavenumbers in 1/Mpc.
@@ -43,13 +49,16 @@ class NfwProfile:
     Parameters
     ----------
     m200 : float, array-like
-        Halo mass M_200m [Msun], w.r.t. 200x the comoving mean matter
-        density. Can be scalar or array.
+        Halo mass [Msun] within r200, w.r.t. 200x ``rho_ref``. Can be
+        scalar or array.
     c200 : float, array-like
-        Concentration c_200m = r_200m / r_s (dimensionless). Can be scalar
+        Concentration c_200 = r_200 / r_s (dimensionless). Can be scalar
         or array.
-    cosmo : astropy.cosmology instance
-        Cosmology instance to use for calculations.
+    rho_ref : float, optional
+        Reference density [Msun/Mpc^3] defining the overdensity, and with
+        it the mass definition. Defaults to `mean_matter_density()` -- the
+        comoving mean matter density at z=0 of the fiducial cosmology,
+        making the default definition M_200m.
 
     Notes
     -----
@@ -60,19 +69,15 @@ class NfwProfile:
         self,
         m200: np.ndarray | float,
         c200: np.ndarray | float = 4.0,
-        cosmo: Cosmology | None = None,
+        rho_ref: float | None = None,
     ) -> None:
-        cosmo = fiducial_cosmology() if cosmo is None else cosmo
-
         # Broadcast shapes for mass and concentration
         m200, c200 = np.broadcast_arrays(m200, c200)
         self.m200 = m200
         self.c200 = c200
-
-        # Critical density in Msun/Mpc^3
-        rhoc = cosmo.critical_density(0).to_value("Msun/Mpc^3")
-        # comoving mean matter density at z=0; sets the 200m mass definition
-        self.rhom = rhoc * cosmo.Om0  # Msun/Mpc^3
+        self.rho_ref = (
+            mean_matter_density() if rho_ref is None else float(rho_ref)
+        )
 
         # Calculate r200 and rs
         self.r200 = self._calculateAtR200(self.m200)  # (n_halo,)
@@ -82,7 +87,7 @@ class NfwProfile:
     def _calculateAtR200(self, m200: np.ndarray | float) -> np.ndarray | float:
         """Calculate r200 [Mpc] for given m200 [Msun]."""
         m200 = np.asarray(m200)
-        return (3 * m200 / (4 * np.pi * 200 * self.rhom)) ** (1.0 / 3.0)
+        return (3 * m200 / (4 * np.pi * 200 * self.rho_ref)) ** (1.0 / 3.0)
 
     def _calculateRhos(
         self, m200: np.ndarray | float, c200: np.ndarray | float
