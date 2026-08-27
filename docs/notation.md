@@ -86,6 +86,14 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 | Convergence | $\kappa$ | $\Sigma/\Sigma_{\rm crit}$ | — | `convergence(R)` | `halo.einasto` | 🔶 |
 | One-halo term | $\Sigma^{1h}$, $\Delta\Sigma^{1h}$ | The cluster's own halo | $M_\odot\,{\rm Mpc}^{-2}$ | `halo_profile` | `lensing.profile` | ✅ |
 | Two-halo / projection | $\Sigma^{\rm prj}$, $\Delta\Sigma^{\rm prj}$ | Correlated LSS along the line of sight (E26 eq. Sprj) | $M_\odot\,{\rm Mpc}^{-2}$ | `TwoHaloTerm` | `halo.twohalo` | 🔶 |
+| Halo angular auto-spectrum | $C_\ell^{\rm hh}$ | $\int d\chi_h (F_{\rm h}/\chi_h)^2 P_{\rm hh}(k{=}\frac{\ell+1/2}{\chi_h})$ (Wu19 eq. clhh). Dimensionless | — | `C_ell_hh()` | `kernels.limber` | ✅ |
+| Projected-matter auto-spectrum | $C_\ell^{\Sigma\Sigma}$ | $\int d\chi_{\rm lss}(F_\Sigma/\chi_{\rm lss})^2 P_{\rm mm}$ (Wu19 eq. clSS) | $(M_\odot{\rm Mpc}^{-2})^2$ | `C_ell_SS()` | `kernels.limber` | ✅ |
+| Halo–matter cross-spectrum | $C_\ell^{\rm h\Sigma}$ | $\int d\chi (F_{\rm h}/\chi)(F_\Sigma/\chi) P_{\rm hm}$ (Wu19 eq. clhS) | $M_\odot\,{\rm Mpc}^{-2}$ | `C_ell_hS()` | `kernels.limber` | ✅ |
+| Halo window | $F_{\rm h}(\chi_h)$ | $\chi_h^2/V$, $V=\int\chi_h^2 d\chi_h$ (Wu19 eq. F_h) | ${\rm Mpc}^{-1}$ | `F_h()` | `kernels.limber` | ✅ |
+| $\Sigma$ window | $F_\Sigma(\chi_{\rm lss},\chi_h)$ | $\bar\rho\int_{\chi_{\rm lss}}^\infty d\chi_s p_{\rm src}\frac{\Sigma_{\rm crit}(z_s,z_h)}{\Sigma_{\rm crit}(z_s,z_{\rm lss})}=\bar\rho\,q_\Sigma$ (Wu19 eq. F_Sigma) | $M_\odot\,{\rm Mpc}^{-3}$ | `F_Sigma()` | `kernels.limber` | ✅ |
+| $\Sigma_{\rm crit}$-weighted kernel | $q_\Sigma(z_l;z_h)$ | $F_\Sigma/\bar\rho$; **signed**, range keyed on $z_l$ | — | `q_sigma()` | `kernels.lensing_kernel` | ✅ |
+| Halo shot noise | $1/n_{\rm h}^{(2D)}$ | Area / counts (Wu19 eq. cov_DS) | sr | `shot_noise_h()` | `kernels.limber` | ✅ |
+| Shape noise on $\Sigma$ | $N^\Sigma$ | $\langle\Sigma_{\rm crit}\rangle^2\sigma_\gamma^2/(n_{\rm s}^{(2D)}f_{\rm src})$ | $(M_\odot{\rm Mpc}^{-2})^2$ | `shape_noise_Sigma()` | `kernels.limber` | ✅ |
 | Source redshift | $z_s$ | | — | `z_source` | `lensing.profile` | 🔶 |
 | Source $p(z)$ | $p(z_s)$ | Normalised source density; Rozo 2011 eq. 14 $z^m e^{-(z/z_\star)^\beta}$ | $z^{-1}$ | `pz_src(z)` | `survey` | ✅ |
 | Shape noise | $\sigma_\gamma$ | Per-galaxy ellipticity dispersion | — | `sigma_gamma` | `survey` | ✅ |

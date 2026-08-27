@@ -732,7 +732,40 @@ Steps 1–5 are done. Steps 6–10 stand. Then:
     threefold, in opposite directions and silently — which is why the two
     signatures take their width differently and a test asserts the factor.
 
-    Still to come: Limber.
+    **Limber is done** (`kernels/limber.py`), transcribed from **Wu et al.
+    (2019), MNRAS 490, 2606** — reading the paper's `.tex` rather than the
+    old docstring's paraphrase, which changed the design:
+
+    - The paper writes all three spectra as **one** formula,
+      $C_\ell^{AB} = \int d\chi (F_A/\chi)(F_B/\chi) P_{AB}$, so that is
+      how it is written: `limber` once, with `F_h` / `F_Sigma` passed in.
+      The three near-duplicate slab loops it replaces differed only in
+      which windows they carried — the skill's rule and the paper's own
+      structure turned out to be the same instruction.
+    - Names follow the paper: `C_ell_hh`, `C_ell_SS`, `C_ell_hS`, `F_h`,
+      `F_Sigma`, `shot_noise_h`, `shape_noise_Sigma`. The old
+      `c_ell_sigma` / `c_ell_h` / `c_ell_h_sigma` remain as aliases for one
+      release, and `clenspy.lensing.limber` is a deprecation shim, because
+      `cluster-lensing-cov` imports that path.
+    - **The paper vindicates the $q_\Sigma$ range.** Eq. `F_Sigma`
+      integrates sources from $\chi_{\rm lss}$ to $\infty$ — keyed on the
+      line-of-sight structure, not the halo. So
+      $F_\Sigma = \bar\rho\,q_\Sigma(z_{\rm lss}, z_h)$ *exactly*, and the
+      range choice that looked arbitrary in the code (and that I first got
+      wrong) is Wu et al.'s definition.
+    - One deviation from the paper is recorded rather than hidden: the
+      shape-noise term divides by $n_{\rm s} f_{\rm src}$ where the paper
+      has $n_{\rm s}$. That is what the frozen reference was built with;
+      passing `f_src_behind=lambda z: 1.0` recovers the paper exactly.
+
+    The test that matters needs no reference data: with linear bias
+    $P_{\rm hm}^2 = P_{\rm hh}P_{\rm mm}$, so on a common $\chi$ range
+    $(C_\ell^{\rm h\Sigma})^2 = C_\ell^{\rm hh}C_\ell^{\Sigma\Sigma}$
+    **exactly** — verified to 1e-12. The windows cancel, so it checks that
+    the three spectra carry the *right* windows, and it fails on any stray
+    power of $\bar\rho$, $V$ or $\chi$.
+
+    Step 12 is complete.
 
     Five things this settled, none of which were guessable:
 

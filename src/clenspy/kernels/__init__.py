@@ -20,6 +20,10 @@ Contents
     The **two** photo-z kernels, which are different functions: a Gaussian
     CDF difference for the counts and a compactly-supported parabola for
     the projection. Substituting one for the other is a silent bias.
+`limber`
+    `LimberProjector`: the Wu et al. (2019) angular power spectra, written
+    as **one** projection with :math:`F_{\rm h}` / :math:`F_\Sigma` passed
+    in, which is how the paper writes them.
 
 NOTE: the two modules use **different** :math:`\Sigma_{\rm crit}`
 conventions and the difference is exactly :math:`(1+z_l)^2`.
@@ -28,11 +32,10 @@ conventions and the difference is exactly :math:`(1+z_l)^2`.
 :math:`\Delta\Sigma` needs for :math:`\gamma_t` to come out
 dimensionless. Both are named for what they return.
 
-To come (``docs/refactor-plan.md`` A.3): the Limber projection, written
-once with windows passed in.
 """
 
 from .lensing_kernel import LensingKernel, sigma_crit_comoving
+from .limber import ARCMIN_TO_RAD, LimberProjector, limber
 from .photoz import gaussian_cdf, photoz_counts, photoz_projection
 from .sigma_crit import sigma_critical
 
@@ -43,4 +46,7 @@ __all__ = [
     "photoz_counts",
     "photoz_projection",
     "gaussian_cdf",
+    "LimberProjector",
+    "limber",
+    "ARCMIN_TO_RAD",
 ]

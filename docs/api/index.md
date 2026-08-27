@@ -100,6 +100,9 @@ property of the universe.
 
 .. automodule:: clenspy.kernels.photoz
    :members:
+
+.. automodule:: clenspy.kernels.limber
+   :members:
 ```
 
 ## `clenspy.utils`
