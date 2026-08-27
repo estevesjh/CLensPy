@@ -260,3 +260,56 @@ def test_nfw_deltasigma_matches_pyccl():
     # Assert: close match
     assert np.nanmax(np.abs(frac_diff)) < 5e-3
     assert np.sqrt(np.nanmean(frac_diff**2)) < 2e-3
+
+# --- small-x stability of the projected kernels ----------------------------
+#
+# The miscentering integrand samples x = R/r_s -> 0 whenever the azimuthal
+# ring passes through the halo centre (R = R_mis), so these kernels have to
+# stay accurate far below any physically interesting radius.
+
+
+@pytest.mark.parametrize("x", [1e-300, 1e-100, 1e-20, 1e-12, 1e-8, 1e-4, 1e-2])
+def test_fNfw_small_x(x):
+    """f(x) -> ln(2/x) - 1; the old arctanh form returned inf below ~1e-17."""
+    f = float(np.ravel(NfwProfile._fNfw(np.array([x])))[0])
+    assert np.isfinite(f)
+    assert f == pytest.approx(np.log(2.0 / x) - 1.0, rel=2e-3)
+
+
+@pytest.mark.parametrize("x", [1e-300, 1e-100, 1e-20, 1e-12, 1e-8, 1e-4, 1e-2])
+def test_gbarNfw_small_x(x):
+    """gbar(x) -> ln(2/x) - 1/2, and stays above f(x) by 1/2."""
+    gb = float(np.ravel(NfwProfile._gbarNfw(np.array([x])))[0])
+    f = float(np.ravel(NfwProfile._fNfw(np.array([x])))[0])
+    assert np.isfinite(gb)
+    assert gb == pytest.approx(np.log(2.0 / x) - 0.5, rel=2e-3)
+    # DeltaSigma_hat = gbar - f -> 1/2 exactly
+    assert gb - f == pytest.approx(0.5, rel=1e-3)
+
+
+@pytest.mark.parametrize("x", [1e-300, 1e-100, 1e-20, 1e-12, 1e-8, 1e-4, 1e-2])
+def test_gNfw_small_x_is_positive_and_tends_to_one(x):
+    """g(x) -> 1. The old form went negative below x ~ 1e-9."""
+    g = float(np.ravel(NfwProfile._gNfw(np.array([x])))[0])
+    assert np.isfinite(g)
+    assert g > 0.0, "g(x) must stay positive"
+    assert g == pytest.approx(1.0, rel=2e-3)
+
+
+def test_gbar_consistent_with_f_and_g():
+    """gbar == f + g/2 wherever the reconstruction is still trustworthy."""
+    x = np.logspace(-3, 3, 60)
+    gb = NfwProfile._gbarNfw(x)
+    recon = NfwProfile._fNfw(x) + 0.5 * NfwProfile._gNfw(x)
+    np.testing.assert_allclose(gb, recon, rtol=1e-8)
+
+
+def test_mean_sigma_equals_sigma_plus_deltasigma():
+    """The public closed form agrees with the sum over the fitted range."""
+    nfw = NfwProfile(m200=1e14, c200=4.0)
+    R = np.logspace(-2, 1.5, 40)
+    np.testing.assert_allclose(
+        np.ravel(nfw.mean_sigma(R)),
+        np.ravel(nfw.sigma(R)) + np.ravel(nfw.deltasigma(R)),
+        rtol=1e-8,
+    )

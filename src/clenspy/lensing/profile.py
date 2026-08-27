@@ -5,6 +5,8 @@ This module provides a unified interface for computing weak lensing observables
 from dark matter halo profiles.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Union
 

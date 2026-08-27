@@ -274,12 +274,15 @@ def nfw_sigma_hat(x):
 def nfw_mean_sigma_hat(x):
     r"""Centred NFW :math:`\hat{\bar\Sigma}(<x) = \bar\Sigma / \Sigma_0`.
 
-    :math:`\bar\Sigma = \Sigma + \Delta\Sigma = r_s\rho_s[2f(x) + g(x)]`,
-    so in units of :math:`\Sigma_0 = 2 r_s\rho_s` this is
-    :math:`f(x) + g(x)/2`.
+    From `NfwProfile._gbarNfw`, the closed form, **not** the reconstruction
+    :math:`f(x) + g(x)/2`. The miscentering integrand samples this at
+    :math:`u \to 0` whenever :math:`R \approx R_{\rm mis}` (the ring passes
+    through the halo centre), and the reconstruction is catastrophically
+    wrong there -- it loses every digit below :math:`x \sim 10^{-6}` and
+    goes negative below :math:`10^{-9}`, which is what made the offset
+    integrals return NaN for :math:`x_{\rm mis} \lesssim 2\times10^{-3}`.
     """
-    x = np.asarray(x, dtype=float)
-    return NfwProfile._fNfw(x) + 0.5 * NfwProfile._gNfw(x)
+    return NfwProfile._gbarNfw(np.asarray(x, dtype=float))
 
 
 if __name__ == "__main__":

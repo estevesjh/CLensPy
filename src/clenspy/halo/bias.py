@@ -3,6 +3,8 @@
 Halo bias models for relating halo abundance to matter density.
 """
 
+from __future__ import annotations
+
 import mcfit
 import numpy as np
 from astropy.cosmology import Cosmology

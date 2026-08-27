@@ -226,6 +226,35 @@ class NfwProfile:
         return sigma
 
     @scalar_array_output
+    def mean_sigma(self, R: np.ndarray | float) -> np.ndarray | float:
+        r"""
+        Mean interior surface density :math:`\bar\Sigma(<R)`, in [Msun/Mpc^2].
+
+        .. math::
+            \bar\Sigma(<R) = \frac{2}{R^2}\int_0^R \Sigma(R')\, R'\, dR'
+            = 2 r_s \rho_s\, \bar{g}(x), \qquad x = R / r_s
+
+        with the closed form of `_gbarNfw`. Equal to
+        :math:`\Sigma(R) + \Delta\Sigma(R)` analytically, but evaluated
+        directly: forming it as that sum cancels catastrophically at small
+        :math:`x` (see `_gbarNfw`).
+
+        Parameters
+        ----------
+        R : float or np.ndarray
+            Projected radius [Mpc].
+
+        Returns
+        -------
+        mean_sigma : np.ndarray
+            Mean interior surface density, shape = broadcast(n_halo, n_R)
+        """
+        R = np.atleast_1d(R)
+        rs = self.rs[..., None]
+        rho_s = self.rho_s[..., None]
+        return 2 * rs * rho_s * self._gbarNfw(R / rs)
+
+    @scalar_array_output
     def deltasigma(self, R: np.ndarray | float) -> np.ndarray | float:
         r"""
         Excess surface density ΔΣ(R) for NFW, in [Msun/Mpc^2].
@@ -289,6 +318,61 @@ class NfwProfile:
     ])
     _SERIES_WINDOW = 1e-2
 
+    #: Below this x, the closed form for gbar cancels; use the series.
+    #: Chosen where the two meet -- both are ~5e-11 there, against mpmath.
+    _GBAR_SMALL_X = 3e-3
+
+    @classmethod
+    def _gbarNfw(cls, x):
+        r"""Mean interior projected NFW kernel
+        :math:`\bar{g}(x) = \bar\Sigma(<x) / (2 r_s \rho_s)`.
+
+        .. math::
+            \bar{g}(x) = \frac{2}{x^2}\left[\ln\frac{x}{2}
+            + \begin{cases}
+              \operatorname{arccosh}(1/x)/\sqrt{1 - x^2}, & x < 1\\
+              1, & x = 1\\
+              \arccos(1/x)/\sqrt{x^2 - 1}, & x > 1
+              \end{cases}\right]
+
+        NOTE: evaluated from this closed form rather than reconstructed as
+        :math:`f + g/2`. The bracket is a difference of two terms that both
+        behave like :math:`\ln(2/x)` while their sum is
+        :math:`O(x^2\ln x)`, so the reconstruction loses every digit below
+        :math:`x \sim 10^{-6}` -- `_gNfw` there returns values that are
+        orders of magnitude wrong and eventually negative. The same
+        cancellation eventually reaches this form too, hence the series
+        branch below `_GBAR_SMALL_X`:
+
+        .. math::
+            \bar{g}(x) = \ln\frac{2}{x} - \frac{1}{2}
+            + x^2\left[\frac{3}{4}\ln\frac{2}{x} - \frac{7}{16}\right]
+            + O(x^4\ln x)
+
+        Both branches agree with mpmath to <= 5e-11 at the switch.
+        """
+        x = np.array(x, dtype=float)
+        out = np.empty_like(x)
+
+        tiny = x < cls._GBAR_SMALL_X
+        if np.any(tiny):
+            L = np.log(2.0 / x[tiny])
+            out[tiny] = L - 0.5 + x[tiny] ** 2 * (0.75 * L - 7.0 / 16.0)
+
+        rest = ~tiny
+        lo = rest & (x < 1.0 - 1e-8)
+        hi = rest & (x > 1.0 + 1e-8)
+        eq = rest & ~(lo | hi)
+        xl, xh = x[lo], x[hi]
+        out[lo] = (2.0 / xl**2) * (
+            np.log(xl / 2.0) + np.arccosh(1.0 / xl) / np.sqrt(1.0 - xl * xl)
+        )
+        out[hi] = (2.0 / xh**2) * (
+            np.log(xh / 2.0) + np.arccos(1.0 / xh) / np.sqrt(xh * xh - 1.0)
+        )
+        out[eq] = 2.0 * (1.0 + np.log(0.5))
+        return out
+
     @classmethod
     def _fNfw(cls, x):
         """Projected NFW profile kernel f(x)."""
@@ -300,11 +384,16 @@ class NfwProfile:
         mask2 = ~(mask1 | mask3)
         x1 = x[mask1]
         x3 = x[mask3]
-        # For x < 1
+        # For x < 1. Written with arccosh(1/x) rather than the equivalent
+        # 2 arctanh(sqrt((1-x)/(1+x))): the arctanh argument rounds to
+        # exactly 1 once x drops below ~1e-17, giving arctanh(1) = inf,
+        # and the miscentering integrand samples x -> 0 whenever the
+        # azimuthal ring passes through the halo centre (R = R_mis).
+        # arccosh(1/x) stays accurate down to the 1/x overflow.
         result[mask1] = (
             1.0
             / (x1**2 - 1.0)
-            * (1 - 2 / np.sqrt(1 - x1**2) * np.arctanh(np.sqrt((1 - x1) / (1 + x1))))
+            * (1 - np.arccosh(1.0 / x1) / np.sqrt(1 - x1**2))
         )
         # For |x - 1| <= eps: Taylor series (direct form is 0/0 at x=1)
         result[mask2] = np.polynomial.polynomial.polyval(
@@ -332,12 +421,25 @@ class NfwProfile:
         res[mask_c] = np.polynomial.polynomial.polyval(
             x[mask_c] - 1.0, cls._G_SERIES
         )
+        # Small x: the 1/x^2 terms below are individually ~ln(2/x)/x^2 and
+        # cancel down to O(1), so the direct form loses every digit by
+        # x ~ 1e-6 and turns negative by 1e-9. Use the limit instead,
+        #     g(x) = 1 - x^2 [ (3/2) ln(2/x) - 13/8 ] + O(x^4 ln x),
+        # which follows from g = 2(gbar - f) and the expansions of both.
+        tiny = mask_l & (x < cls._GBAR_SMALL_X)
+        if np.any(tiny):
+            L = np.log(2.0 / x[tiny])
+            res[tiny] = 1.0 - x[tiny] ** 2 * (1.5 * L - 13.0 / 8.0)
+        mask_l = mask_l & ~tiny
+
         sqrt1mx2 = np.sqrt(1.0 - x[mask_l] ** 2)
-        atanh = np.arctanh(sqrt1mx2 / (1.0 + x[mask_l]))
-        term1 = 8.0 * atanh / (x[mask_l] ** 2 * sqrt1mx2)
+        # arccosh(1/x) == 2 arctanh(sqrt((1-x)/(1+x))), but stays finite
+        # once the arctanh argument would round to exactly 1 (see _fNfw).
+        acosh = np.arccosh(1.0 / x[mask_l])
+        term1 = 4.0 * acosh / (x[mask_l] ** 2 * sqrt1mx2)
         term2 = 4.0 / x[mask_l] ** 2 * np.log(x[mask_l] / 2.0)
         term3 = -2.0 / (x[mask_l] ** 2 - 1.0)
-        term4 = 4.0 * atanh / ((x[mask_l] ** 2 - 1.0) * sqrt1mx2)
+        term4 = 2.0 * acosh / ((x[mask_l] ** 2 - 1.0) * sqrt1mx2)
         res[mask_l] = term1 + term2 + term3 + term4
 
         # x > 1

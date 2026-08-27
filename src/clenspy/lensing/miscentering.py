@@ -106,8 +106,11 @@ class MiscenteringProfile(LensingProfile):
 
         .. math::
             \bar\Sigma(<R) = \Delta\Sigma(R) + \Sigma(R)
+
+        Evaluated from `NfwProfile.mean_sigma`'s closed form rather than
+        that sum, which cancels at small :math:`R / r_s`.
         """
-        return self.sigma(R) + self.deltasigma(R)
+        return self.halo_profile.mean_sigma(R)
 
     def sigma_mis(self, R: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         r"""
