@@ -23,21 +23,36 @@ Needs `cluster_toolkit` (the marcpaterno fork), which lives in the
 
     ... --tune     grid-convergence scan instead of a build
 
-DOMAIN
-------
-Matches the DES Y3 table (``y3_cluster_cpp/data/nfw_off_center``):
+DOMAIN AND WHICH GENERATOR RUNS WHERE
+-------------------------------------
+    x     in [1e-3, 5e3]     (as the DES Y3 table)
+    x_mis in [1e-3, 5e2]     (a decade below it)
 
-    x     in [1e-3, 5e3]
-    x_mis in [1e-2, 5e2]
+cluster_toolkit generates everything it can do accurately, and that is
+almost all of it. It cannot do the small-x_mis corner, for a structural
+reason rather than a tuning one: DeltaSigma_mis is the difference
+Sigmabar_mis - Sigma_mis, and that difference collapses as x_mis shrinks --
+at x_mis = 1e-3 it is 6.6e-7 of Sigma itself. ct forms it by subtracting
+two nearly-equal numbers, so it is cancellation-limited there, measured
+against the independent by-parts quadrature:
 
-The x_mis floor of 1e-2 is not cosmetic. DeltaSigma_mis is the difference
-Sigmabar_mis - Sigma_mis, and that difference collapses as x_mis shrinks:
-at x_mis = 5e-3 it is 1.6e-5 of Sigma itself. cluster_toolkit forms it by
-subtracting two nearly-equal numbers, so below ~1e-2 the result is
-cancellation-limited -- 21% error at x_mis = 1e-2 and the WRONG SIGN by
-5e-3 -- and refining the Rsigma grid does not help (measured: 30k -> 120k
-points moved x_mis = 5e-3 not at all). Outside the tabulated range the
-reader clamps; see `clenspy.halo.miscentering_table`.
+    x_mis     ct              by-parts        ct error
+    1e-3      +1.01e-04       -4.33e-06       24x, WRONG SIGN
+    5e-3      +2.79e-05       -7.80e-05           WRONG SIGN
+    1e-2      -2.07e-04       -2.60e-04       2.0e-01
+    1e-1      -9.473e-03      -9.489e-03      1.6e-03
+    3e-1      -3.2431e-02     -3.2444e-02     3.9e-04
+    1e+0      -6.2834e-02     -6.2841e-02     1.0e-04
+
+Refining the Rsigma grid does not help: 30k -> 1M points moved x_mis = 1e-2
+only from 3.5e-1 to 1.4e-1, and moved 5e-3 not at all. The sign error
+matters more than the magnitude, because the negative lobe is what makes
+the mean-field term cancel (docs/miscentering_math.md section 7).
+
+So ct owns x_mis >= CT_MIN_XMIS and the by-parts kernel owns the rest. The
+seam is placed where the two agree to ~1e-3, and the agreement there is
+asserted at build time. Below it the by-parts kernel is self-converged to
+1e-11 (it needed the small-x NFW fixes in halo/nfw.py to get there).
 
 AXES
 ----
@@ -79,10 +94,14 @@ import numpy as np
 OUT = (Path(__file__).resolve().parents[1]
        / "src" / "clenspy" / "data" / "nfw_miscentering.npz")
 
-# Domain, matching the DES Y3 table.
+# Domain. x as the DES Y3 table; x_mis one decade lower.
 X_RANGE = (1e-3, 5e3)
-XM_RANGE = (1e-2, 5e2)
-N_XM = 250                        # as y3
+XM_RANGE = (1e-3, 5e2)
+N_XM = 300
+
+#: ct generates x_mis >= this; the by-parts kernel generates below it.
+#: At the seam the two agree to 1.6e-3 (asserted in build()).
+CT_MIN_XMIS = 0.1
 
 # Ratio axis, three tiers. Every worst-case point sits at |ln q| < 0.2.
 INNER, N_INNER = 0.6, 241         # odd, so ln q = 0 is exact
@@ -119,13 +138,9 @@ def _centred_sigma_hat(x):
     return nfw_sigma_hat(x)
 
 
-def _row(args):
-    """One x_mis row: ct's Sigma_mis and DeltaSigma_mis at that row's x."""
+def _row_ct(x_mis, x):
+    """ct's Sigma_mis and DeltaSigma_mis for one x_mis."""
     from cluster_toolkit import miscentering as ctm
-
-    ln_xm, ln_q = args
-    x_mis = float(np.exp(ln_xm))
-    x = np.clip(x_mis * np.exp(ln_q), *X_RANGE)
 
     r_sig = np.logspace(RSIG_LO, RSIG_HI, RSIG_N)
     sig_c = _centred_sigma_hat(r_sig)
@@ -138,6 +153,29 @@ def _row(args):
     return np.asarray(s, float), np.asarray(d, float)
 
 
+def _row_byparts(x_mis, x):
+    """The independent quadrature, for the corner ct cannot reach."""
+    from clenspy.halo.miscentering_kernel import (
+        miscentered_deltasigma,
+        miscentered_sigma,
+        nfw_mean_sigma_hat,
+        nfw_sigma_hat,
+    )
+    s = miscentered_sigma(nfw_sigma_hat, x, x_mis, n_nodes=2048)
+    d = miscentered_deltasigma(
+        nfw_sigma_hat, nfw_mean_sigma_hat, x, x_mis, n_nodes=2048)
+    return np.asarray(s, float), np.asarray(d, float)
+
+
+def _row(args):
+    """One x_mis row, from whichever generator is valid there."""
+    ln_xm, ln_q = args
+    x_mis = float(np.exp(ln_xm))
+    x = np.clip(x_mis * np.exp(ln_q), *X_RANGE)
+    gen = _row_ct if x_mis >= CT_MIN_XMIS else _row_byparts
+    return gen(x_mis, x)
+
+
 def build(n_proc):
     ln_xm = np.linspace(np.log(XM_RANGE[0]), np.log(XM_RANGE[1]), N_XM)
     ln_q = ratio_axis()
@@ -145,7 +183,12 @@ def build(n_proc):
     print(f"ln q  : {ln_q.size} nodes in [{ln_q[0]:.2f}, {ln_q[-1]:.2f}], "
           f"finest step {np.min(np.diff(ln_q)):.5f}")
     print(f"Rsigma: {RSIG_N} pts, 1e{RSIG_LO:+.0f}..1e{RSIG_HI:+.0f}")
-    print(f"generator: cluster_toolkit, {n_proc} processes")
+    n_ct = int(np.sum(np.exp(ln_xm) >= CT_MIN_XMIS))
+    print(f"generator: cluster_toolkit for {n_ct}/{N_XM} rows "
+          f"(x_mis >= {CT_MIN_XMIS}), by-parts for {N_XM - n_ct}")
+    print(f"processes: {n_proc}")
+
+    _assert_seam()
 
     t0 = time.time()
     with Pool(n_proc) as pool:
@@ -160,16 +203,38 @@ def build(n_proc):
     print(f"ds_hat_mis: {(dsg < 0).mean() * 100:.1f}% negative (the lobe)")
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    # float32 for the values: ~1e-7 relative, well below the interpolation
-    # floor, and it halves the wheel payload.
+    # sigma_hat_mis is positive and spans little within a row, so float32
+    # (~1e-7 relative) is far below the interpolation floor. ds_hat_mis is
+    # NOT: it crosses zero and decays to ~1e-15 in the deep wings, while
+    # the row scale is ~1e-2, so a float32 quantum of ~1e-9 would swamp
+    # the tail and flip its sign. Keep it float64.
     np.savez_compressed(
         OUT, ln_x_mis=ln_xm, ln_q=ln_q,
         sigma_hat_mis=sig.astype(np.float32),
-        ds_hat_mis=dsg.astype(np.float32),
+        ds_hat_mis=dsg,
         generator=np.array("cluster_toolkit"),
+        ct_min_xmis=np.array(CT_MIN_XMIS),
         rsig=np.array([RSIG_N, RSIG_LO, RSIG_HI]),
     )
     print(f"wrote {OUT}  ({OUT.stat().st_size / 1e6:.2f} MB)")
+
+
+def _assert_seam():
+    """The two generators must agree where they meet."""
+    from clenspy.halo.miscentering_kernel import (
+        miscentered_deltasigma,
+        nfw_mean_sigma_hat,
+        nfw_sigma_hat,
+    )
+    xm = CT_MIN_XMIS
+    xs = np.array([xm, xm * 2.0, 1.0])
+    _, d_ct = _row_ct(xm, xs)
+    d_bp = miscentered_deltasigma(
+        nfw_sigma_hat, nfw_mean_sigma_hat, xs, xm, n_nodes=4096)
+    rel = np.max(np.abs(d_ct - d_bp) / np.abs(d_bp))
+    assert np.all(np.sign(d_ct) == np.sign(d_bp)), "generators disagree in sign"
+    assert rel < 5e-3, f"generators disagree at the seam: {rel:.2e}"
+    print(f"seam check at x_mis = {xm}: generators agree to {rel:.2e}")
 
 
 def _tune_one(cfg):
@@ -177,7 +242,9 @@ def _tune_one(cfg):
     from cluster_toolkit import miscentering as ctm
 
     from clenspy.halo.miscentering_kernel import (
-        miscentered_deltasigma, nfw_mean_sigma_hat, nfw_sigma_hat,
+        miscentered_deltasigma,
+        nfw_mean_sigma_hat,
+        nfw_sigma_hat,
     )
     npts, lo, hi = cfg
     r_sig = np.logspace(lo, hi, npts)

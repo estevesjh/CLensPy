@@ -420,39 +420,78 @@ evaluation:
 
 | Module | Role |
 |---|---|
-| `clenspy/data/nfw_miscentering.npz` | the packaged grid, 1.4 MB |
+| `clenspy/data/nfw_miscentering.npz` | the packaged grid, 1.3 MB |
 | `halo/miscentering_table.py` | the runtime path — interpolation only |
 | `halo/miscentering_kernel.py` | the §5 quadrature, **offline generator** |
-| `tools/make_miscentering_table.py` | rebuilds the table from the kernel |
+| `tools/make_miscentering_table.py` | rebuilds the table |
 | `lensing/miscentering.py` | `MiscenteringProfile`, reads the table |
 
-The table follows §9.1 (dimensionless in $x$, amplitude
-$\Sigma_0 = 2r_s\rho_s$), §9.2 (signed linear storage; 45% of entries are
-negative), and §9.3 (ratio axes, $\ln q = 0$ an exact node). The $\ln q$
-axis is three-tier — measurement showed it, not $x_{\rm mis}$, sets the
-error: pinning $x_{\rm mis}$ to a node leaves $1.9\times10^{-3}$, while
-pinning $\ln q$ drops it to $1.4\times10^{-4}$.
+Domain $x \in [10^{-3}, 5\times10^{3}]$, $x_{\rm mis} \in [10^{-3},
+5\times10^{2}]$ — the DES Y3 extents, with $x_{\rm mis}$ carried one decade
+lower. 300 × 841 nodes.
 
-Accuracy against the generator, over $x_{\rm mis}\in[0.01,10]$,
-$x\in[0.01,100]$:
+#### Which generator runs where
 
-| | median | p90 | max |
+`cluster_toolkit` (the marcpaterno fork, in the `y3cl_je_macos` env)
+produces everything it can do accurately: 195 of the 300 rows,
+$x_{\rm mis} \ge 0.1$. The by-parts quadrature produces the remaining 105.
+
+The split is forced, not a preference. $\Delta\Sigma_{\rm mis}$ is the
+difference $\bar\Sigma_{\rm mis} - \Sigma_{\rm mis}$, and that difference
+collapses as $x_{\rm mis}$ shrinks — at $x_{\rm mis} = 10^{-3}$ it is
+$6.6\times10^{-7}$ of $\Sigma$ itself. ct forms it by subtracting two
+nearly-equal numbers, so it is cancellation-limited there:
+
+| $x_{\rm mis}$ | ct | by-parts | ct error |
 |---|---|---|---|
-| $\hat\Sigma_{\rm mis}$, global | 4.2e-04 | 1.6e-03 | 2.4e-03 |
-| $\widehat{\Delta\Sigma}_{\rm mis}$, global | 3.5e-04 | 9.4e-04 | 1.8e-03 |
-| $\widehat{\Delta\Sigma}_{\rm mis}$, on the cusp | 1.2e-04 | 4.9e-04 | 6.8e-04 |
+| 1e-3 | +1.01e-04 | −4.33e-06 | 24×, **wrong sign** |
+| 5e-3 | +2.79e-05 | −7.80e-05 | **wrong sign** |
+| 1e-2 | −2.07e-04 | −2.60e-04 | 2.0e-01 |
+| 1e-1 | −9.473e-03 | −9.489e-03 | 1.6e-03 |
+| 1e+0 | −6.2834e-02 | −6.2841e-02 | 1.0e-04 |
 
-with **zero sign flips** on the cusp, against 25/60 for the natural axes at
-equal budget. $r_{\rm mis} = 0$ short-circuits to the analytic centred
-profile, so the centred limit is exact rather than interpolated.
+Refining ct's `Rsigma` grid does not help — 30k → 1M points moved
+$x_{\rm mis} = 10^{-2}$ only from 0.35 to 0.14, and moved $5\times10^{-3}$
+not at all. The sign error is the serious part, for §7's reason. The seam at
+$x_{\rm mis} = 0.1$ is where the two agree to $1.65\times10^{-3}$, asserted
+at build time.
 
-**Untabulated profiles raise.** `require_tabulated_profile` rejects anything
-but `NfwProfile` with `MiscenteringTableError`, at construction rather than
-on first evaluation. There is deliberately no quadrature fallback — falling
-back would reintroduce the per-call integral the table exists to remove.
-Einasto is the case in practice: its miscentered profile is not universal in
-one shape parameter the way NFW's is, since the index $n$ enters as a third
-axis, so the NFW grid cannot be reused and no Einasto grid exists.
+Reaching $x_{\rm mis} = 10^{-3}$ with the by-parts kernel required fixing
+the small-$x$ NFW kernels first (`halo/nfw.py`): the azimuthal ring passes
+through the halo centre whenever $R = R_{\rm mis}$, and both $f$ and
+$\bar{g}$ were unusable there. See that module's `_gbarNfw`.
+
+#### Accuracy of the shipped table
+
+Against the by-parts quadrature, which is self-converged to $10^{-11}$:
+
+| region | $\hat\Sigma$ med / max | $\widehat{\Delta\Sigma}$ med / max | sign flips |
+|---|---|---|---|
+| $x_{\rm mis} < 0.1$, global | 5.7e-04 / 2.9e-03 | 4.3e-04 / 2.2e-03 | 0/120 |
+| $x_{\rm mis} < 0.1$, on cusp | 5.3e-08 / 9.2e-06 | 5.2e-04 / 1.1e-03 | 0/120 |
+| $x_{\rm mis}$ 0.1–10, global | 4.3e-04 / 2.8e-03 | 7.1e-04 / 1.2e-02 | 0/120 |
+| $x_{\rm mis}$ 0.1–10, on cusp | 5.2e-05 / 2.2e-04 | 3.1e-04 / 1.4e-03 | 0/120 |
+| $x_{\rm mis}$ 10–500, on cusp | 1.6e-04 / 2.3e-04 | 1.7e-03 / 1.7e-02 | 0/120 |
+
+against 25/60 sign flips for the natural axes at equal budget.
+$r_{\rm mis} = 0$ short-circuits to the analytic centred profile, so that
+limit is exact rather than interpolated.
+
+One known corner: at $\ln q \lesssim -9$ (i.e. $x$ four or more decades
+below $x_{\rm mis}$) the values fall to $10^{-10}$–$10^{-15}$ while the row
+scale is $10^{-2}$, below what float32 storage resolves, so the deep wing
+carries sign noise. $|\Delta\Sigma_{\rm mis}| / \Sigma < 10^{-6}$ there and
+it contributes nothing to any observable.
+
+#### Untabulated profiles raise
+
+`require_tabulated_profile` rejects anything but `NfwProfile` with
+`MiscenteringTableError`, at construction rather than on first evaluation.
+There is deliberately no quadrature fallback — falling back would
+reintroduce the per-call integral the table exists to remove. Einasto is the
+case in practice: its miscentered profile is not universal in one shape
+parameter the way NFW's is, since the index $n$ enters as a third axis, so
+the NFW grid cannot be reused and no Einasto grid exists.
 
 ## 10. References
 
