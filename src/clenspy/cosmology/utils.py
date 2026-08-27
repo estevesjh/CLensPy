@@ -11,6 +11,8 @@ import astropy.units as u
 import numpy as np
 from astropy.cosmology import FlatLambdaCDM
 
+from ..utils.constants import C_LIGHT, G_NEWTON
+
 
 def sigma_critical(z_lens: float, z_source: float, cosmology: FlatLambdaCDM) -> float:
     """
@@ -53,9 +55,9 @@ def sigma_critical(z_lens: float, z_source: float, cosmology: FlatLambdaCDM) -> 
     D_s = cosmology.angular_diameter_distance(z_source)
     D_ls = cosmology.angular_diameter_distance_z1z2(z_lens, z_source)
 
-    # Physical constants
-    c = 299792.458 * u.km / u.s  # Speed of light
-    G = 4.302e-9 * u.Mpc / u.Msun * (u.km / u.s) ** 2  # Gravitational constant
+    # Physical constants, from the one place they are defined
+    c = C_LIGHT * u.km / u.s
+    G = G_NEWTON * u.Mpc / u.Msun * (u.km / u.s) ** 2
 
     # Critical surface density
     sigma_crit = (c**2 / (4 * np.pi * G)) * (D_s / (D_l * D_ls))

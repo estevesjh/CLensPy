@@ -11,7 +11,7 @@ from typing import Union
 import numpy as np
 from astropy.cosmology import Cosmology
 
-from ..config import DEFAULT_COSMOLOGY
+from ..cosmology.fiducial import fiducial_cosmology
 from ..cosmology import PkGrid, sigma_critical
 from ..halo import NfwProfile, TwoHaloTerm, BiasModel
 
@@ -101,7 +101,7 @@ class LensingProfile:
         self,
         z_cluster: float,
         m200: float,
-        cosmology: Cosmology = DEFAULT_COSMOLOGY,
+        cosmology: Cosmology | None = None,
         concentration: float = 4.0,
         model: str = "NFW",
         include_2halo: bool = True,
@@ -116,7 +116,7 @@ class LensingProfile:
         m200 : float
             Halo mass M_200m [Msun], w.r.t. 200x the comoving mean matter density.
         cosmology : astropy.cosmology.Cosmology, optional
-            Cosmology to use (default: `~clenspy.config.DEFAULT_COSMOLOGY`).
+            Cosmology to use (default: `fiducial_cosmology()`).
         concentration : float, optional
             Halo concentration c_200 (default: 4.0).
         model : str, optional
@@ -131,7 +131,7 @@ class LensingProfile:
         z_source : float, optional
             Source redshift, must exceed ``z_cluster`` (default: 1.0).
         """
-        self.cosmo = cosmology
+        self.cosmo = fiducial_cosmology() if cosmology is None else cosmology
         self.z_cluster = z_cluster
         self.m200 = m200
         self.concentration = concentration

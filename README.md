@@ -77,10 +77,9 @@ The `examples/` directory contains detailed demonstrations:
   (2-halo support currently requires the `compare` extra for a P(k) backend;
   only the NFW model is implemented so far)
 - `clenspy.cosmology`: `PkGrid` (linear/nonlinear P(k) grids), critical surface
-  density, and angular/comoving coordinate conversions
-- `clenspy.utils`: Log-grid interpolation, numerical integration helpers, and
-  decorators used across the halo/lensing modules
-- `clenspy.config`: Default cosmology and physical constants
+  density, angular/comoving coordinate conversions, and `fiducial_cosmology()`
+- `clenspy.utils`: Log-grid interpolation, numerical integration helpers,
+  physical constants, and decorators used across the halo/lensing modules
 
 ## Requirements
 

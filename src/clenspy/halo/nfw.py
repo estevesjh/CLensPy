@@ -8,10 +8,10 @@ density profiles in weak lensing analysis.
 from __future__ import annotations
 
 import numpy as np
-from astropy import cosmology
+from astropy.cosmology import Cosmology
 from scipy.special import sici
 
-from ..config import DEFAULT_COSMOLOGY
+from ..cosmology.fiducial import fiducial_cosmology
 from ..utils.decorators import scalar_array_output
 
 
@@ -60,8 +60,10 @@ class NfwProfile:
         self,
         m200: np.ndarray | float,
         c200: np.ndarray | float = 4.0,
-        cosmo: cosmology = DEFAULT_COSMOLOGY,
+        cosmo: Cosmology | None = None,
     ) -> None:
+        cosmo = fiducial_cosmology() if cosmo is None else cosmo
+
         # Broadcast shapes for mass and concentration
         m200, c200 = np.broadcast_arrays(m200, c200)
         self.m200 = m200

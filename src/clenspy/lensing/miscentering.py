@@ -58,7 +58,6 @@ import numpy as np
 from astropy.cosmology import Cosmology
 from numpy.polynomial.legendre import leggauss
 
-from ..config import DEFAULT_COSMOLOGY
 from ..lensing.profile import LensingProfile
 
 __all__ = [
@@ -269,7 +268,7 @@ class MiscenteringProfile(LensingProfile):
         self,
         z_cluster: float,
         m200: float,
-        cosmology: Cosmology = DEFAULT_COSMOLOGY,
+        cosmology: Cosmology | None = None,
         concentration: float = 4.0,
         model: str = "NFW",
         include_2halo: bool = True,

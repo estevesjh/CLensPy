@@ -5,9 +5,9 @@ Halo bias models for relating halo abundance to matter density.
 
 import mcfit
 import numpy as np
-from astropy import cosmology
+from astropy.cosmology import Cosmology
 
-from ..config import DEFAULT_COSMOLOGY
+from ..cosmology.fiducial import fiducial_cosmology
 
 
 class BiasModel:
@@ -39,7 +39,7 @@ class BiasModel:
     P : array
         Linear power spectrum [Mpc^3], physical (not h-scaled).
     cosmo : astropy.cosmology instance, optional
-        Cosmology to use (default: `~clenspy.config.DEFAULT_COSMOLOGY`).
+        Cosmology to use (default: `fiducial_cosmology()`).
     odelta : int, optional
         Spherical overdensity :math:`\Delta` defining the halo mass, e.g.
         200 for :math:`M_{200m}` (default: 200).
@@ -61,12 +61,12 @@ class BiasModel:
         self,
         k: np.ndarray,
         P: np.ndarray,
-        cosmo: cosmology = DEFAULT_COSMOLOGY,
+        cosmo: Cosmology | None = None,
         odelta: int = 200,
     ):
         self.k = k
         self.P = P
-        self.cosmo = cosmo
+        self.cosmo = fiducial_cosmology() if cosmo is None else cosmo
         self.omega_m = self.cosmo.Om0
         self.odelta = odelta
         self.rhom = self.cosmo.critical_density(0).to_value("Msun/Mpc^3") * self.omega_m

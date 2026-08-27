@@ -9,8 +9,8 @@ corrections for boost factors and miscentering effects.
 __version__ = "0.1.0"
 
 # Import main modules for convenience
-from . import config, cosmology, halo, lensing, utils
-from .config import DEFAULT_COSMOLOGY
+from . import cosmology, halo, lensing, utils
+from .cosmology.fiducial import fiducial_cosmology
 from .halo import BiasModel, NfwProfile, TwoHaloTerm
 from .lensing import LensingProfile
 
@@ -19,10 +19,9 @@ __all__ = [
     "halo",
     "utils",
     "cosmology",
-    "config",
     "LensingProfile",
     "NfwProfile",
     "BiasModel",
     "TwoHaloTerm",
-    "DEFAULT_COSMOLOGY",
+    "fiducial_cosmology",
 ]

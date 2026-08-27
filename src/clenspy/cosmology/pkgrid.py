@@ -274,11 +274,11 @@ class PkGrid:
 
 if __name__ == "__main__":
     print("Running pkgrid.py as a script")
-    from clenspy.config import DEFAULT_COSMOLOGY
+    from clenspy.cosmology.fiducial import fiducial_cosmology
 
     # Linear spectrum from CAMB
-    pk_camb = PkGrid(backend="camb", cosmo=DEFAULT_COSMOLOGY, nonlinear=True)
-    pk_camb = PkGrid(backend="camb", cosmo=DEFAULT_COSMOLOGY)
+    pk_camb = PkGrid(backend="camb", cosmo=fiducial_cosmology(), nonlinear=True)
+    pk_camb = PkGrid(backend="camb", cosmo=fiducial_cosmology())
 
     # Non-linear spectrum from PyCCL
-    pk_ccl_nl = PkGrid(backend="pyccl", cosmo=DEFAULT_COSMOLOGY, nonlinear=True)
+    pk_ccl_nl = PkGrid(backend="pyccl", cosmo=fiducial_cosmology(), nonlinear=True)
