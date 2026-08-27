@@ -5,11 +5,11 @@ Halo bias models for relating halo abundance to matter density.
 
 from __future__ import annotations
 
-import mcfit
 import numpy as np
 from astropy.cosmology import Cosmology
 
 from ..cosmology.fiducial import fiducial_cosmology
+from ..cosmology.sigma import LinearPk, SigmaGrid
 
 
 class BiasModel:
@@ -81,13 +81,15 @@ class BiasModel:
         self.rhom = self.cosmo.critical_density(0).to_value("Msun/Mpc^3") * self.omega_m
 
     def bias(self, M):
-        """
+        r"""
         Compute the linear bias b(M) for a given halo mass.
 
-        Caches the peak height ν(M) on first call (as ``self.nu``); calling
-        `bias` again reuses it even for a different M, so construct a new
-        `BiasModel` (or call `nu_at_mass` directly) if you need bias at more
-        than one mass.
+        NOTE: this used to cache :math:`\nu` on ``self`` on the first call
+        and reuse it for *every later* M, returning the first mass's bias
+        for the second mass's argument. It no longer caches. The expensive
+        part -- the FFTLog -- is cached where it belongs, on the shared
+        `~clenspy.cosmology.SigmaGrid`, so recomputing :math:`\nu` per call
+        is cheap and correct.
 
         Parameters
         ----------
@@ -99,11 +101,7 @@ class BiasModel:
         float or array
             Linear bias b(M), same shape as M.
         """
-        if not hasattr(self, "nu"):
-            self.nu = self.nu_at_mass(M)
-
-        bias = self.bias_at_nu(self.nu)
-        return bias
+        return self.bias_at_nu(self.nu_at_mass(M))
 
     def nu_at_mass(self, M, deltac=1.686):
         r"""
@@ -124,16 +122,59 @@ class BiasModel:
         sigma = self.sigma_tophat(M)
         return deltac / sigma
 
+    @property
+    def sigma_grid(self):
+        r"""The shared :math:`\sigma^2` evaluator, built once on first use.
+
+        NOTE: the Tinker (2010) bias and the Tinker (2008) mass function are
+        two fits to the **same** peak height, so they must read the same
+        :math:`\sigma(M)`. This property is the shared object; see
+        `clenspy.cosmology.sigma`.
+
+        NOTE: `~clenspy.cosmology.SigmaGrid` is unit-agnostic -- the
+        integral needs only :math:`kR` dimensionless and :math:`P` in units
+        of :math:`k^{-3}` -- which is why this h-free class can share it
+        with the h-scaled mass function. Two caveats, and **both** limits
+        are dimensionful:
+
+        - :math:`20/R` is in h/Mpc, so this class never truncates, and
+          `sigma_tophat` passes ``truncate=False``;
+        - the *fixed lower* limit :math:`10^{-4}` is in h/Mpc too. It only
+          binds when the tabulated k range extends below it. `PkGrid`
+          defaults to :math:`k_{\min} = 10^{-4}\,\mathrm{Mpc}^{-1}`, i.e.
+          right at it, so in the h-free convention the cut is at
+          :math:`10^{-4}` Mpc^-1 rather than at :math:`10^{-4}` h/Mpc --
+          a 1/h shift in where the integral starts. Harmless here, because
+          :math:`k^3 P W^2 \to 0` there and the large-scale contribution to
+          :math:`\sigma(M)` at cluster masses is negligible; recorded
+          because it is not zero and it is not obvious.
+        """
+        if getattr(self, "_sigma_grid", None) is None:
+            self._sigma_grid = SigmaGrid(LinearPk(self.k, self.P))
+        return self._sigma_grid
+
     def sigma_tophat(self, M):
         r"""
-        Calculate σ(M) using mcfit.tophat_sigma for the linear power spectrum.
+        Calculate σ(M), the top-hat variance amplitude at the Lagrangian
+        radius of mass M.
 
         .. math::
             \sigma^2(M) = \int \frac{dk}{2\pi^2} k^2 P(k)\, W^2(kR),
             \qquad R = \left(\frac{3M}{4\pi\bar\rho_m}\right)^{1/3}
 
         where :math:`W` is the Fourier transform of the real-space top-hat
-        window and :math:`\bar\rho_m` is the mean matter density today.
+        window and :math:`\bar\rho_m` is the comoving mean matter density.
+
+        NOTE: delegates to `sigma_grid`, which fixed three defects in the
+        previous inline version: it splined the **variance** linearly in
+        :math:`\log_{10} R` and then square-rooted it (percent-level error
+        where :math:`\sigma^2` is curved), it let ``np.interp`` silently
+        **clamp** outside the FFTLog range instead of refusing, and it
+        rebuilt the FFTLog on every single call.
+
+        NOTE: untruncated, i.e. the full tabulated :math:`k` range. The
+        :math:`k \le 20/R` convention belongs to the production mass
+        function, not to the bias -- see `sigma_grid`.
 
         Parameters
         ----------
@@ -145,12 +186,11 @@ class BiasModel:
         sigma : float or array
             σ(M), same shape as M.
         """
-        # Lagrangian radius R [Mpc], physical
-        R = (3 * M / (4 * np.pi * self.rhom)) ** (1 / 3)
-
-        Rvec, var = mcfit.TophatVar(self.k, lowring=True)(self.P, extrap=True)
-        sigma_of_R = np.sqrt(np.interp(np.log10(R), np.log10(Rvec), var))
-        return sigma_of_R
+        # Lagrangian radius R [Mpc], comoving
+        R = (3 * np.asarray(M, dtype=float)
+             / (4 * np.pi * self.rhom)) ** (1 / 3)
+        ln_sigma2, _ = self.sigma_grid.sigma2_fftlog(np.log(R))
+        return np.exp(0.5 * ln_sigma2)
 
     def bias_at_nu(self, nu):
         """

@@ -444,3 +444,102 @@ def test_consumed_mask_shifts_with_omega_m():
     lo = np.flatnonzero(consumed_mask(m_h, 0.2))[0]
     hi = np.flatnonzero(consumed_mask(m_h, 0.4))[0]
     assert hi > lo
+
+
+# -- the shared sigma grid (step 13b) --------------------------------------
+
+
+def test_bias_and_mass_function_read_the_same_sigma():
+    r"""The dedup: two fits to one peak height must see one :math:`\sigma`.
+
+    `BiasModel` used to compute its own sigma(M) by a second FFTLog. It now
+    delegates to a `SigmaGrid`, so the two layers cannot drift.
+    """
+    from clenspy.halo.bias import BiasModel
+
+    pk_vals = 2.0e4 * K**N_SPEC
+    model = BiasModel(K, pk_vals)
+    assert isinstance(model.sigma_grid, SigmaGrid)
+
+    # sigma at a mass, both ways round: through the bias and through the
+    # grid directly, at the same Lagrangian radius
+    m = 1.0e14
+    r = (3 * m / (4 * np.pi * model.rhom)) ** (1 / 3)
+    direct = np.sqrt(model.sigma_grid.sigma2(r, truncate=False))
+    assert model.sigma_tophat(m).item() == pytest.approx(direct, rel=2e-5)
+
+
+def test_bias_no_longer_caches_nu_across_different_masses():
+    """The old `bias` returned the *first* mass's bias for every later one."""
+    from clenspy.halo.bias import BiasModel
+
+    model = BiasModel(K, 2.0e4 * K**N_SPEC)
+    b_small = model.bias(1.0e13)
+    b_large = model.bias(1.0e15)
+    # and now the other order, on a fresh object, to show order-independence
+    model2 = BiasModel(K, 2.0e4 * K**N_SPEC)
+    assert model2.bias(1.0e15) == pytest.approx(b_large)
+    assert model2.bias(1.0e13) == pytest.approx(b_small)
+    assert b_large > b_small
+
+
+def test_the_bias_grid_is_built_once_and_reused():
+    """The FFTLog was previously rebuilt on every sigma_tophat call."""
+    from clenspy.halo.bias import BiasModel
+
+    model = BiasModel(K, 2.0e4 * K**N_SPEC)
+    first = model.sigma_grid
+    model.sigma_tophat(1e14)
+    model.sigma_tophat(1e15)
+    assert model.sigma_grid is first
+
+
+def test_sigma_grid_is_unit_agnostic_only_above_the_fixed_lower_limit():
+    r"""Why an h-free class may share an h-scaled module's evaluator.
+
+    :math:`\sigma^2` depends only on :math:`kR` being dimensionless and
+    :math:`P` scaling as :math:`k^{-3}`, so rescaling k and asking at the
+    rescaled R should give the same number.
+
+    But **both** quadrature limits are dimensionful, not just
+    :math:`20/R`: ``LNK_LO`` is :math:`10^{-4}` **h/Mpc**. Invariance
+    therefore holds only when the tabulated k range lies entirely above
+    it, so that the lower limit is the table's own edge and no absolute
+    scale enters. This test pins both halves of that statement.
+    """
+    h = 0.7
+    # entirely above 1e-4 in both scalings, so LNK_LO never binds
+    k_hi = np.logspace(-3.0, 4.0, 900)
+    pk_vals = 2.0e4 * k_hi**N_SPEC
+    a = SigmaGrid(LinearPk(k_hi, pk_vals))
+    # k -> k/h  (h/Mpc -> 1/Mpc),  P -> P*h^3,  R -> R*h
+    b = SigmaGrid(LinearPk(k_hi / h, pk_vals * h**3))
+    for r in (0.5, 2.0, 8.0):
+        assert b.sigma2(r * h, truncate=False) == pytest.approx(
+            a.sigma2(r, truncate=False), rel=1e-10
+        )
+
+
+def test_the_fixed_lower_limit_breaks_unit_invariance_when_it_binds():
+    """The other half: a k range straddling 1e-4 is not rescalable."""
+    h = 0.7
+    k_lo = np.logspace(-6.0, 4.0, 900)      # extends below LNK_LO = 1e-4
+    pk_vals = 2.0e4 * k_lo**N_SPEC
+    a = SigmaGrid(LinearPk(k_lo, pk_vals))
+    b = SigmaGrid(LinearPk(k_lo / h, pk_vals * h**3))
+    # the same 1e-4 cut now removes a different physical range in each
+    assert b.sigma2(8.0 * h, truncate=False) != pytest.approx(
+        a.sigma2(8.0, truncate=False), rel=1e-9
+    )
+
+
+def test_the_truncation_breaks_that_unit_invariance():
+    """Which is exactly why the bias must not use truncate=True."""
+    h = 0.7
+    pk_vals = 2.0e4 * K**N_SPEC
+    a = SigmaGrid(LinearPk(K, pk_vals))
+    b = SigmaGrid(LinearPk(K / h, pk_vals * h**3))
+    # 20/R is a dimensionful cut, so rescaling changes what it removes
+    assert b.sigma2(8.0 * h, truncate=True) != pytest.approx(
+        a.sigma2(8.0, truncate=True), rel=1e-6
+    )
