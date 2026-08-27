@@ -483,8 +483,14 @@ Each step is independently reviewable and leaves the package working.
    between `NfwProfile` and `EinastoProfile`.
 6. **Create `selection/`** — done, but not as written: see errata E.5 for
    what moved and why the literal reading inverted the dependency arrow.
-7. **Create `kernels/`**, move `sigma_critical`; rename `cosmology/utils.py` →
-   `cosmology/distances.py`.
+7. **Create `kernels/`** — done. `sigma_critical` moved to
+   `kernels/sigma_crit.py` and `cosmology/utils.py` became
+   `cosmology/distances.py`. `cosmology.sigma_critical` keeps a lazy
+   `DeprecationWarning` alias (lazy so `cosmology/` gains no dependency on
+   `kernels/`, which sits below it). The unused `critical_density` and
+   `hubble_parameter` wrappers were deleted rather than moved -- one-line
+   passthroughs to `astropy` with no caller, the same dead-export case as
+   `RHOCRIT` in P0 §0.2.
 8. **Lazy `LensingProfile`** — stop running CAMB in `__init__`.
 9. **`validation/`** — move the pyccl and cluster_toolkit comparisons out of `tests/`.
 10. **`docs/notation.md`**, then the unit `NOTE:` sweep.

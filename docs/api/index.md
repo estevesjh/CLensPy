@@ -62,10 +62,22 @@ integrated at runtime. See {doc}`../miscentering_math` section 9.
    :toctree: generated
 
    PkGrid
-   sigma_critical
    comoving_to_theta
+   theta_to_comoving
    fiducial_cosmology
    mean_matter_density
+```
+
+## `clenspy.kernels`
+
+Line-of-sight windows and the geometry that weights them. $\Sigma_{\rm crit}$
+is here rather than in `clenspy.cosmology` because it depends on the
+cosmology *and* on two redshifts: it is lens--source geometry, not a
+property of the universe.
+
+```{eval-rst}
+.. automodule:: clenspy.kernels.sigma_crit
+   :members:
 ```
 
 ## `clenspy.utils`

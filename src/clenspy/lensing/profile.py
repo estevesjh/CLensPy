@@ -13,9 +13,10 @@ from typing import Union
 import numpy as np
 from astropy.cosmology import Cosmology
 
-from ..cosmology import PkGrid, sigma_critical
+from ..cosmology import PkGrid
 from ..cosmology.fiducial import fiducial_cosmology, mean_matter_density
 from ..halo import BiasModel, NfwProfile, TwoHaloTerm
+from ..kernels import sigma_critical
 
 __all__ = ["LensingProfile", "LensingProfileInfo"]
 
@@ -158,7 +159,7 @@ class LensingProfile:
         # Initialize halo profile
         self._setup_halo_profile()
 
-        # Critical surface density using cosmology utils
+        # Critical surface density -- lens-source geometry, kernels layer
         self._sigma_crit = sigma_critical(self.z_cluster, self.z_source, self.cosmo)
 
         # Halo bias if needed

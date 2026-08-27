@@ -80,8 +80,8 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 | Surface density | $\Sigma(R)$ | Projected mass density | $M_\odot\,{\rm Mpc}^{-2}$ | `sigma(R)` | `halo.nfw`, `lensing` | ✅ |
 | Mean interior $\Sigma$ | $\bar\Sigma(<R)$ | $\frac{2}{R^2}\int_0^R \Sigma(R')R'dR'$ | $M_\odot\,{\rm Mpc}^{-2}$ | `mean_sigma(R)` | `halo.nfw`, `halo.einasto` | ✅ |
 | Excess surface density | $\Delta\Sigma(R)$ | $\bar\Sigma(<R)-\Sigma(R)$ | $M_\odot\,{\rm Mpc}^{-2}$ | `deltasigma(R)` | `halo.nfw`, `lensing` | ✅ |
-| Critical surface density | $\Sigma_{\rm crit}$ | $\frac{c^2}{4\pi G}\frac{D_s}{D_l D_{ls}}$ | $M_\odot\,{\rm Mpc}^{-2}$ | `sigma_critical()` | `cosmology.utils` | ✅ |
-| **Mean inverse** $\Sigma_{\rm crit}$ | $\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)$ | $h_0\!\int\!dz_s\,p(z_s{+}\Delta z)\frac{4\pi G}{c^2}\frac{D_A(z_l)D_A(z_l,z_s)}{D_A(z_s)}$, clamped $\ge 0$. **Average the inverse, never invert the average** | ${\rm Mpc}^2 M_\odot^{-1}$ | ⬜ | `kernels` | ⬜ |
+| Critical surface density | $\Sigma_{\rm crit}$ | $\frac{c^2}{4\pi G}\frac{D_s}{D_l D_{ls}}$ | $M_\odot\,{\rm Mpc}^{-2}$ | `sigma_critical()` | `kernels.sigma_crit` | ✅ |
+| **Mean inverse** $\Sigma_{\rm crit}$ | $\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)$ | $h_0\!\int\!dz_s\,p(z_s{+}\Delta z)\frac{4\pi G}{c^2}\frac{D_A(z_l)D_A(z_l,z_s)}{D_A(z_s)}$, clamped $\ge 0$. **Average the inverse, never invert the average** | ${\rm Mpc}^2 M_\odot^{-1}$ | ⬜ | `kernels.sigma_crit` | ⬜ |
 | Tangential shear | $\gamma_t$ | $\Delta\Sigma\cdot\langle\Sigma_{\rm crit}^{-1}\rangle$. Setting the average to 1 emits $\Delta\Sigma$ | — | `shear(R)` | `halo.einasto` | 🔶 |
 | Convergence | $\kappa$ | $\Sigma/\Sigma_{\rm crit}$ | — | `convergence(R)` | `halo.einasto` | 🔶 |
 | One-halo term | $\Sigma^{1h}$, $\Delta\Sigma^{1h}$ | The cluster's own halo | $M_\odot\,{\rm Mpc}^{-2}$ | `halo_profile` | `lensing.profile` | ✅ |
