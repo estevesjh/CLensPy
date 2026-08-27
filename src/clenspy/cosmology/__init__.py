@@ -9,6 +9,7 @@ two redshifts, which makes it lens-source geometry rather than a property of
 the universe.
 """
 
+from .bias import BiasModel
 from .concentration import child18, child18_powerlaw, duffy08, m_star_hinv
 from .distances import (
     comoving_to_theta,
@@ -17,7 +18,7 @@ from .distances import (
 )
 from .fiducial import fiducial_cosmology, mean_matter_density
 from .growth import growth_factor, growth_unnormalised
-from .mass_function import TinkerMassFunction, consumed_mask
+from .halo_mass_function import TinkerMassFunction, consumed_mask
 from .pkgrid import PkGrid
 from .sigma import LinearPk, SigmaGrid, lnr_grid
 
@@ -39,6 +40,7 @@ __all__ = [
     "TinkerMassFunction",
     "consumed_mask",
     "comoving_volume_element",
+    "BiasModel",
 ]
 
 

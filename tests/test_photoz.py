@@ -334,3 +334,46 @@ def test_the_y3_window_spline_is_cached():
 
     a, b = y3_photoz_window(), y3_photoz_window()
     assert a(0.4) == b(0.4)
+
+
+# -- photoz_projection_support: the bisection and its fallback --------------
+
+
+def test_projection_support_falls_back_to_the_symmetric_window_when_unbracketed():
+    r"""When ``z_ob`` sits far outside ``bracket``, neither edge is found.
+
+    ``residual(z) = z + sign*width(z) - z_ob`` keeps the same sign across
+    the whole default bracket ``(1e-4, 3.0)`` once :math:`z^{\rm ob}` is far
+    enough away (here 10, against a window of only 0.03), for *both*
+    signs -- so both internal bisections return ``None`` and the function
+    must fall back to the named symmetric-width degradation rather than
+    raise or propagate ``None``.
+    """
+    from clenspy.kernels.photoz import photoz_projection_support
+
+    z_ob, sigma_z, n_sigma = 10.0, 0.01, 3.0
+    half = n_sigma * sigma_z
+    lo, hi = photoz_projection_support(z_ob, sigma_z, n_sigma=n_sigma)
+    assert lo == pytest.approx(max(1e-4, z_ob - half))
+    assert hi == pytest.approx(z_ob + half)
+    # and the fallback is exactly symmetric about z_ob, unlike the
+    # bisection result for a varying width -- see the asymmetry test below
+    assert hi - z_ob == pytest.approx(z_ob - lo)
+
+
+def test_projection_support_uses_bisection_when_bracketed():
+    r"""The ordinary path: both edges found, and asymmetric for a table.
+
+    Sanity check for the branch not exercised above -- a callable
+    ``sigma_z(z)`` that grows with ``z`` gives a wider window on the far
+    (higher-z) side, so the two half-widths must differ.
+    """
+    from clenspy.kernels.photoz import photoz_projection_support
+
+    def width(z):
+        return 0.01 * (1.0 + np.asarray(z, dtype=float))
+
+    z_ob = 0.4
+    lo, hi = photoz_projection_support(z_ob, width, n_sigma=3.0)
+    assert lo < z_ob < hi
+    assert (z_ob - lo) != pytest.approx(hi - z_ob)

@@ -10,7 +10,6 @@
 
    NfwProfile
    EinastoProfile
-   BiasModel
    TwoHaloTerm
 ```
 
@@ -114,6 +113,7 @@ arbitrarily large number.
    :toctree: generated
 
    PkGrid
+   BiasModel
    comoving_to_theta
    theta_to_comoving
    fiducial_cosmology
@@ -165,7 +165,7 @@ Three conventions carried across, all of which bite:
 .. automodule:: clenspy.cosmology.sigma
    :members:
 
-.. automodule:: clenspy.cosmology.mass_function
+.. automodule:: clenspy.cosmology.halo_mass_function
    :members:
 ```
 
@@ -178,7 +178,7 @@ an ambient survey property.
 
 $\Omega(z)$ is code (a polynomial transcribed from `y3_cluster_cpp`); bin
 edges, $\sigma_z$, $\sigma_\gamma$, $n_{\rm src}$ and the $p(z_s)$
-parameters are analysis choices and live in `clenspy/configs/<survey>.json`.
+parameters are analysis choices and live in `clenspy/configs/<survey>.yaml`.
 
 ```{eval-rst}
 .. automodule:: clenspy.survey.survey
@@ -282,7 +282,7 @@ $\Omega(z)$ cancels identically in any average and must **not** be applied
 to a lensing profile as well.
 
 ```{eval-rst}
-.. automodule:: clenspy.observables.abundance
+.. automodule:: clenspy.observables.number_counts
    :members:
 
 .. automodule:: clenspy.observables.deltasigma

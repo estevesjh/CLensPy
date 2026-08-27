@@ -47,6 +47,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..utils.decorators import time_method
+
 __all__ = ["CountsCovariance"]
 
 
@@ -64,7 +66,7 @@ class CountsCovariance:
     ----------
     counts : array-like
         :math:`N_{ij}` with shape ``(n_lambda, n_z)``, from
-        `clenspy.observables.ClusterAbundance.counts`.
+        `clenspy.observables.ClusterCounts.counts`.
     bias : array-like
         The count-weighted effective halo bias :math:`\bar b_{ij}`, same
         shape as ``counts``.
@@ -114,10 +116,12 @@ class CountsCovariance:
 
     # -- the two components, separately --------------------------------
 
+    @time_method
     def cov_poisson(self):
         r"""The shot-noise term, :math:`\delta_{ii'}\delta_{jj'}N_{ij}`."""
         return np.diag(self.counts.ravel())
 
+    @time_method
     def cov_sample_variance(self):
         r"""The window term,
         :math:`\delta_{jj'}\bar b\bar b' N N'\sigma_W^2`.

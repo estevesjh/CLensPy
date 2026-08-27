@@ -1,7 +1,7 @@
 import numpy as np
 from astropy.cosmology import FlatLambdaCDM
 
-from clenspy.halo.bias import BiasModel
+from clenspy.cosmology.bias import BiasModel
 
 
 def test_bias_model_basic():

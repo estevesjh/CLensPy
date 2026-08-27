@@ -46,7 +46,8 @@ See {doc}`installation` for optional dependency groups (`mcmc`, `docs`,
 
 ```python
 import numpy as np
-from clenspy.halo import NfwProfile, EinastoProfile, BiasModel
+from clenspy.halo import NfwProfile, EinastoProfile
+from clenspy.cosmology import BiasModel
 
 # Define halo parameters
 M200 = 1e14  # Halo mass [Msun]
@@ -100,4 +101,5 @@ Covariance FFTLog math <covariance_fftlog_math>
 Notation <notation>
 Validation <validation>
 Refactor plan <refactor-plan>
+P3 cleanup plan <plan-p3-cleanup>
 ```

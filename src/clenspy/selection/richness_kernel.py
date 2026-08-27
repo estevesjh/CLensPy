@@ -96,9 +96,17 @@ __all__ = [
     "Y3_PRJ_PARAMS_FILE",
     "emg_cdf",
     "emg_pdf",
+    "richness_bin_first_moment",
     "richness_bin_probability",
     "richness_pdf",
 ]
+
+#: Gauss--Legendre order for `richness_bin_first_moment`. The bin is
+#: finite (unlike the lambda_true bracket in `selection_function`, which
+#: is unbounded and needs a residual check), so a fixed low order over a
+#: smooth, single-scale integrand converges far past the precision that
+#: matters here; 32 is already massive overkill and cheap.
+FIRST_MOMENT_N_QUAD = 32
 
 _SQRT2 = np.sqrt(2.0)
 
@@ -518,6 +526,76 @@ def richness_bin_probability(lambda_edges, lambda_true, z, params):
         axis=-1,
     )
     return np.diff(cdf, axis=-1)
+
+
+def richness_bin_first_moment(lambda_edges, lambda_true, z, params,
+                               n_quad: int = FIRST_MOMENT_N_QUAD):
+    r"""``\int_{\Delta\lambda_i} d\lambda^{\rm ob}\,\lambda^{\rm ob}\,P``,
+    for every bin at once.
+
+    .. math::
+        M_i(\lambda^{\rm tr}, z) = \int_{\lambda_i}^{\lambda_{i+1}}
+            d\lambda^{\rm ob}\,\lambda^{\rm ob}\,
+            P(\lambda^{\rm ob}\mid\lambda^{\rm tr}, z)
+
+    the first moment of :math:`\lambda^{\rm ob}` inside bin :math:`i`, at
+    fixed :math:`(\lambda^{\rm tr}, z)`. Dividing by
+    `richness_bin_probability` gives the conditional mean observed
+    richness of haloes that land in bin :math:`i`.
+
+    NOTE: **evaluated by quadrature, not in closed form, unlike
+    `richness_bin_probability`.** The zeroth moment has a closed form
+    because it is a difference of two CDFs; the first moment of an EMG
+    restricted to a finite interval is also closed-form in principle (it
+    reduces to a truncated-normal moment plus an exponential-tilted
+    Gaussian tail term), but that is a second nontrivial overflow-safe
+    derivation on top of `emg_cdf`'s. Unlike the :math:`\lambda^{\rm tr}`
+    integral in `clenspy.selection.selection_function` -- unbounded, and
+    the reason that module needs a bracket and a residual check -- this
+    integral is over the bin itself, a **finite** interval on which
+    `richness_pdf` is smooth and bounded. A fixed-order Gauss--Legendre
+    rule therefore converges to machine precision with no truncation
+    question to answer, and is used here rather than re-deriving the
+    closed form.
+
+    Parameters
+    ----------
+    lambda_edges : array-like, shape (n_bins + 1,)
+        Observed-richness bin edges, strictly ascending.
+    lambda_true : float or array-like
+        True richness, any shape.
+    z : float or array-like
+        True redshift, broadcast against ``lambda_true``.
+    params : EmgParams
+        The four kernel parameters.
+    n_quad : int, optional
+        Gauss--Legendre order per bin (default: 32).
+
+    Returns
+    -------
+    np.ndarray
+        Shape ``(*np.shape(lambda_true), n_bins)``, in richness units.
+    """
+    edges = np.asarray(lambda_edges, dtype=float)
+    if edges.ndim != 1 or edges.size < 2:
+        raise ValueError("lambda_edges must be 1-D with at least two edges")
+    if np.any(np.diff(edges) <= 0.0):
+        raise ValueError("lambda_edges must be strictly ascending")
+
+    lambda_true, z = np.broadcast_arrays(
+        np.asarray(lambda_true, dtype=float), np.asarray(z, dtype=float)
+    )
+    nodes, weights = np.polynomial.legendre.leggauss(n_quad)
+
+    moments = []
+    for a, b in zip(edges[:-1], edges[1:]):
+        mid, half = 0.5 * (a + b), 0.5 * (b - a)
+        x = mid + half * nodes  # shape (n_quad,)
+        density = richness_pdf(
+            x, lambda_true[..., None], z[..., None], params
+        )  # -> (..., n_quad)
+        moments.append(np.einsum("q,q,...q->...", weights, half * x, density))
+    return np.stack(moments, axis=-1)
 
 
 if __name__ == "__main__":

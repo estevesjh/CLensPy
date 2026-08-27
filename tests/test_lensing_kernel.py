@@ -360,3 +360,27 @@ def test_the_constructor_computes_nothing(kernel):
     assert lk._kernel_z is None
     lk.kernel_z(0.35)
     assert lk._kernel_z is not None
+
+
+def test_q_sigma_handles_a_lens_bin_with_no_sources_behind_it():
+    r"""``_zs_nodes`` returns empty when ``z_l + min_separation > zs_max``.
+
+    That happens for a lens sitting within `MIN_LENS_SOURCE_SEPARATION` of
+    the top of the source distribution -- there is no room left for a
+    lens-source pair. ``q_sigma`` must skip that bin (the ``continue`` at
+    the top of its loop) rather than raise, and the bin's output stays the
+    initialised zero. A second, ordinary bin in the same call is unaffected.
+    """
+    su = Survey.top_hat(zs_min=0.5, zs_max=1.0)
+    lk = LensingKernel(su, COSMO)
+    z_lens = np.array([0.3, 0.999])  # second: 0.999 + 0.01 > zs_max = 1.0
+    q = lk.q_sigma(z_lens, z_halo=0.4)
+    assert np.all(np.isfinite(q))
+    assert q[1] == 0.0
+    assert q[0] != 0.0
+
+
+def test_repr_names_the_class_and_the_survey(kernel):
+    r = repr(kernel)
+    assert "LensingKernel" in r
+    assert kernel.survey.name in r

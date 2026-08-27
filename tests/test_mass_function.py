@@ -17,7 +17,7 @@ import pytest
 
 from clenspy.cosmology.fiducial import fiducial_cosmology
 from clenspy.cosmology.growth import growth_factor, growth_unnormalised
-from clenspy.cosmology.mass_function import (
+from clenspy.cosmology.halo_mass_function import (
     DELTA_C_TINKER,
     PI_FORTRAN,
     RHO_FACT,
@@ -403,10 +403,74 @@ def test_rejects_delta_outside_the_calibration():
         TinkerMassFunction(grid, delta=5000.0)
 
 
+def test_f_sigma_rejects_non_positive_sigma():
+    hmf = TinkerMassFunction(power_law_grid())
+    with pytest.raises(ValueError, match="sigma must be positive"):
+        hmf.f_sigma(np.array([1.0, -0.5, 2.0]))
+    with pytest.raises(ValueError, match="sigma must be positive"):
+        hmf.f_sigma(0.0)
+
+
+def test_tinker_mass_function_repr_contains_the_class_name():
+    hmf = TinkerMassFunction(power_law_grid())
+    assert "TinkerMassFunction" in repr(hmf)
+
+
 def test_sigma_grid_refuses_a_bare_array():
     """The LinearPk input policy is part of sigma^2's definition."""
     with pytest.raises(TypeError, match="LinearPk"):
         SigmaGrid(K)
+
+
+def test_sigma2_rejects_non_positive_r():
+    grid = power_law_grid()
+    with pytest.raises(ValueError, match="R must be positive"):
+        grid.sigma2(-1.0)
+    with pytest.raises(ValueError, match="R must be positive"):
+        grid.sigma2(0.0)
+
+
+def test_edges_are_none_when_the_window_is_degenerate():
+    r"""``20/R`` below the table's lower edge collapses the panel range."""
+    grid = power_law_grid()
+    r_huge = 2.5e5  # 20/R << 1e-4 h/Mpc, below the table's own lower limit
+    assert grid._edges(r_huge, truncate=True) is None
+
+
+def test_sigma2_and_its_derivative_vanish_when_the_window_is_degenerate():
+    grid = power_law_grid()
+    r_huge = 2.5e5
+    assert grid.sigma2(r_huge, truncate=True) == 0.0
+    assert grid.dsigma2_dlnr(r_huge, truncate=True) == 0.0
+
+
+def test_dlnsigma2_dlnr_rejects_a_non_positive_sigma2():
+    """Reached through the same degenerate window as the tests above."""
+    grid = power_law_grid()
+    r_huge = 2.5e5
+    with pytest.raises(ValueError, match="not positive"):
+        grid.dlnsigma2_dlnr(r_huge, truncate=True)
+
+
+def test_fftlog_refuses_a_non_positive_variance():
+    """Ringing from a spiky P(k), caught rather than silently splined."""
+    k = np.logspace(-3, 3, 40)
+    pk_vals = np.full_like(k, 1e-12)
+    pk_vals[20] = 1e12  # a narrow spike, to force FFTLog ringing
+    grid = SigmaGrid(LinearPk(k, pk_vals))
+    lnr = np.log(np.logspace(-3, 3, 20))
+    with pytest.raises(RuntimeError, match="non-positive"):
+        grid.sigma2_fftlog(lnr, n_fine=128, pad_decades=0.05)
+
+
+def test_linear_pk_repr_contains_the_class_name():
+    pk = LinearPk(K, 2.0e4 * K**N_SPEC)
+    assert "LinearPk" in repr(pk)
+
+
+def test_sigma_grid_repr_contains_the_class_name():
+    grid = power_law_grid()
+    assert "SigmaGrid" in repr(grid)
 
 
 def test_linear_pk_is_zero_outside_the_table():
@@ -455,7 +519,7 @@ def test_bias_and_mass_function_read_the_same_sigma():
     `BiasModel` used to compute its own sigma(M) by a second FFTLog. It now
     delegates to a `SigmaGrid`, so the two layers cannot drift.
     """
-    from clenspy.halo.bias import BiasModel
+    from clenspy.cosmology.bias import BiasModel
 
     pk_vals = 2.0e4 * K**N_SPEC
     model = BiasModel(K, pk_vals)
@@ -471,7 +535,7 @@ def test_bias_and_mass_function_read_the_same_sigma():
 
 def test_bias_no_longer_caches_nu_across_different_masses():
     """The old `bias` returned the *first* mass's bias for every later one."""
-    from clenspy.halo.bias import BiasModel
+    from clenspy.cosmology.bias import BiasModel
 
     model = BiasModel(K, 2.0e4 * K**N_SPEC)
     b_small = model.bias(1.0e13)
@@ -485,7 +549,7 @@ def test_bias_no_longer_caches_nu_across_different_masses():
 
 def test_the_bias_grid_is_built_once_and_reused():
     """The FFTLog was previously rebuilt on every sigma_tophat call."""
-    from clenspy.halo.bias import BiasModel
+    from clenspy.cosmology.bias import BiasModel
 
     model = BiasModel(K, 2.0e4 * K**N_SPEC)
     first = model.sigma_grid

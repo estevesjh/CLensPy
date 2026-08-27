@@ -9,7 +9,7 @@ Tinker (2010) bias are two fits to the *same* peak height
 :math:`\nu = \delta_c/\sigma(M)`. Computing :math:`\sigma` twice from one
 :math:`P(k)` is how they silently drift apart, so it is computed once,
 here, and `clenspy.cosmology.TinkerMassFunction` and
-`clenspy.halo.BiasModel` both take a `SigmaGrid`.
+`clenspy.cosmology.BiasModel` both take a `SigmaGrid`.
 
 Transcribed from ``y3_cluster_cpp`` branch ``docs/sphinx-site``,
 ``src/modules/mf_tinker_cpp/python/tinker_core.py`` -- the in-repo

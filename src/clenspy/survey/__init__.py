@@ -12,7 +12,7 @@ One module, `survey`, and the split inside it is between **code** and
   it is code -- one mistyped digit is a silent normalisation error.
 - Bin edges, :math:`\sigma_z`, :math:`\sigma_\gamma`, :math:`n_{\rm src}`
   and the :math:`p(z_s)` parameters are analysis choices, so they live in
-  ``clenspy/configs/<survey>.json`` and are read by `Survey.from_config`
+  ``clenspy/configs/<survey>.yaml`` and are read by `Survey.from_config`
   and `survey_bins`.
 
 See `clenspy.survey.survey` for the units, the E.2 note on why

@@ -115,3 +115,20 @@ def test_duplicate_indices_rejected():
     b = RichnessBin(20.0, 30.0, 0.2, 0.35, i_lam=0, i_z=0)
     with pytest.raises(ValueError):
         BinCollection([b, b])
+
+
+def test_richness_bin_repr_contains_class_name():
+    b = RichnessBin(20.0, 30.0, 0.2, 0.35, i_lam=1, i_z=2, sigma_z=0.01)
+    assert "RichnessBin" in repr(b)
+
+
+def test_bin_collection_repr_contains_class_name():
+    bins = BinCollection.from_edges([20, 30, 45], [0.2, 0.35, 0.5])
+    assert "BinCollection" in repr(bins)
+
+
+def test_from_edges_needs_at_least_two_edges_on_each_axis():
+    with pytest.raises(ValueError, match="at least two edges"):
+        BinCollection.from_edges([20.0], [0.2, 0.35, 0.5])
+    with pytest.raises(ValueError, match="at least two edges"):
+        BinCollection.from_edges([20.0, 30.0], [0.2])

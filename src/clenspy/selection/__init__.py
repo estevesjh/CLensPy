@@ -71,6 +71,7 @@ from .richness_kernel import (
     EmgParams,
     emg_cdf,
     emg_pdf,
+    richness_bin_first_moment,
     richness_bin_probability,
     richness_pdf,
 )
@@ -94,6 +95,7 @@ __all__ = [
     "EmgParams",
     "emg_cdf",
     "emg_pdf",
+    "richness_bin_first_moment",
     "richness_bin_probability",
     "richness_pdf",
     "Y3_PRJ_PARAMS_FILE",

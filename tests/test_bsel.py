@@ -20,8 +20,9 @@ from clenspy.selection import (
     SelBiasEngine,
     SelectionBiasTable,
     SigmoidBias,
+    XiNL,
 )
-from clenspy.selection.geometry import sigmoid_theta
+from clenspy.selection.geometry import r_lambda, sigmoid_theta
 from clenspy.selection.scaling_relation import HodMor
 
 COSMO = fiducial_cosmology()
@@ -52,6 +53,95 @@ def _engine(**kw):
                   n_z=24, n_M=12, n_theta=6, n_ltr=30, ltr_grid_size=8)
     kwargs.update(kw)
     return SelBiasEngine(**kwargs)
+
+
+# -- XiNL: the cached, FFTLog-tabulated correlation function ---------------
+
+
+class _FakePkGrid:
+    """Minimal pkgrid stand-in: a `.k` array and a power-law `P(k)`."""
+
+    def __init__(self, k):
+        self.k = k
+        self.n_calls = 0
+
+    def __call__(self, k, z):
+        self.n_calls += 1
+        return np.asarray(k, dtype=float) ** -1.5
+
+
+def _fake_pkgrid():
+    return _FakePkGrid(np.logspace(-4, 3, 2048))
+
+
+def test_xinl_output_shape_matches_r_and_is_non_negative():
+    xi_nl = XiNL(_fake_pkgrid())
+    r = np.array([0.3, 1.0, 5.0, 20.0, 100.0])
+    out = xi_nl(r, zob=0.3)
+    assert out.shape == r.shape
+    assert np.all(out >= 0.0)
+
+
+def test_xinl_caches_per_redshift_and_recomputes_on_a_new_one():
+    pkgrid = _fake_pkgrid()
+    xi_nl = XiNL(pkgrid)
+    r = np.array([1.0, 10.0])
+
+    out1 = xi_nl(r, zob=0.3)
+    assert pkgrid.n_calls == 1
+
+    # same zob (bit-identical) -> cache hit, no recompute
+    out2 = xi_nl(r, zob=0.3)
+    assert pkgrid.n_calls == 1
+    np.testing.assert_allclose(out1, out2, rtol=0.0)
+
+    # a zob that rounds to the same 8-decimal key -> still a cache hit
+    out3 = xi_nl(r, zob=0.300000001)
+    assert pkgrid.n_calls == 1
+    np.testing.assert_allclose(out1, out3, rtol=0.0)
+
+    # a genuinely different zob -> a new cache entry, pkgrid called again
+    xi_nl(r, zob=0.5)
+    assert pkgrid.n_calls == 2
+
+
+def test_xinl_second_call_does_not_touch_the_pkgrid_at_all():
+    r"""Proves the cache hit by making a second pkgrid call an error."""
+    k = np.logspace(-4, 3, 2048)
+
+    class _RaiseOnSecondCall:
+        def __init__(self, k):
+            self.k = k
+            self.n_calls = 0
+
+        def __call__(self, k, z):
+            self.n_calls += 1
+            if self.n_calls > 1:
+                raise AssertionError(
+                    "pkgrid called again for an already-cached z")
+            return np.asarray(k, dtype=float) ** -1.5
+
+    pkgrid = _RaiseOnSecondCall(k)
+    xi_nl = XiNL(pkgrid)
+    r = np.array([1.0, 5.0])
+    xi_nl(r, zob=0.4)
+    xi_nl(r, zob=0.4)          # would raise if it recomputed
+    assert pkgrid.n_calls == 1
+
+
+def test_xinl_left_clamps_below_the_r_grid():
+    xi_nl = XiNL(_fake_pkgrid())
+    r_below = np.array([xi_nl.rvals[0] * 1e-3])
+    out = xi_nl(r_below, zob=0.3)
+    xi_tab = xi_nl._cache[round(0.3, 8)]
+    assert out[0] == pytest.approx(max(float(xi_tab[0]), 0.0))
+
+
+def test_xinl_right_clamps_to_zero_above_the_r_grid():
+    xi_nl = XiNL(_fake_pkgrid())
+    r_above = np.array([xi_nl.rvals[-1] * 10.0])
+    out = xi_nl(r_above, zob=0.3)
+    assert out[0] == 0.0
 
 
 # -- the three operators ---------------------------------------------------
@@ -90,6 +180,56 @@ def test_b_eff_is_a_bias_weighted_average_within_range():
     b_eff = engine.b_eff(LOB, ZOB)
     masses = np.array([engine.min_mass, 10.0**engine.log10_M_max])
     assert _bias(masses, ZOB).min() < b_eff < _bias(masses, ZOB).max()
+
+
+def test_z_grid_drops_the_outer_fg_side_when_the_exclusion_ball_engulfs_it():
+    r"""``_outer``'s ``R_excl >= dis_max`` guard.
+
+    Shrinking the foreground window until its whole comoving span sits
+    inside the exclusion ball leaves nothing for the log-spaced outer
+    quadrature to sample, so that side must come back empty rather than
+    erroring on ``log(dis_max) < log(R_excl)``.
+    """
+    engine = _engine()
+    lob, zob = 200.0, 0.4
+    R_excl = float(r_lambda(lob, engine.h) * (1.0 + zob))
+    chi_o = float(engine.chi(zob))
+
+    # a foreground boundary whose distance from chi_o is half of R_excl:
+    # dis_fg_max < R_excl, so the fg branch must return empty arrays.
+    from scipy.optimize import brentq
+
+    target = 0.5 * R_excl
+    z_fg_lo = brentq(lambda z: (chi_o - float(engine.chi(z))) - target,
+                     1e-4, zob)
+    z_bg_hi = zob + 0.4          # generous background side: not triggered
+
+    zs_narrow, wzs_narrow = engine._z_grid(lob, zob, z_fg_lo, z_bg_hi)
+    zs_wide, wzs_wide = engine._z_grid(lob, zob, 1e-4, z_bg_hi)
+
+    # the wide call keeps its fg outer nodes, the narrow one drops them
+    assert zs_narrow.size < zs_wide.size
+    assert np.all(np.isfinite(zs_narrow)) and np.all(np.isfinite(wzs_narrow))
+    assert zs_narrow.min() >= z_fg_lo - 1e-9
+
+
+def test_operators_skip_z_nodes_whose_exclusion_angle_exceeds_theta_max():
+    r"""``if th_lo >= theta_max or wz_kern[iz] == 0.0: continue``.
+
+    Shrinking ``theta_lob`` (independent of the exclusion geometry, which
+    is driven by ``R_excl``) pushes ``theta_max`` below the exclusion
+    angle at some line-of-sight nodes, so the loop must skip them without
+    crashing and still return a finite, non-negative result built from the
+    surviving ones.
+    """
+    engine = _engine()
+    natural_theta_lob = engine._theta_lob(LOB, ZOB)
+    engine._theta_lob = lambda lob, zob: 0.05 * natural_theta_lob
+    p1, i1, i2 = engine.operators(LOB, ZOB)
+    assert np.all(np.isfinite([p1, i1, i2]))
+    assert p1 >= 0.0 and i1 >= 0.0 and i2 >= 0.0
+    # some z-nodes did contribute -- this is a partial skip, not a wipeout
+    assert p1 > 0.0
 
 
 # -- the closure -----------------------------------------------------------
@@ -160,6 +300,22 @@ def test_the_ltr_weights_are_normalised():
     _, weights = _engine()._ltr_weights(LOB, ZOB)
     assert np.sum(weights) == pytest.approx(1.0)
     assert np.all(weights >= 0.0)
+
+
+def test_ltr_weights_without_plob_use_the_hmf_prior_alone():
+    r"""``use_plob_ltr=False`` takes the ``else: p_ltr = prior`` branch.
+
+    Dropping :math:`P(\lambda^{\rm ob}\mid\lambda^{\rm tr})` still leaves a
+    normalised, non-negative weight -- and a genuinely different one from
+    the default, since the branch changes what enters the weight.
+    """
+    engine = _engine()
+    ltr_with, w_with = engine._ltr_weights(LOB, ZOB, use_plob_ltr=True)
+    ltr_without, w_without = engine._ltr_weights(LOB, ZOB, use_plob_ltr=False)
+    np.testing.assert_allclose(ltr_with, ltr_without)
+    assert np.sum(w_without) == pytest.approx(1.0)
+    assert np.all(w_without >= 0.0)
+    assert not np.allclose(w_with, w_without)
 
 
 # -- the sigmoid profile ---------------------------------------------------
@@ -233,6 +389,13 @@ def test_the_mor_adapter_converts_mass_in_the_right_direction():
     # and the wrong direction is a different number, by h^2
     assert not np.allclose(adapter.pdf(30.0, mass_physical, 0.4),
                            mor.pdf(30.0, np.log(mass_physical / H), 0.4))
+
+
+def test_physical_mass_mor_repr_names_itself():
+    adapter = PhysicalMassMor(HodMor.des_y1(), H)
+    text = repr(adapter)
+    assert isinstance(text, str)
+    assert "PhysicalMassMor" in text
 
 
 def test_the_default_mass_range_is_the_richness_selection_one():

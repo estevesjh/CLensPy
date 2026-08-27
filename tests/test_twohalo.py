@@ -12,7 +12,7 @@ monotonicity, and the identity relating the three projections.
 import numpy as np
 import pytest
 
-from clenspy.halo.twohalo import TwoHaloTerm
+from clenspy.halo.twohalo import TwoHaloTerm, prepare_pk_grid
 
 #: A pure power law, so xi(r) is a pure power law and the projections are
 #: strictly monotonic -- the invariants below are then exact statements
@@ -90,3 +90,148 @@ def test_quadrature_backends_agree(method):
     ref = np.ravel(TwoHaloTerm(K, PK, zvec=Z, method="quad_vec").sigma(R, Z))
     got = np.ravel(TwoHaloTerm(K, PK, zvec=Z, method=method).sigma(R, Z))
     np.testing.assert_allclose(got, ref, rtol=1e-3)
+
+
+class TestBuildAll:
+    """`build_all` is a side-effecting convenience wrapper around the three
+    per-quantity methods -- it should chain (return `self`) and leave all
+    three interpolators cached.
+    """
+
+    def test_returns_self(self, twohalo):
+        result = twohalo.build_all()
+        assert result is twohalo
+
+    def test_caches_all_three_interpolators(self, twohalo):
+        for attr in ("xi_rz_interp", "sigma_rz_interp", "deltasigma_rz_interp"):
+            assert not hasattr(twohalo, attr)
+        twohalo.build_all()
+        for attr in ("xi_rz_interp", "sigma_rz_interp", "deltasigma_rz_interp"):
+            assert hasattr(twohalo, attr)
+            assert getattr(twohalo, attr) is not None
+
+    def test_matches_calling_methods_individually(self):
+        """`build_all()` then read vs. calling each method directly agree."""
+        R = np.logspace(-1, 0.5, 8)
+        built = TwoHaloTerm(K, PK, zvec=Z).build_all()
+        direct = TwoHaloTerm(K, PK, zvec=Z)
+        for name in ("xi", "sigma", "deltasigma"):
+            np.testing.assert_allclose(
+                np.ravel(getattr(built, name)(R, Z)),
+                np.ravel(getattr(direct, name)(R, Z)),
+            )
+
+
+class TestPreparePkGrid:
+    """Direct unit tests of `prepare_pk_grid`'s shape-normalization branches.
+
+    Uses small synthetic grids where each z-column (or row) is tagged with
+    its own z-value, so the returned `Pk_grid` values can be checked
+    directly rather than only its shape.
+    """
+
+    kvec = np.logspace(-2, 1, 5)
+    nk = len(kvec)
+    zvec = np.array([0.1, 0.3, 0.6])
+    nz = len(zvec)
+
+    def test_zvec_none_pk_1d(self):
+        """(a) zvec is None, Pk is 1D -> single z=0.0 column."""
+        Pk = np.arange(self.nk, dtype=float) + 1.0
+        k, Pk_grid, zvec = prepare_pk_grid(self.kvec, Pk, None)
+        np.testing.assert_array_equal(k, self.kvec)
+        assert Pk_grid.shape == (self.nk, 1)
+        np.testing.assert_array_equal(zvec, [0.0])
+        np.testing.assert_array_equal(Pk_grid[:, 0], Pk)
+
+    def test_zvec_none_pk_column(self):
+        """(b) zvec is None, Pk already shape (nk, 1) -> passed through."""
+        Pk = (np.arange(self.nk, dtype=float) + 1.0)[:, None]
+        k, Pk_grid, zvec = prepare_pk_grid(self.kvec, Pk, None)
+        assert Pk_grid.shape == (self.nk, 1)
+        np.testing.assert_array_equal(zvec, [0.0])
+        np.testing.assert_array_equal(Pk_grid, Pk)
+
+    def test_zvec_none_bad_pk_shape_raises(self):
+        """(c) zvec is None, Pk is 2D but not (nk, 1) -> ValueError."""
+        Pk = np.ones((self.nk, 3))
+        with pytest.raises(ValueError, match="must be 1D or shape"):
+            prepare_pk_grid(self.kvec, Pk, None)
+
+    def test_zvec_given_pk_1d_is_tiled(self):
+        """(d) zvec given, Pk is 1D -> tiled identically across all z."""
+        Pk = np.arange(self.nk, dtype=float) + 1.0
+        k, Pk_grid, zvec = prepare_pk_grid(self.kvec, Pk, self.zvec)
+        assert Pk_grid.shape == (self.nk, self.nz)
+        for j in range(self.nz):
+            np.testing.assert_array_equal(Pk_grid[:, j], Pk)
+        np.testing.assert_array_equal(zvec, self.zvec)
+
+    def test_zvec_given_pk_nz_by_nk_is_transposed(self):
+        """(e) zvec given, Pk shape (nz, nk) -> transposed to (nk, nz)."""
+        Pk = np.zeros((self.nz, self.nk))
+        for i, zval in enumerate(self.zvec):
+            Pk[i, :] = zval
+        k, Pk_grid, zvec = prepare_pk_grid(self.kvec, Pk, self.zvec)
+        assert Pk_grid.shape == (self.nk, self.nz)
+        for j, zval in enumerate(self.zvec):
+            np.testing.assert_array_equal(Pk_grid[:, j], np.full(self.nk, zval))
+
+    def test_zvec_given_pk_nk_by_nz_used_as_is(self):
+        """(f) zvec given, Pk already shape (nk, nz) -> used as-is."""
+        Pk = np.zeros((self.nk, self.nz))
+        for j, zval in enumerate(self.zvec):
+            Pk[:, j] = zval
+        k, Pk_grid, zvec = prepare_pk_grid(self.kvec, Pk, self.zvec)
+        assert Pk_grid.shape == (self.nk, self.nz)
+        np.testing.assert_array_equal(Pk_grid, Pk)
+
+    def test_zvec_given_bad_pk_shape_raises(self):
+        """(g) zvec given, Pk shape matches neither (nk,nz) nor (nz,nk)."""
+        Pk = np.ones((self.nz + 4, self.nk))
+        with pytest.raises(ValueError, match="Pk shape must be"):
+            prepare_pk_grid(self.kvec, Pk, self.zvec)
+
+    def test_unsorted_zvec_raises(self):
+        """zvec must be strictly increasing on input -- an out-of-order
+        zvec fails the internal assertion rather than being silently
+        re-sorted (the sort branch further down only re-orders columns to
+        match an unsorted *kvec*, not an unsorted zvec)."""
+        unsorted_zvec = np.array([0.6, 0.1, 0.3])
+        Pk = np.zeros((self.nz, self.nk))
+        for i, zval in enumerate(unsorted_zvec):
+            Pk[i, :] = zval
+        with pytest.raises(AssertionError, match="strictly increasing"):
+            prepare_pk_grid(self.kvec, Pk, unsorted_zvec)
+
+    def test_unsorted_kvec_with_pk_nk_by_nz_reorders_columns(self):
+        """(h, first sort path) An unsorted kvec triggers the re-sort
+        branch; with Pk_grid already in (nk, nz) form it re-orders columns
+        by `argsort(zvec)`. Since zvec here is already sorted, argsort is
+        the identity permutation and the result is unchanged."""
+        unsorted_kvec = self.kvec[::-1]
+        Pk = np.zeros((self.nk, self.nz))
+        for j, zval in enumerate(self.zvec):
+            Pk[:, j] = zval
+        k, Pk_grid, zvec = prepare_pk_grid(unsorted_kvec, Pk, self.zvec)
+        np.testing.assert_array_equal(zvec, self.zvec)
+        assert Pk_grid.shape == (self.nk, self.nz)
+        for j, zval in enumerate(self.zvec):
+            np.testing.assert_array_equal(Pk_grid[:, j], np.full(self.nk, zval))
+
+    def test_unsorted_kvec_with_pk_nz_by_nk_reorders_columns(self):
+        """(h, second sort path) Same as above, but starting from Pk given
+        as (nz, nk) -- it is transposed to (nk, nz) before the unsorted-k
+        branch runs, so it takes the same `[:, sort_idx]` path (the
+        `(len(zvec), nk)` branch of the re-sort code is unreachable in
+        practice, since `Pk_grid` is always normalized to (nk, nz) by the
+        time the re-sort runs)."""
+        unsorted_kvec = self.kvec[::-1]
+        Pk = np.zeros((self.nz, self.nk))
+        for i, zval in enumerate(self.zvec):
+            Pk[i, :] = zval
+        k, Pk_grid, zvec = prepare_pk_grid(unsorted_kvec, Pk, self.zvec)
+        np.testing.assert_array_equal(zvec, self.zvec)
+        assert Pk_grid.shape == (self.nk, self.nz)
+        for j, zval in enumerate(self.zvec):
+            np.testing.assert_array_equal(Pk_grid[:, j], np.full(self.nk, zval))

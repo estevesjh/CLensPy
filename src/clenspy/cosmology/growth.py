@@ -113,7 +113,7 @@ def growth_factor(z, cosmo=None):
         P_{\rm lin}(k, z) = D^{2}(z)\,P_{\rm lin}(k, 0)
 
     NOTE: this is the convention in which :math:`\sigma(R,z) =
-    D(z)\,\sigma(R,0)`, which is how `clenspy.cosmology.mass_function`
+    D(z)\,\sigma(R,0)`, which is how `clenspy.cosmology.halo_mass_function`
     evolves its variance instead of recomputing a power spectrum per
     redshift. That factorisation is exactly the scale-independence
     assumption named in the module NOTE.

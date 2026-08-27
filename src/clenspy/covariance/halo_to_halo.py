@@ -69,6 +69,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..halo.nfw import NfwProfile
+from ..utils.decorators import time_method
 
 __all__ = ["DeltaSigmaHaloToHaloCovariance"]
 
@@ -89,7 +90,7 @@ class DeltaSigmaHaloToHaloCovariance:
 
     Parameters
     ----------
-    abundance : clenspy.observables.ClusterAbundance
+    abundance : clenspy.observables.ClusterCounts
         Stored verbatim. Supplies the bin's mass population (its
         :math:`z`-contracted weight) and :math:`N_{\rm cl}`, so this term
         and the counts cannot disagree about the sample.
@@ -97,7 +98,7 @@ class DeltaSigmaHaloToHaloCovariance:
         The matter :math:`\Delta\Sigma_{hh}` engine, **not** premultiplied
         by the mean density -- that factor is applied here, once, so it
         cannot be applied twice.
-    bias : clenspy.halo.BiasModel
+    bias : clenspy.cosmology.BiasModel
         Supplies :math:`b(M)`. Takes **h-free** mass.
     rho_m0 : float
         Comoving mean matter density :math:`\Omega_{m,0}\rho_{c,0}`
@@ -204,6 +205,7 @@ class DeltaSigmaHaloToHaloCovariance:
             self._bias_of_mass[:, None, None] * two_halo[None, None, :],
         )
 
+    @time_method
     def cov(self, R, i, j):
         r""":math:`C^{\rm intr}` for bin ``(i, j)``, shape ``(n_R, n_R)``."""
         R = np.atleast_1d(np.asarray(R, dtype=float))
@@ -223,6 +225,7 @@ class DeltaSigmaHaloToHaloCovariance:
         population_cov = 0.5 * (population_cov + population_cov.T)
         return population_cov / n_cl
 
+    @time_method
     def mean_profile(self, R, i, j):
         r"""The population mean :math:`\langle\Delta\Sigma\rangle`.
 
@@ -241,10 +244,10 @@ class DeltaSigmaHaloToHaloCovariance:
 
 
 if __name__ == "__main__":
+    from ..cosmology.bias import BiasModel
     from ..cosmology.fiducial import fiducial_cosmology, mean_matter_density
-    from ..halo.bias import BiasModel
     from ..halo.twohalo import TwoHaloTerm
-    from ..observables import ClusterAbundance
+    from ..observables import ClusterCounts
     from ..selection import EmgParams, LogNormalMor, SelectionFunction
 
     cosmo = fiducial_cosmology()
@@ -265,7 +268,7 @@ if __name__ == "__main__":
         np.array([0.20, 0.35, 0.50, 0.65]),
         LogNormalMor(), EmgParams(-1.5, 3.0, 0.3, 0.12), sigma_z=0.01,
     )
-    abundance = ClusterAbundance(
+    abundance = ClusterCounts(
         np.log(np.logspace(13.5, 15.3, 14)), np.linspace(0.16, 0.70, 16),
         toy_mass_function, sel, cosmo,
         lambda z: np.full_like(np.asarray(z, float),

@@ -152,7 +152,7 @@ def comoving_volume_element(z, cosmology=None):
     NOTE: h-free (Mpc^3). The mass function is per
     :math:`(h^{-1}{\rm Mpc})^3`, so a counts integral needs one visible
     factor of :math:`h^3`; that conversion lives in
-    `clenspy.observables.abundance.ClusterAbundance._volume_per_dz` and
+    `clenspy.observables.number_counts.ClusterCounts._volume_per_dz` and
     nowhere else.
 
     Parameters

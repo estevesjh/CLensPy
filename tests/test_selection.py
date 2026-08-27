@@ -23,6 +23,7 @@ from clenspy.selection import (
     emg_cdf,
     richness_bin_probability,
 )
+from clenspy.selection.geometry import area_overlap
 
 LAM_EDGES = np.array([20.0, 30.0, 45.0, 60.0, 200.0])   # DES Y1
 Z_EDGES = np.array([0.20, 0.35, 0.50, 0.65])
@@ -136,6 +137,15 @@ def test_emg_cdf_rejects_non_positive_parameters():
         emg_cdf(30.0, 35.0, 3.0, 0.0)
 
 
+def test_emg_pdf_rejects_non_positive_parameters():
+    from clenspy.selection.richness_kernel import emg_pdf
+
+    with pytest.raises(ValueError, match="sigma"):
+        emg_pdf(30.0, 35.0, 0.0, 0.1)
+    with pytest.raises(ValueError, match="tau"):
+        emg_pdf(30.0, 35.0, 3.0, 0.0)
+
+
 # -- the bin probabilities --------------------------------------------------
 
 
@@ -208,6 +218,47 @@ def test_emg_params_accept_callables():
 def test_emg_params_reject_an_out_of_range_f_prj():
     with pytest.raises(ValueError, match=r"\[0, 1\]"):
         EmgParams(-1.5, 3.0, 1.4, 0.12).at(30.0, 0.3)
+
+
+def test_emg_params_repr_shows_scalars_formatted():
+    r = repr(EmgParams(delta_mu=-1.5, sigma=3.0, f_prj=0.3, tau=0.12))
+    assert r.startswith("EmgParams(")
+    assert "delta_mu=-1.5" in r
+    assert "sigma=3" in r
+    assert "f_prj=0.3" in r
+    assert "tau=0.12" in r
+    assert "mu_slope=1" in r
+    assert "callable" not in r
+
+
+def test_emg_params_repr_shows_callable_fields():
+    r = repr(EmgParams(delta_mu=lambda lam, z: -1.5, sigma=3.0, f_prj=0.3,
+                        tau=0.12))
+    assert "delta_mu=callable" in r
+    assert "sigma=3" in r  # the scalar branch still fires for the others
+
+
+def test_richness_bin_first_moment_rejects_bad_edges():
+    from clenspy.selection.richness_kernel import richness_bin_first_moment
+
+    with pytest.raises(ValueError, match="ascending"):
+        richness_bin_first_moment([30.0, 20.0], 25.0, 0.3, PARAMS)
+    with pytest.raises(ValueError, match="at least two"):
+        richness_bin_first_moment([20.0], 25.0, 0.3, PARAMS)
+
+
+def test_emg_params_from_y3_table_rejects_wrong_row_count():
+    import tempfile
+
+    from clenspy.selection.richness_kernel import Y3_PRJ_COEFFICIENTS
+
+    ncol = len(Y3_PRJ_COEFFICIENTS)
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as fh:
+        row = " ".join(["1.0"] * ncol) + "\n"
+        fh.write(row * 3)          # only 3 rows, but 15 z-nodes expected
+        bad = fh.name
+    with pytest.raises(ValueError, match="redshift rows"):
+        EmgParams.from_y3_table(bad)
 
 
 # -- the mass-observable relations ------------------------------------------
@@ -366,6 +417,14 @@ def test_hod_rejects_M1_below_Mmin():
         HodMor(log10_Mmin=13.0, log10_M1=12.0)
 
 
+def test_lognormal_repr_contains_class_name():
+    assert "LogNormalMor" in repr(LogNormalMor())
+
+
+def test_hod_repr_contains_class_name():
+    assert "HodMor" in repr(HodMor())
+
+
 def test_hod_uses_gammaln_not_gamma():
     r"""Gamma overflows past :math:`x \sim 171`; richness reaches 200."""
     mor = HodMor()
@@ -512,6 +571,24 @@ def test_selection_function_rejects_bad_edges():
     with pytest.raises(ValueError, match="positive"):
         SelectionFunction(LAM_EDGES, Z_EDGES, LogNormalMor(), PARAMS,
                           sigma_z=0.0)
+
+
+def test_selection_function_rejects_too_short_edges():
+    with pytest.raises(ValueError, match="lambda_edges.*>= 2 entries"):
+        SelectionFunction([20.0], Z_EDGES, LogNormalMor(), PARAMS,
+                          sigma_z=0.01)
+    with pytest.raises(ValueError, match="z_edges.*>= 2 entries"):
+        SelectionFunction(LAM_EDGES, [0.2], LogNormalMor(), PARAMS,
+                          sigma_z=0.01)
+
+
+def test_n_lambda_bins_property():
+    sel = _selection()
+    assert sel.n_lambda_bins == LAM_EDGES.size - 1 == 4
+
+
+def test_selection_function_repr_contains_class_name():
+    assert "SelectionFunction" in repr(_selection())
 
 
 # -- the calibrated parameter sets ------------------------------------------
@@ -666,3 +743,49 @@ def test_the_production_table_shape_is_validated():
         bad = fh.name
     with pytest.raises(ValueError, match="coefficient columns"):
         EmgParams.from_y3_table(bad)
+
+
+# -- the aperture geometry: area_overlap's elementwise branch ---------------
+
+
+def test_area_overlap_pairs_elementwise_when_theta_matches_ltrs_shape():
+    r"""``theta.shape[-1] == theta_ltr.shape[-1]`` -- the pairing branch.
+
+    When ``theta`` is a 1-D array whose length equals ``theta_ltr``'s, the
+    function pairs them index-by-index rather than broadcasting into the
+    full :math:`(N_\theta, N_{\lambda^{\rm tr}})` grid the general branch
+    would produce. The proof is the shape itself: the general broadcast of
+    two length-4 arrays would be ``(4, 4)``, not ``(4,)``. Cross-checking
+    against scalar-by-scalar calls confirms it is the *same* pairing, not
+    some other reduction.
+    """
+    theta_lob = 1e-3
+    theta_ltr = np.array([0.5e-3, 1.0e-3, 1.5e-3, 2.0e-3])
+    theta = np.array([0.4e-3, 0.9e-3, 1.6e-3, 2.5e-3])
+
+    out = area_overlap(theta, theta_lob, theta_ltr)
+    assert out.shape == (4,)          # not (4, 4): the pairing branch fired
+
+    expected = np.array([
+        area_overlap(theta[i], theta_lob, theta_ltr[i]).item()
+        for i in range(theta.size)
+    ])
+    np.testing.assert_allclose(out, expected, rtol=1e-14)
+
+
+def test_area_overlap_pairing_branch_agrees_with_a_scalar_theta_lob_sweep():
+    """Same pairing branch, checked against the geometry it encodes.
+
+    A target strictly inside a much larger projector must be fully
+    contained (area = (theta_lob/theta_ltr)^2), and a target far outside a
+    much smaller, distant projector must have zero overlap -- both read
+    off the paired output, not a broadcast grid.
+    """
+    theta_lob = 2.0e-3
+    theta_ltr = np.array([10.0e-3, 1.0e-6])
+    theta = np.array([0.0, 1.0])          # separations [rad]
+
+    out = area_overlap(theta, theta_lob, theta_ltr)
+    assert out.shape == (2,)
+    assert out[0] == pytest.approx((theta_lob / theta_ltr[0]) ** 2)
+    assert out[1] == pytest.approx(0.0)

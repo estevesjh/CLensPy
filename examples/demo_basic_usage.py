@@ -15,7 +15,8 @@ Run it with:
 import matplotlib.pyplot as plt
 import numpy as np
 
-from clenspy.halo import BiasModel, EinastoProfile, NfwProfile
+from clenspy.cosmology import BiasModel
+from clenspy.halo import EinastoProfile, NfwProfile
 
 # ---------------------------------------------------------------------------
 # 1. NFW profile for a massive cluster-scale halo

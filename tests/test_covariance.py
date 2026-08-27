@@ -146,6 +146,12 @@ def test_counts_covariance_validates_its_inputs():
         CountsCovariance(COUNTS, BIAS, SIGMA_W[:2])
     with pytest.raises(ValueError, match="non-negative"):
         CountsCovariance(-COUNTS, BIAS, SIGMA_W)
+    with pytest.raises(ValueError, match="sigma_window must be non-negative"):
+        CountsCovariance(COUNTS, BIAS, -SIGMA_W)
+
+
+def test_counts_covariance_repr_contains_the_class_name():
+    assert "CountsCovariance" in repr(CountsCovariance(COUNTS, BIAS, SIGMA_W))
 
 
 # -- the bin-averaged Bessel function --------------------------------------
@@ -395,6 +401,12 @@ def test_deltasigma_covariance_validates_its_inputs():
         make_cov(n_h=0.0)
     with pytest.raises(ValueError, match=">= 2 entries"):
         make_cov(rp_edges=np.array([1.0]))
+    with pytest.raises(ValueError, match="rp_edges must be non-negative"):
+        make_cov(rp_edges=np.array([-1.0, 1.0, 2.0]))
+
+
+def test_deltasigma_covariance_repr_contains_the_class_name():
+    assert "DeltaSigmaGaussianCovariance" in repr(make_cov())
 
 
 def test_the_bilinear_form_uses_the_right_k_measure():
@@ -569,9 +581,9 @@ def test_annulus_area_is_in_mpc_squared():
 def _halo_to_halo(**kw):
     from clenspy.cosmology.fiducial import fiducial_cosmology, mean_matter_density
     from clenspy.covariance import DeltaSigmaHaloToHaloCovariance
-    from clenspy.halo.bias import BiasModel
+    from clenspy.cosmology.bias import BiasModel
     from clenspy.halo.twohalo import TwoHaloTerm
-    from clenspy.observables import ClusterAbundance
+    from clenspy.observables import ClusterCounts
     from clenspy.selection import EmgParams, LogNormalMor, SelectionFunction
 
     cosmo = fiducial_cosmology()
@@ -589,7 +601,7 @@ def _halo_to_halo(**kw):
         np.array([0.20, 0.35, 0.50, 0.65]),
         LogNormalMor(), EmgParams(-1.5, 3.0, 0.3, 0.12), sigma_z=0.01,
     )
-    abundance = ClusterAbundance(
+    abundance = ClusterCounts(
         np.log(np.logspace(13.5, 15.3, 10)), np.linspace(0.16, 0.70, 12),
         mass_function, sel, cosmo,
         lambda z: np.full_like(np.asarray(z, float), 0.4570),
@@ -677,3 +689,39 @@ def test_halo_to_halo_rejects_bad_parameters():
         _halo_to_halo(sigma_lnc=-0.1)
     with pytest.raises(ValueError, match="n_c"):
         _halo_to_halo(n_c=0)
+
+
+def test_a_callable_concentration_is_invoked_and_broadcast():
+    r"""``concentration(m, z)`` must give the same c200 as the equal
+    fixed value, and must actually be called with the mass grid."""
+    fixed, _ = _halo_to_halo(concentration=5.0)
+    callable_c, _ = _halo_to_halo(concentration=lambda m, z: np.full_like(m, 5.0))
+    np.testing.assert_allclose(callable_c._nfw.c200, fixed._nfw.c200,
+                               rtol=0.0)
+    np.testing.assert_allclose(callable_c.cov(R_HH, 0, 0),
+                               fixed.cov(R_HH, 0, 0), rtol=1e-12)
+
+
+def test_mass_population_rejects_a_bin_with_no_selection_weight():
+    r"""A bin the real weight array assigns nothing must not average zero."""
+    iv, abundance = _halo_to_halo()
+    zeroed = abundance.weight()
+    zeroed[:, :, 0, 0] = 0.0
+    abundance.weight = lambda: zeroed
+    with pytest.raises(ValueError, match="has no selection weight"):
+        iv.mass_population(0, 0)
+
+
+def test_cov_rejects_a_bin_with_no_clusters():
+    r"""Zero N_cl must not be divided into, even if the population is fine."""
+    iv, abundance = _halo_to_halo()
+    counts = abundance.counts()
+    counts[0, 0] = 0.0
+    abundance.counts = lambda: counts
+    with pytest.raises(ValueError, match="contains no clusters"):
+        iv.cov(R_HH, 0, 0)
+
+
+def test_halo_to_halo_repr_contains_the_class_name():
+    iv, _ = _halo_to_halo()
+    assert "DeltaSigmaHaloToHaloCovariance" in repr(iv)

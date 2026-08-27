@@ -35,12 +35,12 @@ the same way, driven by `.readthedocs.yaml` at the repository root.
 
 ## Package layout
 
-- `clenspy.halo`: `NfwProfile`, `EinastoProfile`, `BiasModel`, `TwoHaloTerm`
+- `clenspy.halo`: `NfwProfile`, `EinastoProfile`, `TwoHaloTerm`
 - `clenspy.lensing`: `LensingProfile` (a higher-level wrapper; currently only
   wraps the NFW model, and its two-halo term needs the `compare` extra for a
   P(k) backend), plus boost-factor and miscentering corrections
-- `clenspy.cosmology`: `PkGrid`, critical surface density, angular/comoving
-  conversions
+- `clenspy.cosmology`: `PkGrid`, `BiasModel`, `TinkerMassFunction`, critical
+  surface density, angular/comoving conversions
 - `clenspy.utils`: log-grid interpolation, numerical integration helpers,
   shared decorators
 - `clenspy.config`: default cosmology and physical constants

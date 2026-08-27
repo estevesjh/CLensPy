@@ -275,3 +275,12 @@ def test_the_old_import_path_still_works_with_a_warning():
             importlib.import_module("clenspy.lensing.limber"))
     assert mod.LimberProjector is LimberProjector
     assert any(w.category is DeprecationWarning for w in caught)
+
+
+def test_repr_names_the_class_and_the_ell_grid():
+    p = build(n_ell=321, ell_range=(2.0, 4.0))
+    r = repr(p)
+    assert "LimberProjector" in r
+    assert "n_ell=321" in r
+    assert "2.0e+00" in r
+    assert "4.0e+00" in r

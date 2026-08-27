@@ -328,6 +328,59 @@ def test_configs_carry_provenance_on_every_group():
             )
 
 
+def _minimal_config():
+    return {
+        "name": "test-cfg",
+        "omega_z": "des_y1",
+        "bins": {
+            "lam_edges": [20.0, 30.0, 45.0],
+            "z_edges": [0.2, 0.35, 0.5],
+            "sigma_z": [0.01, 0.01],
+        },
+        "sources": {
+            "pz_model": "smail",
+            "sigma_gamma": 0.3,
+            "n_src_arcmin": 6.28,
+        },
+    }
+
+
+def test_survey_bins_requires_a_bins_section():
+    cfg = _minimal_config()
+    del cfg["bins"]
+    with pytest.raises(KeyError, match="bins"):
+        survey_bins(cfg)
+
+
+def test_from_config_requires_a_sources_section():
+    cfg = _minimal_config()
+    del cfg["sources"]
+    with pytest.raises(KeyError, match="sources"):
+        Survey.from_config(cfg)
+
+
+def test_from_config_rejects_an_unknown_pz_model():
+    cfg = _minimal_config()
+    cfg["sources"]["pz_model"] = "bogus_model"
+    with pytest.raises(KeyError, match="bogus_model"):
+        Survey.from_config(cfg)
+
+
+def test_tabulated_rejects_scalar_or_too_short_z():
+    with pytest.raises(ValueError, match="at least two nodes"):
+        Survey.tabulated(z=0.5, dndz=1.0)
+    with pytest.raises(ValueError, match="at least two nodes"):
+        Survey.tabulated(z=[0.5], dndz=[1.0])
+
+
+def test_survey_repr_contains_class_name_and_sigma_gamma():
+    pop = Survey.top_hat(zs_min=0.8, zs_max=1.2, sigma_gamma=0.27)
+    r = repr(pop)
+    assert "Survey" in r
+    assert "sigma_gamma" in r
+    assert "0.27" in r
+
+
 def test_sigma_z_is_the_scatter_not_the_window():
     """0.01 is sigma_z; 0.03 is 3 sigma. Confusing them widens every bin 3x."""
     for name in available_configs():

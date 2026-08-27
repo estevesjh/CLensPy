@@ -5,7 +5,14 @@ import pytest
 from scipy.integrate import quad
 from scipy.special import kv
 
-from clenspy.halo.einasto import EinastoProfile
+from clenspy.halo.einasto import EinastoProfile, _expdisk_m2d_factor
+from clenspy.halo.einasto_series import (
+    _PK_TOL,
+    _pk_direct_eval,
+    _pk_filon,
+    _pk_mb_contour,
+    _pk_plateau_eval,
+)
 from clenspy.utils.special import expint_asymptotic, expn_fast
 
 mpmath = pytest.importorskip("mpmath")
@@ -103,6 +110,83 @@ class TestSpiralHalo:
         ref = np.array([0.43358, -0.46999, 0.24766, -0.08333,
                         0.01963, -0.00326, 0.00034])
         assert np.allclose(A, ref, atol=5e-5)
+
+
+class TestExplicitPowerSpectrumBranches:
+    """The named `branch=` overrides of `power_spectrum` (not used by
+    "auto" but exposed for comparison/research) -- see the class
+    docstring's "closed"/"small_k"/"large_k" descriptions."""
+
+    def test_closed_branch_is_n_independent(self):
+        # the "closed" formula doesn't reference n at all -- any profile
+        # must reproduce it exactly.
+        e = EinastoProfile(alpha=1.0 / 2.5, rho_0=3.0, r_s=0.7)  # n = 2.5
+        k = np.logspace(-2, 1.5, 20)
+        kt = k * e.h
+        pk_true = e.rho_0 * e.h ** 3 / (2.0 * np.pi * (1.0 + kt ** 2) ** 2)
+        assert np.allclose(e.power_spectrum(k, branch="closed"), pk_true,
+                            rtol=1e-14)
+
+    def test_small_k_branch_matches_the_m0_closed_form_at_kt_zero(self):
+        # NOTE: self.order is only built for n > 1.5 (see EinastoProfile
+        # .__init__); the "small_k" branch needs an explicit `order=` for
+        # n <= 1.5, since `self.order` is None there and `M = self.order
+        # if order is None else order` then crashes with a bare TypeError
+        # (`np.arange(0, None + 1)`) rather than a clear error -- a real
+        # latent bug in the explicit-branch API, flagged separately.
+        from scipy.special import gamma
+        n = 0.7
+        e = EinastoProfile(alpha=1.0 / n, rho_0=1.0, r_s=1.0)
+        pk0 = e.power_spectrum(np.array([0.0]), branch="small_k", order=40)
+        expected = e.rho_0 * n * e.h ** 3 / (4.0 * np.pi) * gamma(3 * n)
+        assert np.allclose(pk0, expected, rtol=1e-12)
+
+    def test_small_k_branch_agrees_with_auto_for_n_below_1(self):
+        # for n < 1 "auto" dispatches through the same convergent series
+        # (via a numerically-stabilised route); at small kt both must
+        # agree closely.
+        n = 0.7
+        e = EinastoProfile(alpha=1.0 / n, rho_0=1.0, r_s=1.0)
+        kt = np.array([1e-4, 1e-3, 1e-2])
+        k = kt / e.h
+        small_k = e.power_spectrum(k, branch="small_k", order=40)
+        auto = e.power_spectrum(k)
+        assert np.allclose(small_k, auto, rtol=1e-6)
+
+    def test_small_k_branch_without_explicit_order_raises_on_low_n(self):
+        # documents the latent bug above rather than hiding it: n <= 1.5
+        # has self.order = None, so the undocumented requirement to pass
+        # order= explicitly here surfaces as a raw TypeError.
+        n = 0.7
+        e = EinastoProfile(alpha=1.0 / n, rho_0=1.0, r_s=1.0)
+        assert e.order is None
+        with pytest.raises(TypeError):
+            e.power_spectrum(np.array([0.0]), branch="small_k")
+
+    def test_large_k_branch_agrees_with_auto_direct_series_for_n_above_1(self):
+        # "large_k" is a legacy Wright psi-function evaluator, independent
+        # of the _pk_direct_eval cascade "auto" uses -- both are valid
+        # large-kt expansions for n > 1 and must agree.
+        n = 2.0
+        e = EinastoProfile(alpha=1.0 / n, rho_0=1.0, r_s=1.0)
+        kt = np.array([5.0, 20.0, 50.0])
+        k = kt / e.h
+        large_k = e.power_spectrum(k, branch="large_k")
+        auto = e.power_spectrum(k)
+        assert np.allclose(large_k, auto, rtol=1e-6)
+
+    def test_large_k_branch_at_kt_zero_matches_gamma_3n(self):
+        from scipy.special import gamma
+        n = 2.0
+        e = EinastoProfile(alpha=1.0 / n, rho_0=1.0, r_s=1.0)
+        pk0 = e.power_spectrum(np.array([0.0]), branch="large_k")
+        expected = e.rho_0 * n * e.h ** 3 / (4.0 * np.pi) * gamma(3 * n)
+        assert np.allclose(pk0, expected, rtol=1e-10)
+
+    def test_unknown_branch_raises(self):
+        e = EinastoProfile(alpha=1.0, rho_0=1.0, r_s=1.0)
+        with pytest.raises(ValueError, match="unknown branch"):
+            e.power_spectrum(1.0, branch="bogus")
 
 
 class TestNumericalFallback:
@@ -355,6 +439,22 @@ class TestLowNSeries:
         for x, val in refs.items():
             assert e.deltasigma(x * e.h) == pytest.approx(val * e.h, rel=1e-9)
 
+    def test_sigma_exact_limit_at_r_zero(self):
+        # Sigma(0) = 2 rho_0 h Gamma(n+1) exactly (the x=0 special case in
+        # einasto_lown.py, distinct from the x>0 series/E_nu evaluation);
+        # DeltaSigma(0) = 0. Mixed array so both the x=0 and x>0 branches
+        # run in the same call.
+        from scipy.special import gamma as _gamma
+        n = 0.7
+        e = EinastoProfile(alpha=1.0 / n, rho_0=1.0, r_s=1.0)
+        R = np.array([0.0, 1.0]) * e.h
+        sigma = e.sigma(R)
+        expected0 = 2.0 * e.rho_0 * e.h * _gamma(n + 1.0)
+        assert sigma[0] == pytest.approx(expected0, rel=1e-12)
+        assert sigma[1] == pytest.approx(self.REF[(n, 1.0)][0] * e.rho_0 * e.h,
+                                          rel=1e-8)
+        assert e.deltasigma(np.array([0.0])) == pytest.approx(0.0, abs=1e-300)
+
 
 class TestPowerSpectrumLowN:
     """Analytic P(k) dispatch for 0 < n < 1 (Kummer / plain convergent /
@@ -417,6 +517,166 @@ class TestPowerSpectrumLowN:
         assert np.allclose(pk, ref, rtol=1e-8)
 
 
+class TestPowerSpectrumHighN:
+    """n > 1 cascade: plateau series (small kt) -> direct series
+    (moderate/large kt), each carrying its own computable error estimate
+    (einasto_series._pk_plateau_eval / _pk_direct_eval). No mpmath ground
+    truth is used here: the (n, kt) points below were pinned down by
+    inspecting each evaluator's OWN returned error estimate directly, and
+    the check is that power_spectrum's auto dispatch reproduces exactly
+    the evaluator with the smaller one -- "the whole reason the selection
+    logic in einasto.py exists" (see the __main__ block at the bottom of
+    einasto_series.py).
+    """
+
+    @pytest.mark.parametrize("n,kt", [
+        (1.5, 1e-3), (1.5, 1e-2),
+        (3.0, 1e-6), (3.0, 1e-5),
+    ])
+    def test_plateau_authoritative_at_small_kt(self, n, kt):
+        vp, ep = _pk_plateau_eval(n, np.array([kt]))
+        assert ep[0] < _PK_TOL  # confirms plateau is certified here
+        e = EinastoProfile(alpha=1.0 / n, rho_0=1.0, r_s=1.0)
+        pk = e.power_spectrum(kt / e.h)
+        assert pk == pytest.approx(float(vp[0]) * e.rho_0 * e.h ** 3, rel=1e-10)
+
+    @pytest.mark.parametrize("n,kt", [
+        (1.5, 0.5), (1.5, 1.0), (1.5, 3.0), (1.5, 10.0), (1.5, 50.0),
+        (3.0, 3e-3), (3.0, 1e-2), (3.0, 0.1), (3.0, 1.0), (3.0, 10.0),
+        (3.0, 50.0),
+    ])
+    def test_direct_authoritative_at_moderate_large_kt(self, n, kt):
+        vp, ep = _pk_plateau_eval(n, np.array([kt]))
+        vd, ed = _pk_direct_eval(n, np.array([kt]))
+        # confirms direct is certified (est <= 1e-8) and beats plateau here
+        assert ed[0] <= 1e-8
+        assert ed[0] <= ep[0]
+        e = EinastoProfile(alpha=1.0 / n, rho_0=1.0, r_s=1.0)
+        pk = e.power_spectrum(kt / e.h)
+        assert pk == pytest.approx(float(vd[0]) * e.rho_0 * e.h ** 3, rel=1e-10)
+
+
+class TestPowerSpectrumCrackFiller:
+    """The narrow "crack" between the plateau and direct series' validity
+    windows for n > 1 (neither evaluator's own error estimate meets
+    _PK_TOL/1e-8 there), patched by Mellin-Barnes contour quadrature for
+    n <= 3 and Filon quadrature for n > 3 (see the n > 1 branch of
+    power_spectrum). Each crack filler is checked against whichever
+    neighbouring evaluator is authoritative at the SAME kt -- the
+    small-kt edge of the crack (plateau) or the large-kt edge (direct) --
+    with generous tolerances set from that neighbour's own estimate.
+    """
+
+    def test_mb_contour_bridges_the_n3_gap(self):
+        n = 3.0
+        # kt = 1e-4: inside the plateau/direct gap for n = 3 (both
+        # evaluators' own error estimates exceed 1e-8).
+        kt_gap = np.array([1e-4])
+        vp, ep = _pk_plateau_eval(n, kt_gap)
+        vd, ed = _pk_direct_eval(n, kt_gap)
+        assert min(ep[0], ed[0]) > 1e-8
+        vmb = _pk_mb_contour(n, kt_gap)
+        e = EinastoProfile(alpha=1.0 / n, rho_0=1.0, r_s=1.0)
+        pk = e.power_spectrum(kt_gap[0] / e.h)
+        assert pk == pytest.approx(float(vmb[0]) * e.rho_0 * e.h ** 3, rel=1e-10)
+        # plateau's own estimate (~6e-8) is still fairly tight this close
+        # to the gap's small-kt edge; MB must track it.
+        assert vmb[0] == pytest.approx(vp[0], rel=1e-5)
+
+        # kt = 3e-3: just outside the gap, direct is authoritative
+        # (est ~ 5.5e-10); MB is not dispatched there but is still valid
+        # per its own docstring (n up to 2.5-3) and must agree with direct.
+        kt_out = np.array([3e-3])
+        vd2, ed2 = _pk_direct_eval(n, kt_out)
+        assert ed2[0] < 1e-8
+        vmb2 = _pk_mb_contour(n, kt_out)
+        assert vmb2[0] == pytest.approx(vd2[0], rel=1e-6)
+
+    def test_filon_bridges_the_n4_gap(self):
+        n = 4.0
+        # kt = 1e-4: inside the plateau/direct gap for n = 4 (n > 3, so
+        # Filon replaces the MB contour as the crack filler).
+        kt_gap = np.array([1e-4])
+        vp, ep = _pk_plateau_eval(n, kt_gap)
+        vd, ed = _pk_direct_eval(n, kt_gap)
+        assert min(ep[0], ed[0]) > 1e-8
+        vf = _pk_filon(n, kt_gap)
+        e = EinastoProfile(alpha=1.0 / n, rho_0=1.0, r_s=1.0)
+        pk = e.power_spectrum(kt_gap[0] / e.h)
+        assert pk == pytest.approx(float(vf[0]) * e.rho_0 * e.h ** 3, rel=1e-10)
+        # direct's own estimate is still moderately good here (~2e-7);
+        # Filon must track it.
+        assert vf[0] == pytest.approx(vd[0], rel=5e-5)
+
+        # Deep in the plateau's validity window (est ~ 3e-29), Filon is
+        # not dispatched, but the standalone quadrature must still
+        # reproduce the plateau value there.
+        kt_in = np.array([1e-7])
+        vp2, ep2 = _pk_plateau_eval(n, kt_in)
+        assert ep2[0] < 1e-20
+        vf2 = _pk_filon(n, kt_in)
+        assert vf2[0] == pytest.approx(vp2[0], rel=1e-6)
+
+    def test_n10_power_spectrum_finite_positive_and_monotonic(self):
+        # Large-n turnover regime the module docstring calls out
+        # ("<= 8.5e-8 for n = 10"). Direct alone certifies the whole
+        # physical range at this n (its own estimate stays ~1e-14 from
+        # kt ~ 1e-15 to kt ~ 1e6), so there is no second analytic series
+        # to cross-check against here; instead assert the full
+        # auto-dispatch cascade produces a sane P(k) -- finite, positive,
+        # and monotonically non-increasing, with no sign flips or wild
+        # jumps -- both over an ordinary k grid and over kt in [20, 100].
+        e = EinastoProfile(alpha=0.1, rho_0=1.0, r_s=1.0)  # n = 10
+
+        k = np.logspace(-3, 3, 200)
+        pk = e.power_spectrum(k)
+        assert np.all(np.isfinite(pk))
+        assert np.all(pk > 0)
+        assert np.all(np.diff(pk) <= 0)
+
+        kt = np.linspace(20.0, 100.0, 20)
+        pk_kt = e.power_spectrum(kt / e.h)
+        assert np.all(np.isfinite(pk_kt))
+        assert np.all(pk_kt > 0)
+        assert np.all(np.diff(pk_kt) <= 0)
+
+
+class TestExpDiskM2DFactor:
+    """M_2D/(4 pi rho_0 h^3) for the exact n = 1 profile (used inside
+    EinastoProfile.enclosed_mass_2D): 2 - x^2 K_2(x), with a small-x
+    Taylor branch below x = 0.1 that avoids the 2-vs-x^2K_2(x)
+    cancellation there."""
+
+    @pytest.mark.parametrize("x,ref", [
+        # mpmath dps=50 evaluation of 2 - x^2 K_2(x) directly, independent
+        # of the module's own scipy.special.kv call and Taylor coefficients.
+        (0.01, 4.9993161058937644776878351447052552095396434759002e-05),
+        (0.15, 0.011074743385586977724239725125765712321572292304681),
+    ])
+    def test_matches_mpmath(self, x, ref):
+        got = _expdisk_m2d_factor(np.array([x]))[0]
+        assert got == pytest.approx(ref, rel=1e-9)
+
+    def test_taylor_branch_matches_naive_closed_form_near_boundary(self):
+        # At x = 0.099 (just inside the Taylor branch, x < 0.1) the fp64
+        # cancellation in 2 - x^2 K_2(x) has not yet become severe, so a
+        # direct scipy.special.kv evaluation is still trustworthy there,
+        # giving an independent check that the Taylor branch continuously
+        # extends the direct formula (no jump at the x = 0.1 switch).
+        x = 0.099
+        taylor = _expdisk_m2d_factor(np.array([x]))[0]
+        naive = 2.0 - x ** 2 * kv(2, x)
+        assert taylor == pytest.approx(naive, rel=1e-8)
+
+    def test_continuous_across_taylor_branch_boundary(self):
+        # Straddle x = 0.1 tightly enough that the function's own smooth
+        # variation is negligible, so any branch-switch discontinuity
+        # would show up cleanly.
+        lo = _expdisk_m2d_factor(np.array([0.1 - 1e-6]))[0]
+        hi = _expdisk_m2d_factor(np.array([0.1 + 1e-6]))[0]
+        assert lo == pytest.approx(hi, rel=1e-4)
+
+
 class TestScalarArrayOutput:
     """Scalar in -> scalar out, like NFW."""
 
@@ -430,3 +690,25 @@ class TestScalarArrayOutput:
         e = EinastoProfile(alpha=0.25, rho_0=1.0, r_s=1.0, order=20)
         out = e.sigma(np.array([0.5, 1.0, 2.0]))
         assert out.shape == (3,)
+
+
+class TestLensingObservablePassthroughs:
+    """`fourier`, `convergence`, `shear` -- thin wrappers around
+    `power_spectrum`/`sigma`/`deltasigma`."""
+
+    def test_fourier_is_4pi_squared_times_power_spectrum(self):
+        e = EinastoProfile(alpha=2.0, rho_0=1.0, r_s=1.0)  # n = 0.5
+        k = np.array([0.1, 1.0, 5.0])
+        assert np.allclose(e.fourier(k), (4 * np.pi) ** 2 * e.power_spectrum(k))
+
+    def test_convergence_is_sigma_over_sigma_crit(self):
+        e = EinastoProfile(alpha=1.0, rho_0=1.0, r_s=1.0)  # n = 1
+        R = np.array([0.3, 1.0, 2.0])
+        sigma_crit = 3.5
+        assert np.allclose(e.convergence(R, sigma_crit), e.sigma(R) / sigma_crit)
+
+    def test_shear_is_deltasigma_over_sigma_crit(self):
+        e = EinastoProfile(alpha=1.0, rho_0=1.0, r_s=1.0)  # n = 1
+        R = np.array([0.3, 1.0, 2.0])
+        sigma_crit = 3.5
+        assert np.allclose(e.shear(R, sigma_crit), e.deltasigma(R) / sigma_crit)

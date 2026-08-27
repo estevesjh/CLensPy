@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from clenspy.cosmology.fiducial import fiducial_cosmology
-from clenspy.observables import ClusterAbundance, StackedDeltaSigma
+from clenspy.observables import ClusterCounts, StackedDeltaSigma
 from clenspy.observables.deltasigma import F_MIS_Y3, TAU_MIS_Y3
 from clenspy.selection import EmgParams, LogNormalMor, SelectionFunction
 
@@ -54,7 +54,7 @@ def make_selection():
 
 
 def make_abundance(n_m=16, n_z=20, omega=flat_omega):
-    return ClusterAbundance(
+    return ClusterCounts(
         np.log(np.logspace(13.5, 15.3, n_m)),
         np.linspace(0.16, 0.70, n_z),
         toy_mass_function, make_selection(), COSMO, omega,
@@ -168,6 +168,13 @@ def test_mean_redshift_lies_inside_its_bin():
         assert np.all(z[:, j] < Z_EDGES[j + 1])
 
 
+def test_mean_richness_lies_inside_its_bin():
+    lam = make_abundance().mean_richness()
+    for i in range(lam.shape[0]):
+        assert np.all(lam[i] > LAM_EDGES[i])
+        assert np.all(lam[i] < LAM_EDGES[i + 1])
+
+
 def test_mean_mass_is_within_the_grid_range():
     ab = make_abundance()
     m = ab.mean_mass()
@@ -189,13 +196,13 @@ def test_convergence_improves_with_resolution():
 def test_abundance_rejects_bad_grids():
     sel = make_selection()
     with pytest.raises(ValueError, match="ascending"):
-        ClusterAbundance(np.log([1e15, 1e14]), np.linspace(0.2, 0.6, 5),
+        ClusterCounts(np.log([1e15, 1e14]), np.linspace(0.2, 0.6, 5),
                          toy_mass_function, sel, COSMO, flat_omega)
     with pytest.raises(ValueError, match=">= 2 points"):
-        ClusterAbundance(np.log([1e14]), np.linspace(0.2, 0.6, 5),
+        ClusterCounts(np.log([1e14]), np.linspace(0.2, 0.6, 5),
                          toy_mass_function, sel, COSMO, flat_omega)
     with pytest.raises(ValueError, match="z must be positive"):
-        ClusterAbundance(np.log(np.logspace(14, 15, 4)),
+        ClusterCounts(np.log(np.logspace(14, 15, 4)),
                          np.array([0.0, 0.3, 0.6]),
                          toy_mass_function, sel, COSMO, flat_omega)
 
@@ -315,3 +322,18 @@ def test_the_des_y3_miscentring_constants():
     """Kelly et al. (2024), the values the paper adopts."""
     assert F_MIS_Y3 == 0.25
     assert TAU_MIS_Y3 == 0.17
+
+
+def test_cluster_counts_repr_names_the_class_and_the_grid():
+    ab = make_abundance()
+    r = repr(ab)
+    assert "ClusterCounts" in r
+    assert f"{ab.ln_mass.size}" in r
+    assert f"{ab.z.size}" in r
+
+
+def test_stacked_deltasigma_repr_names_the_class_and_the_radii():
+    stack, ab = make_stack()
+    r = repr(stack)
+    assert "StackedDeltaSigma" in r
+    assert f"n_r={stack.radii.size}" in r

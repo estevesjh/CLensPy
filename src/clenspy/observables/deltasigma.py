@@ -7,7 +7,7 @@ r"""The stacked lensing profile :math:`\Delta\Sigma_{ij}(R)`.
 **This is not a second model.** It is the same weight
 :math:`W_{ij}` that gives :math:`\langle N_{ij}\rangle`, contracted
 against a different per-halo quantity. `StackedDeltaSigma` therefore takes
-a `~clenspy.observables.ClusterAbundance` and calls its `average`; it owns
+a `~clenspy.observables.ClusterCounts` and calls its `average`; it owns
 no weight of its own, and cannot disagree with the counts about which
 haloes are in the bin.
 
@@ -39,7 +39,7 @@ and `StackedDeltaSigma` documents that rather than guessing. Passing
 
 NOTE: :math:`\Omega(z)` cancels in this ratio identically, so a footprint
 must **not** be applied here as well -- see
-`clenspy.observables.abundance`. The counts carry it; the profile does not.
+`clenspy.observables.number_counts`. The counts carry it; the profile does not.
 
 NOTE: the stack is over the **same** :math:`(M, z)` grid as the counts.
 A profile that is expensive per :math:`(M, z)` therefore costs
@@ -51,6 +51,8 @@ quadrature.
 from __future__ import annotations
 
 import numpy as np
+
+from ..utils.decorators import time_method
 
 __all__ = ["StackedDeltaSigma", "F_MIS_Y3", "TAU_MIS_Y3"]
 
@@ -69,7 +71,7 @@ class StackedDeltaSigma:
 
     Parameters
     ----------
-    abundance : clenspy.observables.ClusterAbundance
+    abundance : clenspy.observables.ClusterCounts
         Stored verbatim. Supplies the weight and its normalisation, so the
         stack and the counts cannot disagree about the sample.
     profile_grid : array-like, shape (n_m, n_z, n_r)
@@ -102,7 +104,7 @@ class StackedDeltaSigma:
 
         Parameters
         ----------
-        abundance : ClusterAbundance
+        abundance : ClusterCounts
             The weight to stack against.
         profile : callable
             ``profile(radii, mass, z) -> array of shape (n_r,)``, with
@@ -131,6 +133,7 @@ class StackedDeltaSigma:
                 grid[i, j] = np.ravel(profile(radii, mass, z))
         return cls(abundance, grid, radii)
 
+    @time_method
     def profile(self):
         r""":math:`\Delta\Sigma_{ij}(R)`, shape
         ``(n_lambda, n_z_bins, n_r)``."""
@@ -174,7 +177,7 @@ if __name__ == "__main__":
     from ..halo.nfw import NfwProfile
     from ..selection import EmgParams, LogNormalMor, SelectionFunction
     from ..survey.survey import omega_des_y1
-    from .abundance import ClusterAbundance
+    from .number_counts import ClusterCounts
 
     cosmo = fiducial_cosmology()
 
@@ -193,7 +196,7 @@ if __name__ == "__main__":
     )
     ln_mass = np.log(np.logspace(13.5, 15.3, 24))
     z = np.linspace(0.16, 0.70, 32)
-    abundance = ClusterAbundance(ln_mass, z, mass_function, sel, cosmo,
+    abundance = ClusterCounts(ln_mass, z, mass_function, sel, cosmo,
                                  omega_des_y1)
 
     radii = np.logspace(-1.0, 1.0, 6)

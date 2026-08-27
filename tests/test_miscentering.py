@@ -192,6 +192,16 @@ def test_profile_class_wiring():
 # --- the table is the only runtime path -------------------------------------
 
 
+def test_mean_sigma_passthrough_to_halo_profile():
+    """`mean_sigma` is a pure passthrough to the wrapped 1-halo profile's
+    closed form -- it does not touch the miscentering table at all."""
+    prof = MiscenteringProfile(
+        z_cluster=0.3, m200=1e14, include_2halo=False, r_mis=0.4
+    )
+    R = np.array([0.2, 0.5, 1.0, 3.0])
+    np.testing.assert_allclose(prof.mean_sigma(R), prof.halo_profile.mean_sigma(R))
+
+
 def test_einasto_has_no_table_and_says_so():
     """Untabulated profiles refuse rather than falling back to quadrature."""
     from clenspy.halo import EinastoProfile
@@ -317,6 +327,36 @@ def test_centred_extrapolation_is_accurate_at_the_right_edge():
         )
         assert got_s == pytest.approx(ref_s, rel=tol)
         assert got_d == pytest.approx(ref_d, rel=tol)
+
+
+def test_missing_table_file_raises(tmp_path):
+    """Constructing directly from a nonexistent path refuses cleanly."""
+    from clenspy.selection.miscentering import (
+        MiscenteringTableError,
+        NfwMiscenteringTable,
+    )
+
+    with pytest.raises(MiscenteringTableError, match="not found"):
+        NfwMiscenteringTable(tmp_path / "missing.npz")
+
+
+def test_x_mis_range_and_q_range_are_exp_of_the_log_grids():
+    from clenspy.selection.miscentering import load_nfw_miscentering_table
+
+    table = load_nfw_miscentering_table()
+    expected_x_mis = (float(np.exp(table._ln_x_mis[0])),
+                       float(np.exp(table._ln_x_mis[-1])))
+    expected_q = (float(np.exp(table._ln_q[0])),
+                  float(np.exp(table._ln_q[-1])))
+    assert table.x_mis_range == pytest.approx(expected_x_mis)
+    assert table.q_range == pytest.approx(expected_q)
+
+
+def test_table_repr_contains_class_name():
+    from clenspy.selection.miscentering import load_nfw_miscentering_table
+
+    table = load_nfw_miscentering_table()
+    assert "NfwMiscenteringTable" in repr(table)
 
 
 def test_mixed_in_and_out_of_range_vector():

@@ -69,7 +69,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..kernels.photoz import photoz_counts
-from .richness_kernel import richness_bin_probability
+from .richness_kernel import richness_bin_first_moment, richness_bin_probability
 
 __all__ = ["SelectionFunction"]
 
@@ -195,6 +195,30 @@ class SelectionFunction:
         # contract the quadrature axis
         return np.einsum("...q,...q,...qb->...b", wts, pdf, kernel)
 
+    def first_moment_i(self, ln_mass, z):
+        r"""``\int d\lambda^{\rm tr}\,P(\lambda^{\rm tr}\mid M,z)\,M_i``,
+        for every richness bin.
+
+        The same :math:`\lambda^{\rm tr}` quadrature `S_i` uses, contracted
+        against `~clenspy.selection.richness_kernel.richness_bin_first_moment`
+        instead of `richness_bin_probability`. Dividing element-wise by
+        `S_i` gives the observed-richness mean of haloes of mass :math:`M`
+        at redshift :math:`z` that land in bin :math:`i`.
+
+        Returns shape ``(*broadcast(ln_mass, z).shape, n_lambda_bins)``.
+        """
+        ln_mass, z = np.broadcast_arrays(
+            np.asarray(ln_mass, dtype=float), np.asarray(z, dtype=float)
+        )
+        lam, wts = self._nodes_for(ln_mass, z)
+        # M_i(lambda_k, z) -> (..., n_quad, n_bins)
+        kernel = richness_bin_first_moment(
+            self.lambda_edges, lam, z[..., None], self.emg_params
+        )
+        # P(lambda_k | M, z) -> (..., n_quad)
+        pdf = self.mor.pdf(lam, ln_mass[..., None], z[..., None])
+        return np.einsum("...q,...q,...qb->...b", wts, pdf, kernel)
+
     def S_j(self, z):
         r""":math:`\mathcal S_j(z^{\rm tr})` for every redshift bin.
 
@@ -214,6 +238,23 @@ class SelectionFunction:
         Returns shape ``(..., n_lambda_bins, n_z_bins)``.
         """
         return self.S_i(ln_mass, z)[..., :, None] * (
+            self.S_j(z)[..., None, :]
+        )
+
+    def first_moment_ij(self, ln_mass, z):
+        r"""``first_moment_i * S_j``, the :math:`\lambda^{\rm ob}` first
+        moment's share of :math:`\mathcal S_{ij}`.
+
+        Factorises exactly like `S_ij`: the redshift factor
+        :math:`\mathcal S_j` carries no :math:`\lambda^{\rm ob}`
+        dependence, so it multiplies through unchanged. This is the
+        numerator `clenspy.observables.ClusterCounts.mean_richness` needs
+        -- dividing its :math:`(\ln M, z)` integral by `counts` gives
+        :math:`\langle\lambda^{\rm ob}\rangle_{ij}`.
+
+        Returns shape ``(..., n_lambda_bins, n_z_bins)``.
+        """
+        return self.first_moment_i(ln_mass, z)[..., :, None] * (
             self.S_j(z)[..., None, :]
         )
 

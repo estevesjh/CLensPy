@@ -16,7 +16,7 @@ from scipy.interpolate import RectBivariateSpline
 
 
 # 1) absolute path to the *package* root
-_PACKAGE_ROOT = Path(__file__).resolve().parents[2]  # clenspy/ → ..
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]  # cosmology/ -> clenspy/
 
 # 2) default data dir inside the project tree
 _DEFAULT_DATA = _PACKAGE_ROOT / "data"

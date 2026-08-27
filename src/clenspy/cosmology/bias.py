@@ -8,8 +8,8 @@ from __future__ import annotations
 import numpy as np
 from astropy.cosmology import Cosmology
 
-from ..cosmology.fiducial import fiducial_cosmology
-from ..cosmology.sigma import LinearPk, SigmaGrid
+from .fiducial import fiducial_cosmology
+from .sigma import LinearPk, SigmaGrid
 
 
 class BiasModel:
@@ -38,7 +38,10 @@ class BiasModel:
     Mpc, wavenumbers in 1/Mpc, P(k) in Mpc^3. This class does *not* use the
     "little h" convention (h/Mpc, Msun/h, (Mpc/h)^3) common in the
     literature; matches `~clenspy.halo.NfwProfile` and
-    `~clenspy.cosmology.PkGrid`.
+    `~clenspy.cosmology.PkGrid`. Lives in `clenspy.cosmology`, not
+    `clenspy.halo`, because it is a structure-formation fit calibrated on
+    the same peak height as `~clenspy.cosmology.TinkerMassFunction` and
+    `~clenspy.cosmology.concentration`, not a density profile.
 
     NOTE: :math:`\bar\rho_m` in the Lagrangian radius is the **comoving**
     :math:`\Omega_{m,0}\rho_{c,0}`, so R(M) carries no redshift

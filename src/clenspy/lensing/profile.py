@@ -14,9 +14,9 @@ from typing import Union
 import numpy as np
 from astropy.cosmology import Cosmology
 
-from ..cosmology import PkGrid
+from ..cosmology import BiasModel, PkGrid
 from ..cosmology.fiducial import fiducial_cosmology, mean_matter_density
-from ..halo import BiasModel, NfwProfile, TwoHaloTerm
+from ..halo import NfwProfile, TwoHaloTerm
 from ..kernels import sigma_critical
 
 __all__ = ["LensingProfile", "LensingProfileInfo"]

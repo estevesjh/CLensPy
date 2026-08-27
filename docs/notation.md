@@ -68,9 +68,9 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 | Einasto scale radius | $h$ *(notes)* | **The notes write $h$; the code says `r_s`.** Not $H_0/100$ | Mpc | `r_s` | `halo.einasto` | ✅ |
 | Einasto normalisation | $\rho_0$ | Central density scale | $M_\odot\,{\rm Mpc}^{-3}$ | `rho_0` | `halo.einasto` | ✅ |
 | Halo mass function | $n(M,z)$ | $dn/dM$ (papers) — check against $dn/d\ln M$ | ${\rm Mpc}^{-3}M_\odot^{-1}$ | ⬜ | `cosmology` | ⬜ |
-| Linear halo bias | $b(M,z)$ | Tinker et al. 2010 | — | `BiasModel.bias(M)` | `halo.bias` | ✅ |
-| Peak height | $\nu$ | $\delta_c/\sigma(M)$, $\delta_c=1.686$ | — | `nu_at_mass(M)` | `halo.bias` | ✅ |
-| Mass variance | $\sigma(M)$ | Top-hat filtered $\sigma$ | — | `sigma_tophat(M)` | `halo.bias` | ✅ |
+| Linear halo bias | $b(M,z)$ | Tinker et al. 2010 | — | `BiasModel.bias(M)` | `cosmology.bias` | ✅ |
+| Peak height | $\nu$ | $\delta_c/\sigma(M)$, $\delta_c=1.686$ | — | `nu_at_mass(M)` | `cosmology.bias` | ✅ |
+| Mass variance | $\sigma(M)$ | Top-hat filtered $\sigma$ | — | `sigma_tophat(M)` | `cosmology.bias` | ✅ |
 
 ## 3. Lensing observables
 

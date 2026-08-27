@@ -141,6 +141,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..kernels.bessel import J2_SERIES_CUTOFF, j2_bin
+from ..utils.decorators import time_method
 
 __all__ = [
     "ALL_TERMS",
@@ -308,6 +309,7 @@ class DeltaSigmaGaussianCovariance:
             out["shot_shape"] = self._shot_shape_exact()
         return out
 
+    @time_method
     def cov(self, terms=ALL_TERMS):
         r"""The total, or any subset of the five terms.
 

@@ -12,7 +12,7 @@ to use is configurable.
 **The bins and the source properties are configuration.** Richness edges,
 redshift edges, :math:`\sigma_z`, :math:`\sigma_\gamma`,
 :math:`n_{\rm src}`, the :math:`p(z_s)` parameters: these are analysis
-choices. They live in ``clenspy/configs/<survey>.json`` with a
+choices. They live in ``clenspy/configs/<survey>.yaml`` with a
 ``_provenance`` string on every group, and `Survey.from_config` reads them.
 Changing an analysis means editing a config, not editing this file.
 
@@ -63,10 +63,10 @@ records. SDSS has an :math:`\Omega(z)` fit and no config, so
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 from ..utils.binning import BinCollection
 
@@ -307,11 +307,11 @@ _N_NORM_NODES = 601
 
 def available_configs():
     """The analysis configs shipped with the package, by name."""
-    return sorted(p.stem for p in CONFIG_DIR.glob("*.json"))
+    return sorted(p.stem for p in CONFIG_DIR.glob("*.yaml"))
 
 
 def load_config(name):
-    """Read ``clenspy/configs/<name>.json``.
+    """Read ``clenspy/configs/<name>.yaml``.
 
     Parameters
     ----------
@@ -325,7 +325,7 @@ def load_config(name):
         choices -- a bin edge is an integration limit, so a guessed one is
         a wrong number that looks right. The message lists what exists.
     """
-    path = CONFIG_DIR / f"{str(name).lower()}.json"
+    path = CONFIG_DIR / f"{str(name).lower()}.yaml"
     if not path.is_file():
         raise FileNotFoundError(
             f"no analysis config for {name!r} at {path}. Available: "
@@ -334,7 +334,7 @@ def load_config(name):
             "than hardcoding edges at a call site."
         )
     with open(path) as fh:
-        return json.load(fh)
+        return yaml.safe_load(fh)
 
 
 def survey_bins(name_or_config) -> BinCollection:
@@ -468,7 +468,7 @@ class Survey:
 
     @classmethod
     def from_config(cls, name_or_config) -> "Survey":
-        r"""Build from ``clenspy/configs/<name>.json``.
+        r"""Build from ``clenspy/configs/<name>.yaml``.
 
         The ``sources`` section names a ``pz_model`` -- ``"smail"``,
         ``"top_hat"`` or ``"tabulated"`` -- and supplies that shape's

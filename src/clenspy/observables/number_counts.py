@@ -2,7 +2,7 @@ r"""Cluster abundance: the weight :math:`W_{ij}(M, z)` and its contractions.
 
 Everything a binned cluster analysis predicts is one of two contractions of
 the *same* weight. That is the organising idea of this module, and the
-reason `ClusterAbundance` is a single object rather than one class per
+reason `ClusterCounts` is a single object rather than one class per
 observable.
 
 .. math::
@@ -37,7 +37,7 @@ explicitly. :math:`\langle N_{ij}\rangle` is a dimensionless count.
 NOTE: **the h-convention crosses here, and this is the boundary.** The
 mass function and the mass--observable relations are h-scaled
 (:math:`{\rm Mpc}/h`, :math:`h^{-1}M_\odot`); astropy's volume element is
-h-free (Mpc). `ClusterAbundance` takes ``h`` explicitly and applies the
+h-free (Mpc). `ClusterCounts` takes ``h`` explicitly and applies the
 conversion in **one visible place**, `_volume_per_dz`, with the powers
 written out. Nothing else in this module touches h.
 
@@ -61,11 +61,12 @@ from __future__ import annotations
 import numpy as np
 
 from ..cosmology.distances import comoving_volume_element
+from ..utils.decorators import time_method
 
-__all__ = ["ClusterAbundance"]
+__all__ = ["ClusterCounts"]
 
 
-class ClusterAbundance:
+class ClusterCounts:
     r""":math:`W_{ij}(M,z)` on a grid, plus the two contractions.
 
     NOTE: units -- see the module NOTE. ``ln_mass`` is :math:`\ln M` with
@@ -127,6 +128,7 @@ class ClusterAbundance:
         # Mpc^3 -> (Mpc/h)^3 : one visible multiplication
         return omega_sr * dv_dz_domega * self.h**3
 
+    @time_method
     def weight(self):
         r""":math:`W_{ij}(\ln M, z)`, shape
         ``(n_m, n_z, n_lambda, n_z_bins)``.
@@ -155,10 +157,12 @@ class ClusterAbundance:
 
     # -- the two contractions ------------------------------------------
 
+    @time_method
     def counts(self):
         r""":math:`\langle N_{ij}\rangle`, shape ``(n_lambda, n_z_bins)``."""
         return self._integrate(self.weight())
 
+    @time_method
     def average(self, values):
         r""":math:`\langle X\rangle_{ij}`, the weight-normalised stack.
 
@@ -214,6 +218,45 @@ class ClusterAbundance:
         z = np.ones_like(self.ln_mass)[:, None] * self.z[None, :]
         return self.average(z)
 
+    def mean_richness(self):
+        r""":math:`\langle\lambda^{\rm ob}\rangle_{ij}`, in richness units.
+
+        .. math::
+            \langle\lambda^{\rm ob}\rangle_{ij} = \frac{\int dM\!\int\! dz\;
+                \Omega(z)\,\frac{dV}{d\Omega\,dz}\,n(M,z)\,M_i(M,z)\,
+                \mathcal S_j(z)}{\langle N_{ij}\rangle}
+
+        where :math:`M_i(M,z) = \int_{\Delta\lambda_i} d\lambda^{\rm ob}\,
+        \lambda^{\rm ob}\,P(\lambda^{\rm ob}\mid M,z)` is
+        `~clenspy.selection.SelectionFunction.first_moment_i`, marginalised
+        over :math:`\lambda^{\rm tr}` the same way `S_i` is.
+
+        NOTE: **not** a contraction through `average` -- unlike mass or
+        redshift, the quantity being averaged (observed richness restricted
+        to bin :math:`i`) is itself bin-dependent, so it cannot be a single
+        ``(n_m, n_z)`` array broadcast identically across every output bin.
+        This method instead replaces :math:`\mathcal S_{ij}` in the weight
+        with :math:`M_i\,\mathcal S_j`
+        (`~clenspy.selection.SelectionFunction.first_moment_ij`), integrates
+        over the same :math:`(\ln M, z)` grid, and divides by `counts`.
+
+        Sanity property, checked in the tests: this must land inside each
+        bin's own :math:`[\lambda_i, \lambda_{i+1})` edges, the same way
+        `mean_redshift` lands inside its bin.
+        """
+        lnm = self.ln_mass[:, None]
+        z = self.z[None, :]
+        dndlnm = np.asarray(self.mass_function(lnm, z), dtype=float)
+        volume = self._volume_per_dz()[None, :]
+        first_moment_ij = self.selection.first_moment_ij(
+            np.broadcast_to(lnm, (self.ln_mass.size, self.z.size)),
+            np.broadcast_to(z, (self.ln_mass.size, self.z.size)),
+        )
+        numerator = self._integrate(
+            (dndlnm * volume)[..., None, None] * first_moment_ij
+        )
+        return numerator / self.counts()
+
     def convergence(self):
         r"""Relative change in the counts when both grids are halved.
 
@@ -222,7 +265,7 @@ class ClusterAbundance:
         between the full-grid counts and the every-other-point counts, which
         for a trapezoid rule is a 4x bound on the true error.
         """
-        coarse = ClusterAbundance(
+        coarse = ClusterCounts(
             self.ln_mass[::2], self.z[::2], self.mass_function,
             self.selection, self.cosmology, self.omega, h=self.h,
         )
@@ -231,17 +274,17 @@ class ClusterAbundance:
         return float(np.max(np.abs(crude[nonzero] / fine[nonzero] - 1.0)))
 
     def __repr__(self):
-        return (f"ClusterAbundance({self.ln_mass.size} lnM x "
+        return (f"ClusterCounts({self.ln_mass.size} lnM x "
                 f"{self.z.size} z -> {self.selection.n_lambda_bins} x "
                 f"{self.selection.n_z_bins} bins, h={self.h:g})")
 
 
 if __name__ == "__main__":
     from ..cosmology.fiducial import fiducial_cosmology
-    from ..cosmology.mass_function import TinkerMassFunction
+    from ..cosmology.halo_mass_function import TinkerMassFunction
     from ..cosmology.sigma import LinearPk, SigmaGrid
     from ..selection import EmgParams, LogNormalMor, SelectionFunction
-    from ..survey.survey import deg2, omega_des_y1
+    from ..survey.survey import omega_des_y1
 
     cosmo = fiducial_cosmology()
 
@@ -271,10 +314,9 @@ if __name__ == "__main__":
 
     ln_mass = np.log(np.logspace(13.0, 15.5, 40))
     z = np.linspace(0.15, 0.72, 60)
-    abundance = ClusterAbundance(ln_mass, z, mass_function, sel, cosmo,
+    abundance = ClusterCounts(ln_mass, z, mass_function, sel, cosmo,
                                  omega_des_y1)
-    print(abundance)
-    print(f"Omega(0.3) = {float(deg2(omega_des_y1(0.3)).item()):.1f} deg^2\n")
+    print(abundance, "\n")
 
     n_ij = abundance.counts()
     print("N_ij (richness bin x redshift bin):")
@@ -305,14 +347,9 @@ if __name__ == "__main__":
         print(f"{f'[{a:.0f}, {b:.0f})':>14s}  " + "  ".join(
             f"{v:13.4f}" for v in z_ij[i]))
 
-    # the cancellation that says Omega belongs to the counts alone
-    print("\nOmega(z) cancels in `average` but not in `counts`:")
-    doubled = ClusterAbundance(ln_mass, z, mass_function, sel, cosmo,
-                               lambda zz: 2.0 * omega_des_y1(zz))
-    print(f"  counts ratio  (2 Omega / Omega) = "
-          f"{np.max(doubled.counts() / n_ij):.6f}   <- 2, as it must be")
-    print(f"  <M> ratio                       = "
-          f"{np.max(np.abs(doubled.mean_mass() / m_ij - 1.0)):.2e}"
-          "   <- 0, identically")
-    print("  applying Omega to a lensing profile as well would count the")
-    print("  footprint twice.")
+    print("\n<lambda_ob>_ij -- must sit inside each richness bin:")
+    lam_ij = abundance.mean_richness()
+    for i, (a, b) in enumerate(zip(sel.lambda_edges[:-1],
+                                   sel.lambda_edges[1:])):
+        print(f"{f'[{a:.0f}, {b:.0f})':>14s}  " + "  ".join(
+            f"{v:13.4f}" for v in lam_ij[i]))

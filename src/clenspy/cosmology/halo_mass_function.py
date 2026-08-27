@@ -23,7 +23,7 @@ and the grid walk.
 
 - :math:`\delta_c = 1.6865`, **not** 1.686. `DELTA_C_TINKER` is the value
   ``compute_mf_tinker.f90`` uses, and it is *not* the 1.686 used by the
-  Tinker (2010) bias in `clenspy.halo.BiasModel` or by :math:`M_\star` in
+  Tinker (2010) bias in `clenspy.cosmology.BiasModel` or by :math:`M_\star` in
   `clenspy.cosmology.concentration`. The difference is 3e-4 relative in
   :math:`\delta_c`, which the :math:`\exp(-c/\sigma^2)` tail amplifies.
   Both values are kept, separately, because silently unifying them would
@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..utils.decorators import time_method
 from .sigma import lnr_grid
 
 __all__ = [
@@ -185,6 +186,7 @@ class TinkerMassFunction:
         r_hinv = np.asarray(r_hinv, dtype=float)
         return (4.0 * PI_FORTRAN / 3.0) * RHO_FACT * r_hinv**3
 
+    @time_method
     def walk(self, z, lnr=None, truncate: bool = True):
         r"""The grid walk: :math:`dn/d\ln R` and :math:`dn/d\ln M` at one z.
 
@@ -218,6 +220,7 @@ class TinkerMassFunction:
         ])
         return self.outputs(lnr, ln_sigma2, dln_sigma2, z)
 
+    @time_method
     def outputs(self, lnr, ln_sigma2, dln_sigma2, z):
         r"""``(dn/dlnR, dn/dlnM)`` from :math:`\ln\sigma^2` and its slope.
 
