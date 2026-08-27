@@ -165,27 +165,35 @@ class NfwProfile:
         uk : np.ndarray
             Dimensionless Fourier transform. Shape: (n_halo, n_k)
         """
-        m200, c200, rs = self.m200, self.c200, self.rs
-        k = np.atleast_1d(k)
-        m200, c200, rs = np.broadcast_arrays(m200, c200, rs)
-        x = rs[..., None] * k
-        norm = np.log(1 + c200)[..., None] - (c200[..., None] / (1 + c200[..., None]))
-        P1 = m200[..., None] / norm
+        k_in = k
+        k = np.atleast_1d(np.asarray(k, dtype=float))
+        m200, c200, rs = np.broadcast_arrays(
+            np.atleast_1d(self.m200), np.atleast_1d(self.c200),
+            np.atleast_1d(self.rs),
+        )
+        # NOTE: explicit (n_halo, n_k) layout. The previous spelling put a
+        # second ``[..., None]`` on P1, which was already (n_halo, n_k), so
+        # an array ``m200`` broadcast to (n_halo, n_k, n_k) -- silently, and
+        # only for array mass. Scalar mass was correct, which is why it
+        # survived: every test passed a scalar.
+        x = rs[:, None] * k[None, :]
+        norm = np.log(1 + c200) - c200 / (1 + c200)      # (n_halo,)
+        P1 = (m200 / norm)[:, None]
         Si2, Ci2 = sici(x)
         if truncated:
-            Si1, Ci1 = sici((1 + c200)[..., None] * x)
+            Si1, Ci1 = sici((1 + c200)[:, None] * x)
             P2 = np.sin(x) * (Si1 - Si2) + np.cos(x) * (Ci1 - Ci2)
-            P3 = np.sin(c200[..., None] * x) / ((1 + c200[..., None]) * x)
-            prof = P1[..., None] * (P2 - P3)
+            P3 = np.sin(c200[:, None] * x) / ((1 + c200)[:, None] * x)
+            prof = P1 * (P2 - P3)
         else:
             P2 = np.sin(x) * (0.5 * np.pi - Si2) - np.cos(x) * Ci2
-            prof = P1[..., None] * P2
+            prof = P1 * P2
 
-        if np.ndim(k) == 0:
-            prof = np.squeeze(prof, axis=-1)
-        if np.ndim(m200) == 0:
-            prof = np.squeeze(prof, axis=0)
-
+        # squeeze on the *input* shapes, not the broadcast ones
+        if np.ndim(self.m200) == 0:
+            prof = prof[0]
+        if np.ndim(k_in) == 0:
+            prof = prof[..., 0]
         return prof
 
     @scalar_array_output

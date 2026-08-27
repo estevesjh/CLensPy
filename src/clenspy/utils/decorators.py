@@ -7,7 +7,16 @@ import numpy as np
 def scalar_array_output(method):
     """
     Decorator: return a Python scalar if the method's first positional
-    argument was scalar-like, otherwise return the ndarray unchanged.
+    argument was scalar-like **and** the result really is a single number;
+    otherwise return the array unchanged.
+
+    NOTE: the size check is not belt-and-braces, it is required. A scalar
+    first argument does not imply a scalar result: `NfwProfile.fourier`
+    with an array ``m200`` and a scalar ``k`` legitimately returns one
+    value per halo. The earlier version keyed only on the argument and
+    called ``.item()`` unconditionally, which raised
+    ``ValueError: can only convert an array of size 1`` for exactly that
+    call -- a real combination, just one no test happened to make.
 
     Parameters
     ----------
@@ -27,9 +36,11 @@ def scalar_array_output(method):
         scalar_in = np.ndim(args[0]) == 0
 
         if scalar_in:
-            # Accept numpy scalars, 0-D arrays or size-1 arrays
             if isinstance(result, np.ndarray):
-                return result.squeeze().item()   # safe, future-proof
+                # only collapse when there is genuinely one number to give
+                if result.size == 1:
+                    return result.reshape(()).item()
+                return result
             return float(result)                 # already a scalar
         return result
     return wrapper

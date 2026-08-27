@@ -159,3 +159,53 @@ def test_mean_sigma_equals_sigma_plus_deltasigma():
         np.ravel(nfw.sigma(R)) + np.ravel(nfw.deltasigma(R)),
         rtol=1e-8,
     )
+
+
+# -- fourier() broadcasting -------------------------------------------------
+#
+# Ported from codex/clusters. The bug survived because every existing test
+# passed a SCALAR m200, for which the old spelling was correct; an array
+# mass silently produced (n_halo, n_k, n_k).
+
+
+def _profile(m200):
+    return NfwProfile(m200=m200, c200=4.0, rho_ref=0.3 * 2.775e11)
+
+
+def test_fourier_shapes_for_every_scalar_array_combination():
+    k = np.logspace(-2.0, 1.0, 5)
+    masses = np.array([1e14, 5e14, 1e15])
+    for truncated in (True, False):
+        assert _profile(masses).fourier(k, truncated).shape == (3, 5)
+        assert np.shape(_profile(masses).fourier(1.0, truncated)) == (3,)
+        assert np.shape(_profile(1e14).fourier(k, truncated)) == (5,)
+        assert np.shape(_profile(1e14).fourier(1.0, truncated)) == ()
+
+
+def test_fourier_rows_match_the_scalar_mass_evaluation():
+    """The array path must agree with the scalar path halo by halo."""
+    k = np.logspace(-2.0, 1.0, 12)
+    masses = np.array([1e14, 5e14, 1e15])
+    stacked = _profile(masses).fourier(k)
+    for i, m in enumerate(masses):
+        np.testing.assert_allclose(stacked[i], _profile(m).fourier(k),
+                                   rtol=1e-13)
+
+
+def test_fourier_tends_to_the_mass_at_long_wavelength():
+    r""":math:`u(k \to 0) \to M_{200}`: the normalisation, and a check that
+    the broadcast did not scramble which mass went with which row."""
+    masses = np.array([1e14, 5e14, 1e15])
+    got = _profile(masses).fourier(np.array([1e-8]))[:, 0]
+    np.testing.assert_allclose(got / masses, 1.0, rtol=1e-6)
+
+
+def test_scalar_array_output_does_not_collapse_a_multi_element_result():
+    """A scalar first argument does not imply a scalar result.
+
+    `fourier` with array ``m200`` and scalar ``k`` returns one value per
+    halo. The decorator used to call ``.item()`` on it and raise.
+    """
+    got = _profile(np.array([1e14, 5e14])).fourier(1.0)
+    assert np.shape(got) == (2,)
+    assert got[1] > got[0]
