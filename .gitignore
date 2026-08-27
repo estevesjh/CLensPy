@@ -243,3 +243,6 @@ examples/*.png
 config_local.py
 secrets.yaml
 .secrets
+
+# local progress report (not repo content)
+refactor-progress.html
