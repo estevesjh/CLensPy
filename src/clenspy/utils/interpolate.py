@@ -7,7 +7,7 @@ from scipy.interpolate import RegularGridInterpolator, interp1d
 
 
 class LogGridInterpolator:
-    """
+    r"""
     Log-linear grid interpolator.
 
     - Interpolates log(values) over log(x) (axis 0) and z (axis 1, linear,
@@ -15,6 +15,18 @@ class LogGridInterpolator:
     - Handles the case where zvec is None (scalar mode).
     - Masks out bad (<=0 or nan/inf) values.
     - On __call__, clips output to [minval, maxval].
+
+    NOTE: **unit-agnostic** -- this is machinery, not physics. ``xvec`` and
+    ``values`` carry whatever units the caller supplies and come back in
+    the same ones. It is listed here only so that no class in the package
+    is silent about units.
+
+    NOTE: interpolating in log(values) means the interpolant is **strictly
+    positive**, and non-positive inputs are masked rather than
+    interpolated. A signed quantity -- the miscentered
+    :math:`\Delta\Sigma`, for instance -- must not be passed through
+    this class; its negative lobe would be discarded silently. See
+    ``docs/miscentering_math.md`` section 9.2.
     """
 
     def __init__(

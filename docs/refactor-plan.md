@@ -508,7 +508,17 @@ Each step is independently reviewable and leaves the package working.
    disagreement to one transform instead of reporting one number at the end
    of the chain. `tests/test_twohalo.py` had only that comparison in it, so
    it was rewritten as dependency-free invariants.
-10. **`docs/notation.md`**, then the unit `NOTE:` sweep.
+10. **`docs/notation.md`**, then the unit `NOTE:` sweep — done. Every
+    class in the package now declares its unit convention, in its own
+    docstring or its module's, and `tests/test_docstrings.py` asserts it so
+    a new class cannot be silent. The sweep found four substantive things,
+    not just missing prose: `TwoHaloTerm`'s docstring told callers to
+    multiply by $\rho_m(z)$ when the convention is the comoving
+    $\Omega_{m,0}\rho_{c,0}$ (the $E^2(z)$ trap of P0 §0.3, +34% at
+    z=0.25); its example called a `buildAll` that does not exist; its
+    docstring was not raw, so `\rho` was a literal carriage return that
+    silently broke sphinx section parsing; and `boost.py` used `l`/`z` for
+    bin indices where `RichnessBin` already establishes `i_lam`/`i_z`.
 11. **`survey/survey.py`** — the new capability, once the spine is in place.
 
 ---

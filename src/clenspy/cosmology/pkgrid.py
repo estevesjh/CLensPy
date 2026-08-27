@@ -60,7 +60,25 @@ def _astropy_to_dict(cosmo, *, sigma8=0.8, n_s=0.96) -> dict:
 # Main class --------------------------------------------------------
 # ------------------------------------------------------------------
 class PkGrid:
-    r"""
+    r"""Linear or non-linear :math:`P(k, z)` on a cached 2-D grid.
+
+    Wraps `camb` or `pyccl` and interpolates the result, so a caller that
+    needs P(k) at many (k, z) pays the Boltzmann solver once.
+
+    NOTE: units are h-free absolute -- wavenumbers in 1/Mpc and P(k) in
+    Mpc^3. Both backends work internally in h/Mpc and (Mpc/h)^3 and are
+    converted at the boundary; that conversion is the one thing to check if
+    the two backends ever disagree by a power of h.
+
+    NOTE: :math:`\sigma_8` and :math:`n_s` are **not** carried by an
+    astropy cosmology. They are read off ``cosmo`` if present and otherwise
+    default to 0.8 and 0.96 (`_astropy_to_dict`), so a caller who needs a
+    specific amplitude must supply a cosmology that carries one.
+
+    NOTE: the cache key is a hash of the parameter dict, and the cache is
+    keyed on that alone -- it does not record the backend version. Delete
+    ``$CLENSPY_DATA/pk_cache`` after upgrading camb or pyccl.
+
     Parameters
     ----------
     backend : {"camb", "pyccl"}

@@ -46,15 +46,22 @@ class BiasModel:
         Spherical overdensity :math:`\Delta` defining the halo mass, e.g.
         200 for :math:`M_{200m}` (default: 200).
 
-    Notes
-    -----
-    All quantities are in absolute (physical) units throughout - mass in
-    Msun, length in Mpc - matching `~clenspy.halo.NfwProfile` and
-    `~clenspy.cosmology.PkGrid`. This class does *not* use the "little h"
-    convention (h/Mpc, Msun/h, (Mpc/h)^3) sometimes seen in the literature.
+    NOTE: units are h-free absolute throughout -- mass in Msun, length in
+    Mpc, wavenumbers in 1/Mpc, P(k) in Mpc^3. This class does *not* use the
+    "little h" convention (h/Mpc, Msun/h, (Mpc/h)^3) common in the
+    literature; matches `~clenspy.halo.NfwProfile` and
+    `~clenspy.cosmology.PkGrid`.
 
-    Example
-    -------
+    NOTE: :math:`\bar\rho_m` in the Lagrangian radius is the **comoving**
+    :math:`\Omega_{m,0}\rho_{c,0}`, so R(M) carries no redshift
+    dependence and matches the P(k) it is integrated against.
+
+    NOTE: the Tinker et al. (2010) fit is calibrated for
+    :math:`\Delta = 200`-:math:`1600` and :math:`\nu \lesssim 4`; b(M)
+    outside that is an extrapolation.
+
+    Examples
+    --------
     >>> bias_model = BiasModel(k, P)
     >>> bias = bias_model.bias(M)
     """

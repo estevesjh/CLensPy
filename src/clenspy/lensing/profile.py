@@ -43,7 +43,13 @@ K_GRID_2HALO = np.logspace(-3, 1, 100)
 
 @dataclass
 class LensingProfileInfo:
-    """Summary of a `LensingProfile`'s parameters, returned by `LensingProfile.info`."""
+    """Summary of a `LensingProfile`'s parameters, returned by `LensingProfile.info`.
+
+    NOTE: units follow `LensingProfile` -- ``m200`` in Msun (M_200m, w.r.t.
+    200x the comoving mean matter density), ``r200`` and ``rs`` in Mpc,
+    ``sigma_crit`` in Msun/Mpc^2, ``H0`` in km/s/Mpc, redshifts and
+    ``concentration`` and ``Om0`` dimensionless.
+    """
 
     model: str
     z_cluster: float
