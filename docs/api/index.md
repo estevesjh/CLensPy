@@ -53,6 +53,29 @@ integrated at runtime. See {doc}`../miscentering_math` section 9.
    :members:
 ```
 
+### The richness selection
+
+The closed-form chain that collapses the five-dimensional forward-model
+integral to two dimensions: the $z^{\rm ob}$ integral is a Gaussian CDF
+difference, the $\lambda^{\rm ob}$ integral is an EMG CDF difference, and
+only $\lambda^{\rm tr}$ needs quadrature.
+
+The EMG CDF is evaluated through `erfcx`, not through the form the
+derivation produces — that one is a product of a factor that overflows and
+a factor that underflows, giving `inf * 0 = nan` for $\tau\sigma \gtrsim
+40$ where the true value is an ordinary number in $[0,1]$.
+
+```{eval-rst}
+.. automodule:: clenspy.selection.richness_kernel
+   :members:
+
+.. automodule:: clenspy.selection.scaling_relation
+   :members:
+
+.. automodule:: clenspy.selection.selection_function
+   :members:
+```
+
 ## `clenspy.cosmology`
 
 ```{eval-rst}
@@ -181,6 +204,29 @@ property of the universe.
    :members:
 
 .. automodule:: clenspy.utils.special
+   :members:
+```
+
+## `clenspy.observables`
+
+The binned observables, and the one idea that organises them: everything a
+cluster analysis predicts is a contraction of the **same** weight
+
+$$W_{ij}(M,z) = \Omega(z)\,\frac{dV}{d\Omega\,dz}\,n(M,z)\,\mathcal S_{ij}(M,z)$$
+
+against either 1 (the counts) or a per-halo quantity (its stacked
+average). $\Delta\Sigma_{ij}$ is therefore not a second model, and
+`StackedDeltaSigma` owns no weight of its own — it cannot disagree with
+the counts about which haloes are in the bin.
+
+$\Omega(z)$ cancels identically in any average and must **not** be applied
+to a lensing profile as well.
+
+```{eval-rst}
+.. automodule:: clenspy.observables.abundance
+   :members:
+
+.. automodule:: clenspy.observables.deltasigma
    :members:
 ```
 
