@@ -415,11 +415,44 @@ crossed constantly.
 
 ### 9.4 What CLensPy does
 
-`clenspy.lensing.miscentering` evaluates §5 directly, converging to
-$\sim\!10^{-11}$ at the diagonal where a table is weakest, so there is no
-accuracy reason to tabulate. Tabulate for speed if the mass integral demands
-it — and if so, use §9.1's scaling, §9.2's signed storage, and §9.3's ratio
-axes.
+**CLensPy is table-only at runtime.** It never solves these integrals during
+evaluation:
+
+| Module | Role |
+|---|---|
+| `clenspy/data/nfw_miscentering.npz` | the packaged grid, 1.4 MB |
+| `halo/miscentering_table.py` | the runtime path — interpolation only |
+| `halo/miscentering_kernel.py` | the §5 quadrature, **offline generator** |
+| `tools/make_miscentering_table.py` | rebuilds the table from the kernel |
+| `lensing/miscentering.py` | `MiscenteringProfile`, reads the table |
+
+The table follows §9.1 (dimensionless in $x$, amplitude
+$\Sigma_0 = 2r_s\rho_s$), §9.2 (signed linear storage; 45% of entries are
+negative), and §9.3 (ratio axes, $\ln q = 0$ an exact node). The $\ln q$
+axis is three-tier — measurement showed it, not $x_{\rm mis}$, sets the
+error: pinning $x_{\rm mis}$ to a node leaves $1.9\times10^{-3}$, while
+pinning $\ln q$ drops it to $1.4\times10^{-4}$.
+
+Accuracy against the generator, over $x_{\rm mis}\in[0.01,10]$,
+$x\in[0.01,100]$:
+
+| | median | p90 | max |
+|---|---|---|---|
+| $\hat\Sigma_{\rm mis}$, global | 4.2e-04 | 1.6e-03 | 2.4e-03 |
+| $\widehat{\Delta\Sigma}_{\rm mis}$, global | 3.5e-04 | 9.4e-04 | 1.8e-03 |
+| $\widehat{\Delta\Sigma}_{\rm mis}$, on the cusp | 1.2e-04 | 4.9e-04 | 6.8e-04 |
+
+with **zero sign flips** on the cusp, against 25/60 for the natural axes at
+equal budget. $r_{\rm mis} = 0$ short-circuits to the analytic centred
+profile, so the centred limit is exact rather than interpolated.
+
+**Untabulated profiles raise.** `require_tabulated_profile` rejects anything
+but `NfwProfile` with `MiscenteringTableError`, at construction rather than
+on first evaluation. There is deliberately no quadrature fallback — falling
+back would reintroduce the per-call integral the table exists to remove.
+Einasto is the case in practice: its miscentered profile is not universal in
+one shape parameter the way NFW's is, since the index $n$ enters as a third
+axis, so the NFW grid cannot be reused and no Einasto grid exists.
 
 ## 10. References
 

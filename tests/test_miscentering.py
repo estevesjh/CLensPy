@@ -16,12 +16,12 @@ import numpy as np
 import pytest
 
 from clenspy.halo import NfwProfile
-from clenspy.lensing.miscentering import (
-    MiscenteringProfile,
+from clenspy.halo.miscentering_kernel import (
     miscentered_deltasigma,
     miscentered_mean_sigma,
     miscentered_sigma,
 )
+from clenspy.lensing.miscentering import MiscenteringProfile
 
 # --- dimensionless NFW closed forms (r_s = 1, 2 r_s rho_s = 1) ---
 
@@ -171,8 +171,10 @@ def test_profile_class_wiring():
     R = np.array([0.5, 1.0, 2.0])
     sig = prof.sigma_mis(R)
     dsig = prof.deltasigma_mis(R)
+    # the profile now INTERPOLATES; the quadrature is the generator, so
+    # they agree to the table's accuracy rather than to round-off
     expected = miscentered_sigma(prof.sigma, R, 0.4)
-    np.testing.assert_allclose(sig, expected, rtol=1e-13)
+    np.testing.assert_allclose(sig, expected, rtol=5e-3)
     np.testing.assert_allclose(
         dsig, prof.mean_sigma_mis(R) - prof.sigma_mis(R), rtol=1e-12
     )
@@ -185,3 +187,75 @@ def test_profile_class_wiring():
     )
     with pytest.raises(ValueError):
         MiscenteringProfile(z_cluster=0.3, m200=1e14, include_2halo=False, r_mis=-1)
+
+
+# --- the table is the only runtime path -------------------------------------
+
+
+def test_einasto_has_no_table_and_says_so():
+    """Untabulated profiles refuse rather than falling back to quadrature."""
+    from clenspy.halo import EinastoProfile
+    from clenspy.halo.miscentering_table import (
+        MiscenteringTableError,
+        require_tabulated_profile,
+    )
+
+    ein = EinastoProfile(alpha=0.2, rho_0=1e15, r_s=0.3)
+    with pytest.raises(MiscenteringTableError) as exc:
+        require_tabulated_profile(ein)
+    msg = str(exc.value)
+    assert "EinastoProfile" in msg
+    assert "NfwProfile" in msg
+    assert "make_miscentering_table" in msg
+    # it is a NotImplementedError, so `except NotImplementedError` still works
+    assert isinstance(exc.value, NotImplementedError)
+
+    require_tabulated_profile(NfwProfile(m200=1e14))  # NFW is fine
+
+
+def test_table_matches_its_generator():
+    """The packaged table reproduces the quadrature that built it."""
+    from clenspy.halo.miscentering_kernel import nfw_mean_sigma_hat, nfw_sigma_hat
+    from clenspy.halo.miscentering_table import load_nfw_miscentering_table
+
+    table = load_nfw_miscentering_table()
+    x = np.array([0.05, 0.2, 1.0, 5.0, 40.0])
+    for x_mis in (0.03, 0.3, 1.0, 4.0):
+        ref_s = miscentered_sigma(nfw_sigma_hat, x, x_mis, n_nodes=1024)
+        ref_d = miscentered_deltasigma(
+            nfw_sigma_hat, nfw_mean_sigma_hat, x, x_mis, n_nodes=1024
+        )
+        np.testing.assert_allclose(table.sigma_hat(x, x_mis), ref_s, rtol=5e-3)
+        np.testing.assert_allclose(table.ds_hat(x, x_mis), ref_d, rtol=5e-3)
+
+
+def test_table_keeps_the_negative_lobe_on_the_cusp():
+    """No sign flips at x = x_mis -- the reason for the ratio axes."""
+    from clenspy.halo.miscentering_kernel import nfw_mean_sigma_hat, nfw_sigma_hat
+    from clenspy.halo.miscentering_table import load_nfw_miscentering_table
+
+    table = load_nfw_miscentering_table()
+    for x_mis in (0.01, 0.05, 0.2, 1.0, 3.0, 20.0):
+        ref = float(
+            miscentered_deltasigma(
+                nfw_sigma_hat, nfw_mean_sigma_hat, np.array([x_mis]), x_mis,
+                n_nodes=1024,
+            )[0]
+        )
+        got = float(table.ds_hat(np.array([x_mis]), x_mis)[0])
+        assert ref < 0.0, f"reference should be negative at x = x_mis = {x_mis}"
+        assert got < 0.0, f"table lost the negative lobe at x = x_mis = {x_mis}"
+        assert got == pytest.approx(ref, rel=5e-3)
+
+
+def test_zero_offset_is_exact_not_interpolated():
+    """r_mis = 0 short-circuits to the analytic centred profile."""
+    from clenspy.halo.miscentering_kernel import nfw_mean_sigma_hat, nfw_sigma_hat
+    from clenspy.halo.miscentering_table import load_nfw_miscentering_table
+
+    table = load_nfw_miscentering_table()
+    x = np.array([0.1, 1.0, 10.0])
+    np.testing.assert_allclose(table.sigma_hat(x, 0.0), nfw_sigma_hat(x), rtol=1e-15)
+    np.testing.assert_allclose(
+        table.ds_hat(x, 0.0), nfw_mean_sigma_hat(x) - nfw_sigma_hat(x), rtol=1e-15
+    )
