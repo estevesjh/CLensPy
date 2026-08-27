@@ -300,6 +300,25 @@ modes. Conflating them is a factor of $4\pi$.
    :members:
 ```
 
+### The sixth term: intrinsic profile variance
+
+Not a Gaussian-field contribution. Each cluster in a stack carries its own
+$\Delta\Sigma$, so the stack inherits the **population** covariance of
+those profiles over the bin's selection-weighted mass distribution,
+convolved with lognormal concentration scatter. It scales as
+$1/N_{\rm cl}$ — the term that does *not* improve with survey depth, only
+with more clusters, which is the opposite scaling to shape noise and why
+the two are tracked separately.
+
+Per-cluster profiles use the Hayashi & White **max** composition, so mass
+scatter propagates both to the one-halo amplitude and to $b(M)$ — variance
+on all scales, not only where the one-halo term lives.
+
+```{eval-rst}
+.. automodule:: clenspy.covariance.intrinsic
+   :members:
+```
+
 ## Protocols
 
 The structural contracts the sibling classes conform to. Nothing in the

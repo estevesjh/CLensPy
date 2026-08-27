@@ -561,3 +561,119 @@ def test_annulus_area_is_in_mpc_squared():
     cov = make_cov()
     expected = np.pi * (RP_EDGES[1:] ** 2 - RP_EDGES[:-1] ** 2)
     np.testing.assert_allclose(cov.annulus_area(), expected, rtol=1e-14)
+
+
+# -- the intrinsic (halo-to-halo) term -------------------------------------
+
+
+def _intrinsic(**kw):
+    from clenspy.cosmology.fiducial import fiducial_cosmology, mean_matter_density
+    from clenspy.covariance import IntrinsicProfileVariance
+    from clenspy.halo.bias import BiasModel
+    from clenspy.halo.twohalo import TwoHaloTerm
+    from clenspy.observables import ClusterAbundance
+    from clenspy.selection import EmgParams, LogNormalMor, SelectionFunction
+
+    cosmo = fiducial_cosmology()
+    k = np.logspace(-4.0, 2.0, 300)
+    pk = 2.0e4 * k**-1.5 * np.exp(-((k / 30.0) ** 2))
+
+    def mass_function(ln_mass, z):
+        lnm, zz = np.broadcast_arrays(np.asarray(ln_mass, float),
+                                     np.asarray(z, float))
+        m = np.exp(lnm)
+        return 1e-5 * (m / 1e14) ** -1.0 * np.exp(-m / 5e14) / (1.0 + zz)
+
+    sel = SelectionFunction(
+        np.array([20.0, 30.0, 45.0, 60.0, 200.0]),
+        np.array([0.20, 0.35, 0.50, 0.65]),
+        LogNormalMor(), EmgParams(-1.5, 3.0, 0.3, 0.12), sigma_z=0.01,
+    )
+    abundance = ClusterAbundance(
+        np.log(np.logspace(13.5, 15.3, 10)), np.linspace(0.16, 0.70, 12),
+        mass_function, sel, cosmo,
+        lambda z: np.full_like(np.asarray(z, float), 0.4570),
+    )
+    kwargs = dict(abundance=abundance,
+                  twohalo=TwoHaloTerm(k, pk, zvec=np.array([0.28])),
+                  bias=BiasModel(k, pk, cosmo=cosmo),
+                  rho_m0=mean_matter_density(cosmo), z_eff=0.28)
+    kwargs.update(kw)
+    return IntrinsicProfileVariance(**kwargs), abundance
+
+
+R_INTR = np.logspace(-0.7, 1.0, 5)
+
+
+def test_intrinsic_covariance_is_symmetric_and_psd():
+    iv, _ = _intrinsic()
+    c = iv.cov(R_INTR, 0, 0)
+    np.testing.assert_allclose(c, c.T, rtol=1e-14)
+    ev = np.linalg.eigvalsh(c)
+    assert ev.min() >= -1e-8 * ev.max()
+
+
+def test_the_mass_population_is_normalised():
+    iv, _ = _intrinsic()
+    for i in range(4):
+        assert iv.mass_population(i, 0).sum() == pytest.approx(1.0)
+        assert np.all(iv.mass_population(i, 0) >= 0.0)
+
+
+def test_the_intrinsic_term_scales_as_one_over_n_cl():
+    r"""The signature scaling: only more clusters help.
+
+    Verified against the abundance's own counts, which is also the check
+    that this term and the counts describe the same sample.
+    """
+    iv, abundance = _intrinsic()
+    c = iv.cov(R_INTR, 0, 0)
+    # rebuild the population covariance by hand and divide by N_cl
+    joint = (iv.mass_population(0, 0)[:, None] * iv._c_weight[None, :])
+    prof = iv.profiles(R_INTR)
+    mean = np.einsum("kc,kcr->r", joint, prof)
+    second = np.einsum("kc,kcr,kcs->rs", joint, prof, prof)
+    expected = (second - np.outer(mean, mean)) / abundance.counts()[0, 0]
+    np.testing.assert_allclose(c, 0.5 * (expected + expected.T), rtol=1e-10)
+
+
+def test_zero_concentration_scatter_still_leaves_mass_scatter():
+    r"""With :math:`\sigma_{\ln c} = 0` the variance must not vanish.
+
+    The population still spans a range of masses, and mass scatter moves
+    both the one-halo amplitude and :math:`b(M)`. A term that vanished here
+    would be modelling c-scatter only.
+    """
+    iv, _ = _intrinsic(sigma_lnc=0.0)
+    assert np.all(np.diag(iv.cov(R_INTR, 0, 0)) > 0.0)
+
+
+def test_concentration_scatter_increases_the_small_scale_variance():
+    small = _intrinsic(sigma_lnc=0.0)[0].cov(R_INTR, 0, 0)[0, 0]
+    large = _intrinsic(sigma_lnc=0.25)[0].cov(R_INTR, 0, 0)[0, 0]
+    assert large > small
+
+
+def test_the_mean_profile_uses_the_same_population_as_the_covariance():
+    """Otherwise a mean and a covariance could describe different samples."""
+    iv, _ = _intrinsic()
+    joint = (iv.mass_population(0, 0)[:, None] * iv._c_weight[None, :])
+    expected = np.einsum("kc,kcr->r", joint, iv.profiles(R_INTR))
+    np.testing.assert_allclose(iv.mean_profile(R_INTR, 0, 0), expected,
+                               rtol=1e-14)
+
+
+def test_the_profiles_are_a_max_not_a_sum():
+    r"""Hayashi & White composition. A sum double-counts the transition."""
+    iv, _ = _intrinsic()
+    prof = iv.profiles(R_INTR)
+    one = iv._nfw.deltasigma(R_INTR).reshape(prof.shape)
+    assert np.all(prof >= one - 1e-6 * np.abs(one))   # never below the 1h
+    assert np.any(prof > one * (1.0 + 1e-9))          # and sometimes above
+
+
+def test_intrinsic_rejects_bad_parameters():
+    with pytest.raises(ValueError, match="sigma_lnc"):
+        _intrinsic(sigma_lnc=-0.1)
+    with pytest.raises(ValueError, match="n_c"):
+        _intrinsic(n_c=0)
