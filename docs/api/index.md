@@ -73,6 +73,9 @@
 ```{eval-rst}
 .. automodule:: clenspy.utils.constants
    :members:
+
+.. automodule:: clenspy.utils.special
+   :members:
 ```
 
 ## Miscentering tables

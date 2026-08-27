@@ -5,7 +5,8 @@ import pytest
 from scipy.integrate import quad
 from scipy.special import kv
 
-from clenspy.halo.einasto import EinastoProfile, expint_asymptotic, expn_fast
+from clenspy.halo.einasto import EinastoProfile
+from clenspy.utils.special import expint_asymptotic, expn_fast
 
 mpmath = pytest.importorskip("mpmath")
 

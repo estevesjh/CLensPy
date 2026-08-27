@@ -372,7 +372,8 @@ class EinastoLowN:
         nu/(z+nu)^3; a1: next order of the Catalan weights, -1/8 for Sigma,
         -9/8 for DeltaSigma.)
         """
-        from .einasto import _catalan_over_4k, expint_asymptotic, expn_fast
+        from ..utils.special import (catalan_over_4k, expint_asymptotic,
+                                     expn_fast)
 
         R = np.atleast_1d(np.asarray(R, float))
         n = self.n
@@ -380,11 +381,11 @@ class EinastoLowN:
         K_e = self.K_ENU
         if which == "sigma":
             k = np.arange(0, K_e + 1, dtype=float)
-            w = (k + 1) * _catalan_over_4k(k)
+            w = (k + 1) * catalan_over_4k(k)
             a1 = -1.0 / 8.0
         else:
             k = np.arange(1, K_e + 1, dtype=float)
-            w = k * _catalan_over_4k(k)
+            w = k * catalan_over_4k(k)
             a1 = -9.0 / 8.0
         nu = 2 * k * n - n + 1
         E = np.empty((z.size, k.size))

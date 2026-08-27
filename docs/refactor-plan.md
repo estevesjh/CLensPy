@@ -175,7 +175,6 @@ src/clenspy/
     twohalo.py               (unchanged)
   lensing/
     profile.py               (slimmed per 0.5)
-benchmarks/             NEW   einasto_v2.py, einasto_v3.py moved here
 validation/             NEW   pyccl / cluster_toolkit / published-value comparisons
 tests/                        does-it-run + protocol conformance only
 ```
@@ -446,7 +445,9 @@ Each step is independently reviewable and leaves the package working.
 2. **`utils/constants.py` + `fiducial_cosmology()`**, retire `config.py`.
 3. **Split `einasto.py`** into `utils/special.py` + `halo/einasto_series.py` + the class.
    Pure moves; the existing 431-line `test_einasto.py` is your safety net.
-4. **Move `einasto_v2/v3` to `benchmarks/`** with provenance headers.
+4. ~~Move `einasto_v2/v3` to `benchmarks/`~~ — **superseded**: they were
+   deleted instead. The `.tex` notes remain the record of those roads, and
+   the code is in git history.
 5. **`protocols.py` + `tests/test_protocols.py`**; fix whatever divergence it exposes
    between `NfwProfile` and `EinastoProfile`.
 6. **Create `selection/`**, move `miscentering.py` and `boost.py`, keep import shims in
