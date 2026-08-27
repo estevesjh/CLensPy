@@ -866,13 +866,27 @@ Steps 1–5 are done. Steps 6–10 stand. Then:
     form is **unusable** for $\ell\theta \lesssim 1$ — its bracket cancels
     to nine orders, leaving about four correct digits, measured at 4.8e-4
     against quadrature — so a Taylor series branch covers $x < 1$ and
-    neither form alone suffices. Second, **the FFTLog engine this step
-    asked for buys nothing**: the integral is a *bilinear* form,
-    $\hat J_2(kr_p)\hat J_2(kr_p')$ under one $k$ integral, not a Hankel
-    transform of a single function, so it does not factorise. Written as
-    $A^{\rm T}{\rm diag}(wP)A$ it costs $O(n_k n_r^2)$ and is already
-    negligible; the log-$k$ quadrature *is* the engine, with a
-    convergence-tested grid.
+    neither form alone suffices.
+
+    Second, **I claimed the FFTLog engine this step asked for buys nothing,
+    and that was wrong.** The argument was that
+    $\hat J_2(kr_p)\hat J_2(kr_p')$ under one $k$ integral is a *bilinear*
+    form rather than a Hankel transform of a single function, so it cannot
+    factorise. It does factorise for **geometric** bins: the pair ratio
+    $\alpha_d = \rho^d$ then depends only on the diagonal offset, so the
+    product kernel is a function of $u = \ell\theta$ alone and one
+    transform per diagonal suffices. Measured head to head against a
+    converged reference, FFTLog is **~560× more accurate off-diagonal at
+    equal cost** (5.3e-6 with 4096 nodes against the quadrature's 3.0e-3
+    with 8192), and needs 32× fewer nodes to match. On the diagonal the two
+    are indistinguishable — which is why the diagonal-only convergence
+    checks never caught it.
+
+    The engine is now `clenspy.kernels.fftlog_cov`, ported from
+    `codex/clusters` along with its derivation in
+    `docs/covariance_fftlog_math.md`. The direct quadrature stays as the
+    independent cross-check and for non-geometric binning, and it is exact
+    on the dominant `shot_shape` term via Hankel closure.
 
 Validate each against `cluster-lensing-cov`'s frozen Stage-A snapshots,
 which exist precisely to pin refactor equivalence.
