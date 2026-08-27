@@ -1,5 +1,11 @@
 # CLensPy → cosmology-code: migration plan
 
+> **Amended 2026-08-26.** Sections 1.4 (`survey/`) and 1.4 (`kernels/`) as
+> originally written get the Survey integrand and the projection integrand
+> wrong. See **Errata: the Survey and projection integrands** below, which
+> supersedes them. The authority is the production pipeline in
+> `y3_cluster_cpp`, not this plan.
+
 Assessed against the `cosmology-code` skill (SKILL.md rules 1–8). Ordered by risk, not
 by effort. P0 items are correctness traps; P1 is structure; P2 is discipline that pays
 off once the package grows a survey-facing layer.
@@ -233,6 +239,120 @@ named modules. The module is a dumping ground holding `sigma_critical` (a kernel
 (thin astropy wrappers). Rename to `cosmology/distances.py`, move `sigma_critical` to
 `kernels/`, and consider dropping the two one-line astropy passthroughs — a wrapper that
 adds nothing is a name a reader has to learn for no reason.
+
+---
+
+## Errata: the Survey and projection integrands
+
+Section 1.4 sketches `survey/` as "p(z), sigma_gamma, n_src, footprint" and
+`kernels/` as "a Limber projection". Both are wrong for these observables.
+The specification is the production pipeline:
+
+- `y3_cluster_cpp/src/modules/average_sigma_crit_inv/average_sigma_crit_inv.py`
+- `y3_cluster_cpp/src/pipelines/des_y3/shear_projection/python/0d/shear_prj_gl.py`
+- `y3_cluster_cpp/src/pipelines/des_y3/number_counts/python/0d/numcounts_explicit_gl.py`
+
+**Scope of that authority: the numerics, not the structure.** Those files are
+CosmoSIS modules — datablock reads, `setup`/`execute`/`cleanup`, hardcoded
+output sections, wall grids. None of that shape comes across. What comes
+across is the *integrand*: which factors appear, which cancel, which kernel
+is used where, and the quadrature that makes it converge. Transcribe the
+equations; leave the plumbing behind. The structure is decided by the skill —
+one physical concept per module, one equation per method, everything a method
+needs in its signature.
+
+### E.1 The Survey layer is $\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)$, not a source p(z)
+
+The quantity the observable actually needs is the *source-averaged inverse*
+critical surface density, tabulated against **lens** redshift:
+
+$$
+\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)
+= h_0 \int \! dz_s \; p(z_s + \Delta z)\,
+  \frac{4\pi G}{c^2}\,
+  \frac{D_A(z_l)\, D_A(z_l, z_s)}{D_A(z_s)},
+\qquad
+\gamma_t = \Delta\Sigma \cdot \langle\Sigma_{\rm crit}^{-1}\rangle .
+$$
+
+Four things a naive `Survey` gets wrong:
+
+1. **Average the inverse, never invert the average.**
+   $\langle\Sigma_{\rm crit}^{-1}\rangle \neq 1/\langle\Sigma_{\rm crit}\rangle$,
+   and the difference *is* the source weighting.
+2. **Clamp the integrand at zero**, `np.maximum(0, ...)`. Sources in front of
+   the lens contribute nothing; they must not contribute negatively.
+3. **The angular diameter distance is the flat subtraction form**
+   $D_A(z_l,z_s) = D_A(z_s) - \frac{1+z_l}{1+z_s} D_A(z_l)$,
+   *not* $D_A(z_s) - D_A(z_l)$.
+4. **$\Delta z$ is a photo-z bias nuisance** shifting the source p(z),
+   `p(z_s + delta_z)` — it is marginalised over, so it belongs in the
+   signature, not in a config.
+
+The clean protocol seam: setting $\langle\Sigma_{\rm crit}^{-1}\rangle \equiv 1$
+makes every downstream consumer emit $\Delta\Sigma$ instead of $\gamma_t$.
+The production module exposes exactly this as a `unity` switch. `Survey`
+should be one callable `sci(z_l)`, with $\Omega(z)$ a *separate* concern
+(see E.2).
+
+### E.2 $\Omega(z)$ belongs to counts, and cancels in shear
+
+$$
+N_{ij} = \int\! dz \int\! d\ln M \int\! d\lambda_{\rm tr}\;
+  n(M,z)\, \frac{dV}{d\Omega\, dz}\, \boldsymbol{\Omega(z)}\,
+  K_j(z)\, S_i(\lambda_{\rm tr}, z)\, P_{\rm HOD}(\lambda_{\rm tr} \mid M, z)
+$$
+
+but the shear projection carries **no** $\Omega(z)$ — it cancels in the
+surface density, and the exact C++ core hard-excludes it. Folding the survey
+footprint into a lensing weight is a silent normalisation error. Any shared
+weight builder must therefore take $\Omega(z)$ as an explicit per-observable
+argument, never as an ambient survey property applied to both.
+
+### E.3 The projection is an exact angular integral, not Limber
+
+$$
+\Delta\Sigma_{\rm prj}(R) = \int\! d\theta\; 2\pi \sin\theta
+\Big[ \textstyle\sum_M w_{\rm rnd}(M)\, \Delta\Sigma_{\rm mis}(R, \theta D_A \mid M)
+ + b_{\rm sel}(\theta) \sum_M w_{\rm cl}(\theta, M)\, \Delta\Sigma_{\rm mis}(R, \theta D_A \mid M) \Big]
+$$
+
+with the exact per-slice redshift weights
+
+$$
+\begin{aligned}
+w_{\rm rnd}(M) &= \int\! dz\; {\rm common}(z)\, n(M,z) \\
+w_{\rm cl}(\theta, M) &= \int\! dz\; {\rm common}(z)\,
+   \xi_{\rm NL}\big(|d\chi|(z,\theta), z_{\rm ob}\big)\, n(M,z)\, b(M,z)\,
+   \mathbb{1}[\theta > \theta_{\rm excl}(z)] \\
+{\rm common}(z) &= \frac{dV}{d\Omega\, dz}(z)\; w_{pz}(z; z_{\rm ob})\; w_z^{\rm GL}
+\end{aligned}
+$$
+
+Traps:
+
+- **The measure is $2\pi\sin\theta\, d\theta$** (solid angle on the sphere),
+  not the flat-sky $2\pi\theta\, d\theta$. There is no Limber approximation
+  and no Bessel transform anywhere in this observable.
+- **$|d\chi|$ and $\theta_{\rm excl}(z)$ are law-of-cosines**, not
+  $|\chi_z - \chi_o|$:
+  $d\chi^2 = \chi_z^2 + \chi_o^2 - 2\chi_z\chi_o\cos\theta$.
+- **The photo-z weight is parabolic**, $w_{pz} = 1 - u^2$ for $|u| < 1$ else 0,
+  with $u = (z - z_{\rm ob})/\sigma_z(z)$ — *not* Gaussian. Number counts use
+  a Gaussian $K_j$ instead. Two observables, two different photo-z kernels;
+  they must not share one implementation.
+- **$b_{\rm sel}(\theta)$ multiplies only the correlated (`cl`) channel**,
+  never the random (`rnd`) channel.
+- **Keep `rnd` and `cl` stored separately** and sum at the end (rule 6). The
+  production module writes `{vals, rnd, cl}` for exactly this reason.
+
+### E.4 Consequence for the plan
+
+`survey/survey.py` (step 11) is not "add p(z) and sigma_gamma". It is:
+`kernels/sigma_crit.py` holding $\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)$
+per E.1, and a `survey/` that owns $\Omega(z)$ and the source p(z) separately,
+so that a counts consumer and a shear consumer cannot accidentally pick up
+each other's factors. Write the notation table (step 10) *before* either.
 
 ---
 
