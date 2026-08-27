@@ -7,8 +7,8 @@ packaged lookup table.
 
 NOTE: the miscentered profiles are **interpolated, never integrated**.
 `clenspy` does not solve the offset integrals at evaluation time -- it reads
-`clenspy.halo.miscentering_table`. The quadrature that built that table
-lives in `clenspy.halo.miscentering_kernel` and is an offline generator, not
+`clenspy.selection.miscentering`. The quadrature that built that table
+lives in `clenspy.selection.miscentering_kernel` and is an offline generator, not
 a runtime fallback. A profile with no table raises `MiscenteringTableError`
 rather than quietly switching to quadrature; only NFW is tabulated today.
 
@@ -31,12 +31,12 @@ from typing import Union
 import numpy as np
 from astropy.cosmology import Cosmology
 
-from ..halo.miscentering_table import (
+from ..selection.miscentering import (
     MiscenteringTableError,
     load_nfw_miscentering_table,
     require_tabulated_profile,
 )
-from ..lensing.profile import LensingProfile
+from .profile import LensingProfile
 
 __all__ = ["MiscenteringProfile", "MiscenteringTableError"]
 

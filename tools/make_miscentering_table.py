@@ -76,7 +76,7 @@ so it gets three tiers, densest on the cusp.
 
 CROSS-CHECK
 -----------
-`clenspy.halo.miscentering_kernel` is the independent implementation (the
+`clenspy.selection.miscentering_kernel` is the independent implementation (the
 by-parts reduction of docs/miscentering_math.md section 5). It agrees with
 ct's Sigma_mis to 1e-11..1e-14 and is used by ``--tune`` and by
 ``validation/validate_miscentering_table.py`` to bound the generator error.
@@ -134,7 +134,7 @@ def ratio_axis():
 
 def _centred_sigma_hat(x):
     """Dimensionless centred NFW Sigma / Sigma_0, from clenspy."""
-    from clenspy.halo.miscentering_kernel import nfw_sigma_hat
+    from clenspy.selection.miscentering_kernel import nfw_sigma_hat
     return nfw_sigma_hat(x)
 
 
@@ -155,7 +155,7 @@ def _row_ct(x_mis, x):
 
 def _row_byparts(x_mis, x):
     """The independent quadrature, for the corner ct cannot reach."""
-    from clenspy.halo.miscentering_kernel import (
+    from clenspy.selection.miscentering_kernel import (
         miscentered_deltasigma,
         miscentered_sigma,
         nfw_mean_sigma_hat,
@@ -222,7 +222,7 @@ def build(n_proc):
 
 def _assert_seam():
     """The two generators must agree where they meet."""
-    from clenspy.halo.miscentering_kernel import (
+    from clenspy.selection.miscentering_kernel import (
         miscentered_deltasigma,
         nfw_mean_sigma_hat,
         nfw_sigma_hat,
@@ -242,7 +242,7 @@ def _tune_one(cfg):
     """Accuracy of one Rsigma grid against the independent quadrature."""
     from cluster_toolkit import miscentering as ctm
 
-    from clenspy.halo.miscentering_kernel import (
+    from clenspy.selection.miscentering_kernel import (
         miscentered_deltasigma,
         nfw_mean_sigma_hat,
         nfw_sigma_hat,

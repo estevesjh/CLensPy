@@ -78,7 +78,7 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 |---|---|---|---|---|---|---|
 | Projected radius | $R$ | Comoving transverse separation | Mpc | `R` | all | ✅ |
 | Surface density | $\Sigma(R)$ | Projected mass density | $M_\odot\,{\rm Mpc}^{-2}$ | `sigma(R)` | `halo.nfw`, `lensing` | ✅ |
-| Mean interior $\Sigma$ | $\bar\Sigma(<R)$ | $\frac{2}{R^2}\int_0^R \Sigma(R')R'dR'$ | $M_\odot\,{\rm Mpc}^{-2}$ | `mean_sigma(R)` | `lensing.miscentering` | ✅ |
+| Mean interior $\Sigma$ | $\bar\Sigma(<R)$ | $\frac{2}{R^2}\int_0^R \Sigma(R')R'dR'$ | $M_\odot\,{\rm Mpc}^{-2}$ | `mean_sigma(R)` | `halo.nfw`, `halo.einasto` | ✅ |
 | Excess surface density | $\Delta\Sigma(R)$ | $\bar\Sigma(<R)-\Sigma(R)$ | $M_\odot\,{\rm Mpc}^{-2}$ | `deltasigma(R)` | `halo.nfw`, `lensing` | ✅ |
 | Critical surface density | $\Sigma_{\rm crit}$ | $\frac{c^2}{4\pi G}\frac{D_s}{D_l D_{ls}}$ | $M_\odot\,{\rm Mpc}^{-2}$ | `sigma_critical()` | `cosmology.utils` | ✅ |
 | **Mean inverse** $\Sigma_{\rm crit}$ | $\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)$ | $h_0\!\int\!dz_s\,p(z_s{+}\Delta z)\frac{4\pi G}{c^2}\frac{D_A(z_l)D_A(z_l,z_s)}{D_A(z_s)}$, clamped $\ge 0$. **Average the inverse, never invert the average** | ${\rm Mpc}^2 M_\odot^{-1}$ | ⬜ | `kernels` | ⬜ |
@@ -93,7 +93,7 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 > full $\Sigma^{\rm prj}$ of E26 eq. `Sprj` (no $\bar b_{\rm sel}$, no exclusion,
 > no $\theta$ integral). See §5 and `refactor-plan.md` errata E.3.
 >
-> 🔶 `lensing.miscentering` computes the azimuthal average at **one fixed
+> 🔶 `selection.miscentering` computes the azimuthal average at **one fixed
 > offset** $R_{\rm mis}$. The Gamma-distributed offset population and the
 > $f_{\rm mis}$ mixture of E26 eq. `miscentering_model` are not implemented.
 > The same single-offset average serves the two-halo term of E26 eq. `Smis`,
@@ -129,11 +129,11 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 | HOD scatter | $\sigma_{\rm intr}$ | Super-Poisson halo-to-halo term | — | ⬜ | `selection` | ⬜ |
 | Shifted-Poisson rate | $\nu=\langle\lambda^{\rm sat}\rangle+\delta$, $\delta=(\sigma_{\rm intr}\langle\lambda^{\rm sat}\rangle)^2$ | RSF eq. cont_poisson_shifted | — | ⬜ | `selection` | ⬜ |
 | Cluster radius | $R_\lambda$ | $(\lambda^{\rm ob}/100)^{0.2}$ | ${\rm Mpc}/h$ | ⬜ | `selection` | ⬜ |
-| Miscentering offset | $R_{\rm mis}$ | Projected centring error, **a single fixed offset** | Mpc | `r_mis` | `lensing.miscentering` | ✅ |
-| Halo-centric radius | $R_h$ | $\sqrt{R^2+R_{\rm mis}^2-2RR_{\rm mis}\cos\varphi}$ — law of cosines, in the half-angle form $\sqrt{(R-R_{\rm mis})^2+4RR_{\rm mis}\sin^2\frac{\varphi}{2}}$ | Mpc | `_halo_centric_radii` | `lensing.miscentering` | ✅ |
+| Miscentering offset | $R_{\rm mis}$ | Projected centring error, **a single fixed offset** | Mpc | `r_mis` | `selection.miscentering` | ✅ |
+| Halo-centric radius | $R_h$ | $\sqrt{R^2+R_{\rm mis}^2-2RR_{\rm mis}\cos\varphi}$ — law of cosines, in the half-angle form $\sqrt{(R-R_{\rm mis})^2+4RR_{\rm mis}\sin^2\frac{\varphi}{2}}$ | Mpc | `_halo_centric_radii` | `selection.miscentering_kernel` | ✅ |
 | Miscentered fraction | $f_{\rm mis}$ | $0.25\pm0.08$ (Kelly 2024); $\Delta\Sigma^{1h}=(1-f_{\rm mis})\Delta\Sigma_{\rm cen}+f_{\rm mis}\Delta\Sigma_{\rm mis}$ | — | ⬜ | `selection` | ⬜ |
 | Miscentering scale | $\tau_{\rm mis}$ | $0.17\pm0.04$; $p(R_{\rm mis})=\frac{R_{\rm mis}}{(\tau R_\lambda)^2}e^{-R_{\rm mis}/(\tau R_\lambda)}$. **Not the EMG $\tau$** | — | ⬜ | `selection` | ⬜ |
-| Boost factor | $\mathcal B(R)$ | Member dilution of the source sample (McC19) | — | `boost_factor_nfw` | `lensing.boost` | ✅ |
+| Boost factor | $\mathcal B(R)$ | Member dilution of the source sample (McC19) | — | `boost_factor_nfw` | `selection.boost` | ✅ |
 
 ## 5. Projection two-halo (E26 §4.1) — not yet implemented
 

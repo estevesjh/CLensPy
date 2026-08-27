@@ -353,6 +353,37 @@ per E.1, and a `survey/` that owns $\Omega(z)$ and the source p(z) separately,
 so that a counts consumer and a shear consumer cannot accidentally pick up
 each other's factors. Write the notation table (step 10) *before* either.
 
+### E.5 What actually moved into `selection/` (step 6, done)
+
+Step 6 as written was "move `lensing/miscentering.py` and `lensing/boost.py`
+into `selection/`". Followed literally that inverts the dependency arrow:
+`MiscenteringProfile` subclasses `LensingProfile`, so putting it in
+`selection/` makes the systematics layer import the probe layer.
+
+The layer boundary that does hold is **a systematic is defined relative to a
+profile**, so `selection/` sits above `halo/` and below `lensing/`:
+
+```
+cosmology/ → utils/ → halo/ → selection/ → kernels/ → lensing/ → covariance/
+```
+
+which gives a different and better split of the same three files:
+
+| was | is | why |
+|---|---|---|
+| `halo/miscentering_table.py` | `selection/miscentering.py` | the runtime correction — a systematic, not a halo property |
+| `halo/miscentering_kernel.py` | `selection/miscentering_kernel.py` | the offline generator for that table |
+| `lensing/boost.py` | `selection/boost.py` | $\mathcal B(R)$ corrects the source sample |
+| `lensing/miscentering.py` | *unchanged* | `MiscenteringProfile` is a `LensingProfile`; it reads `selection/` |
+
+So the move also fixes an existing misplacement: the miscentering table was
+in `halo/`, one layer too low, and `halo/__init__.py` was exporting it.
+
+`clenspy.lensing.boost` keeps a `DeprecationWarning` alias for one release.
+The two miscentering modules get **no** alias: they were added on this same
+refactor branch and have never been released, so there is nothing to keep
+compatible. Adding a shim for them would be plumbing for no reader.
+
 ---
 
 ## P2 — contracts and discipline
@@ -450,8 +481,8 @@ Each step is independently reviewable and leaves the package working.
    the code is in git history.
 5. **`protocols.py` + `tests/test_protocols.py`**; fix whatever divergence it exposes
    between `NfwProfile` and `EinastoProfile`.
-6. **Create `selection/`**, move `miscentering.py` and `boost.py`, keep import shims in
-   `lensing/__init__.py` for one release.
+6. **Create `selection/`** — done, but not as written: see errata E.5 for
+   what moved and why the literal reading inverted the dependency arrow.
 7. **Create `kernels/`**, move `sigma_critical`; rename `cosmology/utils.py` →
    `cosmology/distances.py`.
 8. **Lazy `LensingProfile`** — stop running CAMB in `__init__`.

@@ -3,7 +3,7 @@ Exact single-offset miscentering kernel -- the TABLE GENERATOR.
 
 NOTE: this module is **not** a runtime path. `clenspy` evaluates
 miscentered profiles by interpolating the packaged table (see
-`clenspy.halo.miscentering_table`); the quadrature here is what *builds*
+`clenspy.selection.miscentering`); the quadrature here is what *builds*
 that table, offline, via ``tools/make_miscentering_table.py``. Solving
 these integrals per call is exactly what the table exists to avoid.
 
@@ -68,7 +68,7 @@ from typing import Callable, Union
 import numpy as np
 from numpy.polynomial.legendre import leggauss
 
-from .nfw import NfwProfile
+from ..halo.nfw import NfwProfile
 
 __all__ = [
     "nfw_sigma_hat",

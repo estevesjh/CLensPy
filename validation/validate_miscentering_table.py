@@ -3,7 +3,7 @@
 
 Two fully independent implementations of the same dimensionless quantity:
 
-  clenspy  `lensing.miscentering` -- the by-parts + law-of-cosines reduction
+  clenspy  `selection.miscentering` -- the by-parts + law-of-cosines reduction
            of docs/miscentering_math.md section 5, one smooth GL integral.
   DES Y3   `y3_cluster_cpp/data/nfw_off_center/` -- a precomputed
            (ln x_mis, ln x) grid built from an analytic inner disc plus an
@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-from clenspy.lensing.miscentering import miscentered_deltasigma
+from clenspy.selection.miscentering_kernel import miscentered_deltasigma
 
 DEFAULT_Y3 = Path.home() / "Documents/Dev/github/y3_cluster_cpp"
 Y3 = Path(os.environ.get("Y3_CLUSTER_CPP_DIR", DEFAULT_Y3))

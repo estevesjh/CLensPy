@@ -421,8 +421,8 @@ evaluation:
 | Module | Role |
 |---|---|
 | `clenspy/data/nfw_miscentering.npz` | the packaged grid, 1.3 MB |
-| `halo/miscentering_table.py` | the runtime path — interpolation only |
-| `halo/miscentering_kernel.py` | the §5 quadrature, **offline generator** |
+| `selection/miscentering.py` | the runtime path — interpolation only |
+| `selection/miscentering_kernel.py` | the §5 quadrature, **offline generator** |
 | `tools/make_miscentering_table.py` | rebuilds the table |
 | `lensing/miscentering.py` | `MiscenteringProfile`, reads the table |
 

@@ -26,10 +26,30 @@
 ```
 
 ```{eval-rst}
-.. automodule:: clenspy.lensing.boost
+.. automodule:: clenspy.lensing.miscentering
+   :members:
+```
+
+## `clenspy.selection`
+
+Systematics between the halo and the observable. This layer sits above
+`clenspy.halo` and below `clenspy.lensing`.
+
+```{eval-rst}
+.. automodule:: clenspy.selection.boost
+   :members:
+```
+
+### Miscentering tables
+
+The miscentered profiles are interpolated from a packaged grid, never
+integrated at runtime. See {doc}`../miscentering_math` section 9.
+
+```{eval-rst}
+.. automodule:: clenspy.selection.miscentering
    :members:
 
-.. automodule:: clenspy.lensing.miscentering
+.. automodule:: clenspy.selection.miscentering_kernel
    :members:
 ```
 
@@ -86,18 +106,5 @@ conformance is by shape, and `tests/test_protocols.py` checks it.
 
 ```{eval-rst}
 .. automodule:: clenspy.protocols
-   :members:
-```
-
-## Miscentering tables
-
-The miscentered profiles are interpolated from a packaged grid, never
-integrated at runtime. See {doc}`../miscentering_math` section 9.
-
-```{eval-rst}
-.. automodule:: clenspy.halo.miscentering_table
-   :members:
-
-.. automodule:: clenspy.halo.miscentering_kernel
    :members:
 ```
