@@ -26,7 +26,7 @@ except ImportError:
 
 RHOCRIT = 2.77533742639e11  # Critical density in Msun h^2/Mpc^3
 
-is_plot = True  # Set to True to enable plotting in tests
+is_plot = False  # Set to True to enable plotting in tests
 
 @pytest.mark.skipif(ccl is None or ct is None or clmm is None, reason="pyccl and cluster_toolkit and clmm required")
 def test_twohalo_deltasigma_matches_clustertoolkit():
