@@ -19,9 +19,6 @@ DEFAULT_COSMOLOGY_DICT = {
 G_NEWTON = 4.302e-9  # Gravitational constant in Mpc/Msun (km/s)^2
 C_LIGHT = 299792.458  # Speed of light in km/s
 
-# Critical density constant
-RHOCRIT = 2.77533742639e11  # Critical density in Msun h^2/Mpc^3
-
 # Additional useful constants
 PI = 3.14159265359
 ARCMIN_TO_RAD = PI / (180.0 * 60.0)  # Convert arcmin to radians

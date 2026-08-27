@@ -10,7 +10,7 @@ __version__ = "0.1.0"
 
 # Import main modules for convenience
 from . import config, cosmology, halo, lensing, utils
-from .config import DEFAULT_COSMOLOGY, RHOCRIT
+from .config import DEFAULT_COSMOLOGY
 from .halo import BiasModel, NfwProfile, TwoHaloTerm
 from .lensing import LensingProfile
 
@@ -25,5 +25,4 @@ __all__ = [
     "BiasModel",
     "TwoHaloTerm",
     "DEFAULT_COSMOLOGY",
-    "RHOCRIT",
 ]

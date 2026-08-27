@@ -57,6 +57,17 @@ Validated against mpmath Abel/cap quadrature to <= 4e-9 relative error for
 n in [0.35, 1.5] (including 6/5, 4/3, 7/5) and R/h in [0.01, 40], and to
 <= 1e-13 for n in {2.5, 10/3, 5, 10} (integer-resonant cases) over
 R/h in [0.01, 20].
+
+NOTE: throughout this module ``h`` is the Einasto **scale radius**
+(rho_0 exp[-(r/h)^(1/n)], x = R/h), following the .tex notes -- it is *not*
+the Hubble parameter H_0/100, which never appears here. ``EinastoLowN``
+takes it as the ``h`` keyword, matching the algebra it transliterates;
+``EinastoProfile`` spells the same quantity ``r_s``.
+
+NOTE: this module is unit-agnostic -- it carries no cosmology and simply
+propagates the caller's units. The package convention is h-free absolute
+units, so with r_s in Mpc and rho_0 in Msun/Mpc^3 the outputs are Sigma and
+DeltaSigma in Msun/Mpc^2.
 """
 
 import numpy as np

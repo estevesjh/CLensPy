@@ -23,6 +23,17 @@ density note):
 The generalized exponential integral E_nu(x) is evaluated by dispatch:
 integer nu>=1 via scipy.special.expn; large nu via the DLMF 8.20 uniform
 asymptotic expansion; otherwise via mpmath.expint.
+
+NOTE: throughout this module ``h`` is the Einasto **scale radius**
+(rho_0 exp[-(r/h)^(1/n)], x = R/h), following the .tex notes -- it is *not*
+the Hubble parameter H_0/100, which never appears here. The public
+constructor spells it ``r_s``; ``h`` survives only in the internal algebra
+and the derivations it transliterates.
+
+NOTE: this module is unit-agnostic -- it carries no cosmology and simply
+propagates the caller's units. The package convention is h-free absolute
+units, so with r_s in Mpc and rho_0 in Msun/Mpc^3 the outputs are Sigma and
+DeltaSigma in Msun/Mpc^2.
 """
 
 import mcfit

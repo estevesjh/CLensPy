@@ -19,6 +19,14 @@ class NfwProfile:
     r"""
     Analytical NFW lensing profile for a single halo or a vector of halos.
 
+    NOTE: masses are **M_200m**, not M_200c. ``r200`` is defined by
+    200 times the *comoving mean matter density* at z=0,
+    :math:`\rho_m = \Omega_{m,0}\,\rho_{c,0}` -- see ``self.rhom`` below.
+    Reading ``m200`` as M_200c is a ~30% mass error.
+
+    NOTE: all quantities are h-free absolute units -- mass in Msun,
+    lengths in Mpc, densities in Msun/Mpc^3, wavenumbers in 1/Mpc.
+
     The 3D density profile is
 
     .. math::
@@ -35,9 +43,11 @@ class NfwProfile:
     Parameters
     ----------
     m200 : float, array-like
-        Halo mass M_200 [Msun]. Can be scalar or array.
+        Halo mass M_200m [Msun], w.r.t. 200x the comoving mean matter
+        density. Can be scalar or array.
     c200 : float, array-like
-        Concentration c_200 (dimensionless). Can be scalar or array.
+        Concentration c_200m = r_200m / r_s (dimensionless). Can be scalar
+        or array.
     cosmo : astropy.cosmology instance
         Cosmology instance to use for calculations.
 
@@ -59,6 +69,7 @@ class NfwProfile:
 
         # Critical density in Msun/Mpc^3
         rhoc = cosmo.critical_density(0).to_value("Msun/Mpc^3")
+        # comoving mean matter density at z=0; sets the 200m mass definition
         self.rhom = rhoc * cosmo.Om0  # Msun/Mpc^3
 
         # Calculate r200 and rs

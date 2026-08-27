@@ -1,0 +1,355 @@
+# CLensPy → cosmology-code: migration plan
+
+Assessed against the `cosmology-code` skill (SKILL.md rules 1–8). Ordered by risk, not
+by effort. P0 items are correctness traps; P1 is structure; P2 is discipline that pays
+off once the package grows a survey-facing layer.
+
+---
+
+## Where you already comply
+
+Worth naming, because these are the expensive parts and they are done.
+
+- **The specification exists.** `docs/einasto_proj_density_v3.tex`, `einasto_math.md`,
+  `miscentering_math.md`, `fractional_derivative_einasto.tex`. Rule 1 is satisfied at the
+  source: there is a written derivation for the hard parts, and the code cites it.
+- **Notation already transliterates the notes.** `einasto_lown.py` carries `A_k`, `D_k`,
+  `S_j`, `T_j`, `x = R/h`, `nu_k` straight off the Mellin–Barnes kernel. That is exactly
+  rule 1, done well.
+- **Provenance is cited inline** — Retana-Montenegro et al. (2012), Tinker et al. (2010),
+  Johnston et al. (2007), McClintock et al. (2019, eq. 27).
+- **Real external validation exists**: `test_nfw.py` against `pyccl`, `test_twohalo.py`
+  against a cluster_toolkit-validated reference. Most packages never get here.
+- **Approximations carry their domain of validity** — `einasto.py`'s docstring states the
+  `n` and `R/h` ranges where each branch holds, and there is an `order_for_tol` method.
+  That is rule 5 done better than the exemplar package.
+- Modern packaging: `src/` layout, `pyproject.toml`, CI, readthedocs.
+
+---
+
+## P0 — correctness traps
+
+### 0.1 `model="Einasto"` is unreachable and the error message misleads
+
+`LensingProfile.__init__` does `self.model = model.upper()`, so `"Einasto"` becomes
+`"EINASTO"`. `_validate_inputs` then tests `self.model not in ["NFW", "Einasto"]`, which
+is true, and raises
+
+```
+Model 'EINASTO' not supported. Available: NFW, Einasto
+```
+
+— an error that lists the model it just rejected. Even if the case matched,
+`_setup_halo_profile` raises `NotImplementedError` for anything but NFW, so the validator
+and the factory disagree about what is supported.
+
+**Fix.** Normalise once, compare against a single module-level tuple, and let the factory
+be the only authority:
+
+```python
+SUPPORTED_MODELS = ("nfw", "einasto")
+self.model = model.lower()
+```
+
+and wire `EinastoProfile` into `_setup_halo_profile`, or drop `"Einasto"` from the
+supported list until it is wired. Do not leave a third state.
+
+### 0.2 Two density conventions, one of them exported and dead
+
+`config.RHOCRIT = 2.77533742639e11  # Msun h^2/Mpc^3` is re-exported at package top level
+(`from .config import DEFAULT_COSMOLOGY, RHOCRIT`) and **is never used anywhere in the
+package**. Every density that actually gets used comes from astropy and is h-free:
+
+```python
+nfw.py:      rhoc = cosmo.critical_density(0).to_value("Msun/Mpc^3")
+bias.py:     self.rhom = self.cosmo.critical_density(0).to_value(...) * self.omega_m
+profile.py:  rhocrit0 = self.cosmo.critical_density0.to_value(...)
+```
+
+A public constant in $h^2M_\odot/{\rm Mpc}^3$ sitting next to an all-h-free codebase is a
+factor-of-$h^2$ waiting for a user. Skill rule 4: never expose a name whose unit
+convention differs from the calculation's.
+
+**Fix.** Delete `RHOCRIT` from `config.py` and `__init__.py`. If you want it for
+h-convention interop, move it to `utils/constants.py` under the name
+`RHO_CRIT_WITH_H` with the instruction in the comment
+(`# h^2 Msun/Mpc^3 -- multiply by h**2 before use`), and do not re-export it.
+
+### 0.3 `h` means two different things
+
+In `einasto*.py`, `h` is the Einasto **scale radius** (`rho_0 exp[-(r/h)^(1/n)]`,
+`x = R/h`). Everywhere else in a cosmology package `h` is $H_0/100$. Worse, the
+constructor signature is `EinastoProfile(alpha, rho_0, r_s, ...)` while the docstrings and
+the internal algebra say `h` — so the public name and the documented symbol already
+disagree.
+
+**Fix.** Pick `r_s` and use it in the code; keep `h` only inside the `.tex` notes, and add
+one line to the module docstring: `NOTE: the notes write h for the scale radius r_s; this
+module uses r_s throughout.` The rule is that the *code* may not overload a symbol that
+means something else one directory over.
+
+### 0.4 `m200` is ambiguous between 200c and 200m
+
+`nfw.py` computes `r200` from `rhom = rhoc * Om0`, i.e. 200× the **mean** matter density,
+and `test_nfw.py` confirms it against `ccl.halos.massdef.MassDef200m`. But the attribute
+is `m200`, the docstring says $M_{200}$, and `BiasModel(..., odelta=200)` gives no hint
+either. Anyone arriving from an X-ray or SZ background will read $M_{200c}$.
+
+**Fix.** Rename to `m200m` / `r200m` / `c200m`, or — if the rename is too invasive right
+now — state the definition in the first line of the class docstring and in the README
+Quick Start, the way the exemplar paper does ("Throughout this work, we use
+$M_{\rm 200m}$…"). A one-line `NOTE:` is cheap; a silent 200c/200m mismatch is a
+30% mass error.
+
+### 0.5 `LensingProfile.__init__` runs CAMB
+
+The constructor builds a `PkGrid`, evaluates $P(k)$, builds a `TwoHaloTerm`, builds a
+`BiasModel`, and calls `bias(m200)` — all before the caller has asked for anything. With
+`include_2halo=True` as the default, `LensingProfile(z_cluster=0.3, m200=1e14)` fires up a
+Boltzmann solver.
+
+This breaks two rules at once: **constructors store, they do not compute** (leanness
+budget), and **easy to start an object** — the property you named as central to the style.
+
+**Fix.** Store the inputs; build the 2-halo machinery lazily on first use, or accept
+pre-built collaborators:
+
+```python
+def __init__(self, z_cluster, m200, cosmology, concentration=4.0,
+             halo_profile=None, two_halo=None, bias=None, z_source=1.0):
+    self.halo_profile = halo_profile     # built by the caller, or lazily below
+    self._two_halo = two_halo
+```
+
+The exemplar packages take `co=`, `su=`, `sr=` as already-constructed objects for exactly
+this reason: the driver decides what is expensive, not the library.
+
+### 0.6 `check_structure.py` is stale and machine-specific
+
+Hardcodes `base_dir = "/Users/esteves/Documents/Projetos/CLensPy"`, contains the typo
+`"sec/clenspy/utils"`, and checks for files that do not exist (`test_lensing.py`,
+`test_utils.py`, `docs/tutorials/tutorial1.ipynb`, `setup.cfg`, `demo_profile_fit.ipynb`).
+It cannot pass on any machine including yours.
+
+**Fix.** Delete it. Replace with `tests/test_protocols.py` (below), which checks something
+real and runs in CI.
+
+---
+
+## P1 — structure
+
+### 1.1 Target tree
+
+```
+src/clenspy/
+  protocols.py          NEW  structural contracts, imported by nothing at runtime
+  utils/
+    constants.py        NEW  from config.py, units in trailing comments
+    special.py          NEW  from einasto.py: expn_fast, expint_*, Catalan, asymptotics
+    integrate.py             (unchanged)
+    interpolate.py           (unchanged)
+  cosmology/
+    distances.py        RENAME from cosmology/utils.py, minus sigma_critical
+    pkgrid.py                (unchanged)
+    bias.py             MOVE  from halo/  -- structure formation, not a halo profile
+    concentration.py    MOVE  from halo/  -- currently a 6-line stub, fill or delete
+  survey/               NEW
+    survey.py           NEW   p(z), sigma_gamma, n_src, zs range  -- the Survey protocol
+  selection/            NEW
+    miscentering.py     MOVE  from lensing/
+    boost.py            MOVE  from lensing/
+    scaling_relation.py NEW   when you need mass-observable
+  kernels/              NEW
+    sigma_crit.py       MOVE  sigma_critical out of cosmology/utils.py
+  halo/
+    nfw.py                   (unchanged)
+    einasto.py          SPLIT profile class only, ~350 lines
+    einasto_series.py   NEW   the _pk_* branch evaluators from einasto.py
+    einasto_lown.py          (unchanged -- this is the production series backend)
+    twohalo.py               (unchanged)
+  lensing/
+    profile.py               (slimmed per 0.5)
+benchmarks/             NEW   einasto_v2.py, einasto_v3.py moved here
+validation/             NEW   pyccl / cluster_toolkit / published-value comparisons
+tests/                        does-it-run + protocol conformance only
+```
+
+### 1.2 `einasto.py` is 1263 lines and is three modules
+
+Thirty-odd module-level private functions before the class even starts: Gauss–Laguerre
+nodes, Kummer confluent functions, a Mellin–Barnes contour, Filon quadrature, asymptotic
+expansions of $E_\nu$, Catalan numbers, six `_pk_*` branch evaluators. The budget is
+~300 lines and one physical concept per module.
+
+**Split three ways.** `utils/special.py` gets the general-purpose special functions
+(`expn_fast`, `expint_asymptotic`, `_expint_*`, `_catalan_over_4k`, `_asymptotic_polys`)
+— they are not Einasto-specific and other profiles will want them. `halo/einasto_series.py`
+gets the `_pk_*` branch machinery. `halo/einasto.py` keeps `EinastoProfile` and the
+branch-selection logic. Nothing about the physics changes; the file becomes readable.
+
+### 1.3 Four Einasto implementations, two in limbo
+
+`einasto_v2.py` and `einasto_v3.py` subclass `EinastoProfile`, are self-labelled
+*"benchmark / research implementation"*, are **not** exported from `halo/__init__.py`, and
+are **not** referenced by any test. They are neither shipped nor archived — the worst of
+both, because a reader cannot tell whether they are live.
+
+The skill's rule (`references/review.md`, "Recording negative results") says keep them —
+they document roads taken and are the companion code to `einasto_proj_density_v2.tex` and
+`_v3.tex`. But move them to `benchmarks/`, add one line at the top of each stating which
+note it implements and why the v1 path is production, and add a line to
+`docs/einasto_series_investigation.md` pointing at them. `einasto_lown.py` stays in the
+package — it is the production backend for general `n`, and `einasto.py` imports it.
+
+### 1.4 The missing layers
+
+You have `cosmology`, `utils`, `halo`, `lensing`. The spine wants `survey` and
+`selection` too, and you have the contents for one of them already.
+
+**`selection/`** — `miscentering.py` and `boost.py` are in `lensing/` but neither is a
+lensing observable. Both describe how the *observed sample* deviates from the theory
+prediction: an offset distribution between the assumed and true centre, and dilution of
+the source sample by cluster members. Apply the placement rule from the skill —
+*which of these would a referee ask you to vary while holding the others fixed?* Both are
+nuisance models that get marginalised over. They belong in `selection/`.
+
+**`survey/`** — currently a scalar `z_source: float = 1.0` buried as a `LensingProfile`
+constructor default. That is the single biggest structural gap between "profile calculator"
+and "analysis package". Everything about the observation is absent: $p(z)$,
+$\sigma_\gamma$, $n_{\rm src}$, footprint. Adding the `Survey` protocol is what unlocks
+$\langle\Sigma_{\rm crit}^{-1}\rangle$ over a real source distribution, shape-noise
+covariance, and anything survey-facing.
+
+**`kernels/`** — small for now: `sigma_critical` moves out of `cosmology/utils.py`, where
+it does not belong (it is a lensing kernel quantity, not a background quantity). This
+folder is where a Limber projection and bin-averaged Bessel transforms go if you ever add
+a covariance module.
+
+### 1.5 Two "utils" namespaces
+
+`utils/` (package) and `cosmology/utils.py` (module). The package is fine — it holds
+named modules. The module is a dumping ground holding `sigma_critical` (a kernel),
+`comoving_to_theta`/`theta_to_comoving` (geometry), `critical_density`/`hubble_parameter`
+(thin astropy wrappers). Rename to `cosmology/distances.py`, move `sigma_critical` to
+`kernels/`, and consider dropping the two one-line astropy passthroughs — a wrapper that
+adds nothing is a name a reader has to learn for no reason.
+
+---
+
+## P2 — contracts and discipline
+
+### 2.1 Protocols
+
+Copy `assets/protocols.py` from the skill to `src/clenspy/protocols.py`, trim to the
+contracts you actually have (`Cosmology`, `Profile`, and — once written — `Survey`,
+`Selection`), and add:
+
+```python
+# tests/test_protocols.py
+def test_profiles_conform():
+    for cls in [NfwProfile(m200=1e14, c200=4.0),
+                EinastoProfile(alpha=0.2, rho_0=1e15, r_s=0.3)]:
+        assert isinstance(cls, Profile)
+```
+
+This is what `check_structure.py` was reaching for, done in ten lines against something
+that matters. `NfwProfile` and `EinastoProfile` should expose the same `density`, `sigma`,
+`deltasigma`, `fourier` surface — they nearly do; the test will find where they do not.
+
+### 2.2 A notation table
+
+You have the derivations but not the dictionary. Add `docs/notation.md`: symbol, meaning,
+code name, units, module — one row per quantity, harvested from the `.tex` notes. It
+becomes the review checklist, and it is what a new contributor (or agent) reads first.
+Start with the rows that are already ambiguous: $M_{200m}$ vs $M_{200c}$, $h$ (scale
+radius) vs $h$ (Hubble), $\rho_m$ comoving vs physical, $k$ physical vs $h$-scaled.
+
+### 2.3 Unit `NOTE:` in every class docstring
+
+`bias.py` already does this well ("All quantities are in absolute (physical) units
+throughout — mass in Msun…"). Propagate it. Every class that touches a density, a
+distance, or a wavenumber states its convention in the first three lines. `nfw.py`,
+`twohalo.py`, `profile.py`, and all the Einasto modules currently do not.
+
+### 2.4 Split `tests/` and `validation/`
+
+`test_nfw.py` contains a `pyccl` comparison; `test_twohalo.py` contains a
+cluster_toolkit-validated reference pattern. Those are validations wearing a test costume
+— they are skipped when the optional dependency is missing, which means CI green does not
+mean "agrees with pyccl". Move them to `validation/`, keep a fast smoke test in `tests/`,
+and let `validation/` produce the figures that already live in `docs/_static/img/`
+(`einasto_deltasigma_validation.png` et al.) rather than `docs/make_einasto_figures.py`
+doing it from the docs directory.
+
+### 2.5 Docstrings are carrying a changelog
+
+`LensingProfile`'s class `Notes` and `fourier_profile`'s `Notes` narrate bugs that were
+found and fixed — *"Previously called a nonexistent `self.two_halo_profile.pk(...)` …
+Fixed to use `p_kz`"*, *"`deltasigma`'s 2-halo term previously multiplied by a hardcoded
+1e12 …"*. That is git history in the API reference; a user reading `help(LensingProfile)`
+does not need it, and it will rot.
+
+Keep the *physics* — which normalisation is correct and why `rho_m` rather than `1e12`,
+which is a genuine units caveat worth a `NOTE:`. Move the archaeology to `CHANGELOG.md`.
+
+### 2.6 Decorators that hide inputs
+
+`default_rvals_z` substitutes `self.reval`/`self.zvec` when arguments are `None`. That is
+the opposite of rule 3 — everything a method needs should be visible in its signature, and
+this makes the effective inputs invisible at the call site. `time_method` mutates
+`self.timings` as a side effect. `scalar_array_output` is fine and worth keeping.
+
+Prefer explicit defaults on the method, or an explicit `self.default_grid()` call in the
+body. In a package whose selling point is followable numerics, a decorator that silently
+supplies the radial grid is the wrong kind of clever.
+
+### 2.7 `config.py` as a singleton
+
+`DEFAULT_COSMOLOGY = FlatLambdaCDM(H0=70, Om0=0.3)` is a shared module-level instance used
+as a default argument in `NfwProfile`, `LensingProfile`, and others. It works, but it means
+the cosmology is ambient rather than passed, and a mutation anywhere is global.
+`PI = 3.14159265359` next to `numpy` should go regardless.
+
+Split it: physical constants and conversions to `utils/constants.py` (units in trailing
+comments, per the skill); the fiducial cosmology to a function
+`fiducial_cosmology() -> FlatLambdaCDM` so each caller gets its own instance and the
+default is visible as a call rather than a shared object.
+
+---
+
+## Suggested PR sequence
+
+Each step is independently reviewable and leaves the package working.
+
+1. **P0 fixes** — `model` normalisation, delete `RHOCRIT`, delete `check_structure.py`,
+   `NOTE:` lines for $M_{200m}$ and the Einasto `h`/`r_s` clash. Small diff, removes traps.
+2. **`utils/constants.py` + `fiducial_cosmology()`**, retire `config.py`.
+3. **Split `einasto.py`** into `utils/special.py` + `halo/einasto_series.py` + the class.
+   Pure moves; the existing 431-line `test_einasto.py` is your safety net.
+4. **Move `einasto_v2/v3` to `benchmarks/`** with provenance headers.
+5. **`protocols.py` + `tests/test_protocols.py`**; fix whatever divergence it exposes
+   between `NfwProfile` and `EinastoProfile`.
+6. **Create `selection/`**, move `miscentering.py` and `boost.py`, keep import shims in
+   `lensing/__init__.py` for one release.
+7. **Create `kernels/`**, move `sigma_critical`; rename `cosmology/utils.py` →
+   `cosmology/distances.py`.
+8. **Lazy `LensingProfile`** — stop running CAMB in `__init__`.
+9. **`validation/`** — move the pyccl and cluster_toolkit comparisons out of `tests/`.
+10. **`docs/notation.md`**, then the unit `NOTE:` sweep.
+11. **`survey/survey.py`** — the new capability, once the spine is in place.
+
+---
+
+## What not to change
+
+- **The `.tex` notes.** They are the specification and they are the reason this package can
+  be brought into line at all. Keep writing them.
+- **The Einasto branch-selection logic and `order_for_tol`.** Documented convergence
+  control is rule 5 done properly; do not simplify it away during the file split.
+- **The `n`-range and `R/h`-range validity statements.** Same reason.
+- **`einasto_lown.py`'s comment explaining *why* the legacy Catalan evaluation was
+  abandoned** (30–200% relative error for $n=3.3$–10, absolute rather than relative
+  truncation error). That is a recorded negative result and it is exactly right.
+- **Type hints.** The exemplar package has none; you have them and they are good. The
+  skill's "no type hints" observation was a description of one author's habit, not a rule —
+  ignore it. Keep the hints, keep `Protocol` structural.

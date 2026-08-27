@@ -17,6 +17,16 @@ from ..halo import NfwProfile, TwoHaloTerm, BiasModel
 
 __all__ = ["LensingProfile", "LensingProfileInfo"]
 
+#: Halo profile models `LensingProfile` can build, as normalised (lower-case)
+#: names. This tuple and `_setup_halo_profile` are the only authority on what
+#: is supported; `_validate_inputs` reads it so an unsupported name is rejected
+#: before any Boltzmann solver is started.
+#:
+#: "einasto" is deliberately absent: `EinastoProfile` is parameterised by
+#: (alpha, rho_0, r_s) and has no M_200m-based constructor, so wiring it here
+#: needs a mass-to-(rho_0, r_s) inversion that does not exist yet.
+SUPPORTED_MODELS = ("nfw",)
+
 @dataclass
 class LensingProfileInfo:
     """Summary of a `LensingProfile`'s parameters, returned by `LensingProfile.info`."""
@@ -39,6 +49,12 @@ class LensingProfile:
     A unified class for weak lensing calculations, combining a 1-halo term
     (`NfwProfile`) with an optional linear-bias 2-halo term (`TwoHaloTerm`):
 
+    NOTE: masses are **M_200m** (200x the comoving mean matter density at
+    z=0), inherited from `NfwProfile` -- not M_200c.
+
+    NOTE: all quantities are h-free absolute units -- mass in Msun, lengths
+    in Mpc, Sigma and DeltaSigma in Msun/Mpc^2, wavenumbers in 1/Mpc.
+
     .. math::
         \Sigma(R) = \Sigma_{\rm 1h}(R) + b(M)\, \rho_m\, \Sigma_{\rm 2h}(R)
 
@@ -51,13 +67,14 @@ class LensingProfile:
     z_cluster : float
         Redshift of the cluster.
     m200 : float
-        Halo mass M_200 [Msun].
+        Halo mass M_200m [Msun], w.r.t. 200x the comoving mean matter density.
     cosmology : astropy.cosmology.Cosmology
         Cosmology used for all calculations.
     concentration : float
         Halo concentration c_200.
     model : str
-        Halo profile model; currently only "NFW" is implemented.
+        Halo profile model, normalised to lower case. See `SUPPORTED_MODELS`;
+        currently only "nfw" is implemented.
     include_2halo : bool
         Whether to add the 2-halo term to `sigma`/`deltasigma`/
         `fourier_profile`.
@@ -97,13 +114,14 @@ class LensingProfile:
         z_cluster : float
             Cluster (lens) redshift.
         m200 : float
-            Halo mass M_200 [Msun].
+            Halo mass M_200m [Msun], w.r.t. 200x the comoving mean matter density.
         cosmology : astropy.cosmology.Cosmology, optional
             Cosmology to use (default: `~clenspy.config.DEFAULT_COSMOLOGY`).
         concentration : float, optional
             Halo concentration c_200 (default: 4.0).
         model : str, optional
-            Halo profile model; only "NFW" is implemented (default: "NFW").
+            Halo profile model, case-insensitive and normalised to lower case.
+            See `SUPPORTED_MODELS`; only "nfw" is implemented (default: "NFW").
         include_2halo : bool, optional
             Whether to add the 2-halo term (default: True). If True, builds
             a `~clenspy.cosmology.PkGrid` (via ``backend_2halo``) and a
@@ -117,7 +135,7 @@ class LensingProfile:
         self.z_cluster = z_cluster
         self.m200 = m200
         self.concentration = concentration
-        self.model = model.upper()
+        self.model = model.lower()
         self.include_2halo = include_2halo
         self.z_source = z_source
         self.omega_m = self.cosmo.Om0
@@ -160,16 +178,19 @@ class LensingProfile:
             raise ValueError("Mass must be positive")
         if self.concentration <= 0:
             raise ValueError("Concentration must be positive")
-        if self.model not in ["NFW", "Einasto"]:
-            raise ValueError(f"Model '{self.model}' not supported. Available: NFW, Einasto")
+        if self.model not in SUPPORTED_MODELS:
+            raise ValueError(
+                f"Model '{self.model}' not supported. "
+                f"Available: {', '.join(SUPPORTED_MODELS)}"
+            )
 
     def _setup_halo_profile(self) -> None:
-        if self.model == "NFW":
+        if self.model == "nfw":
             self.halo_profile = NfwProfile(
                 m200=self.m200, c200=self.concentration, cosmo=self.cosmo
             )
-        else:
-            raise NotImplementedError(f"Model {self.model} not implemented")
+        else:  # pragma: no cover - _validate_inputs rejects anything else first
+            raise NotImplementedError(f"Model '{self.model}' not implemented")
 
         if self.include_2halo:
             self.two_halo_profile = TwoHaloTerm(
