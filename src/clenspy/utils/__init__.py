@@ -9,6 +9,7 @@ from .integrate import (
     compute_sigma_leggauss,
     compute_sigma_quadvec,
     compute_sigma_trapz_vectorized,
+    gl_nodes,
     pk_to_xi_fftlog,
     sigma_to_deltasigma_cumtrapz,
 )
@@ -27,4 +28,5 @@ __all__ = [
     "compute_sigma_quadvec",
     "sigma_to_deltasigma_cumtrapz",
     "pk_to_xi_fftlog",
+    "gl_nodes",
 ]

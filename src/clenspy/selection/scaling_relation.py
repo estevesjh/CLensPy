@@ -210,6 +210,12 @@ class HodMor:
     not a physical width: a bracket narrower than `FALLBACK_SIGMA` will
     miss its normalisation.
 
+    NOTE: the source these constants come from stores them as
+    :math:`10^{\log_{10}M}/h` in :math:`M_\odot`. This class keeps
+    :math:`h^{-1}M_\odot` throughout, so the tabulated exponents are used
+    **as they are written** and no :math:`h` appears -- which is one fewer
+    place for it to be applied twice.
+
     Parameters
     ----------
     log10_Mmin, log10_M1 : float
@@ -236,6 +242,50 @@ class HodMor:
                 f"log10_M1 ({self.log10_M1}) must exceed log10_Mmin "
                 f"({self.log10_Mmin}); M1 - Mmin is the normalisation"
             )
+
+    @classmethod
+    def des_y1(cls):
+        r"""The DES Y1 NC+3x2pt best fit.
+
+        NOTE: keeps :math:`\epsilon = 0`, the widePlanck convention. The
+        Buzzard mocks were **not** generated with this set -- see
+        `buzzard`. Comparing a Buzzard data vector against this relation
+        mismatches the redshift evolution.
+        """
+        return cls(
+            log10_Mmin=11.3852818,
+            log10_M1=12.6964410,
+            alpha=0.858693714,
+            epsilon=0.0,
+            sigma_intr=0.180949022,
+        )
+
+    @classmethod
+    def buzzard(cls):
+        r"""The exact constants the Buzzard mock data vectors were made with.
+
+        From ``des-nersc-cluster-scripts/cosmosis-models/
+        mock_mcmc_buzzard_values.ini`` (Tan Xing). Differs from `des_y1` in
+        two places, both of which matter for a mock comparison:
+        :math:`\epsilon = 0.283887020` rather than 0, and
+        :math:`z_\star = 0.4544` rather than 0.45.
+
+        NOTE: any Buzzard comparison must use **this** set. Measured, the
+        :math:`\epsilon` difference tilts
+        :math:`\langle\lambda^{\rm sat}\rangle` from **0.947x** at
+        :math:`z = 0.2` to **1.036x** at :math:`z = 0.65` -- a 9% swing
+        across the DES Y1 range, and a *tilt* rather than an offset, so it
+        does not absorb into the amplitude. That is a redshift-dependent
+        mass shift, not a rounding difference.
+        """
+        return cls(
+            log10_Mmin=11.3852818,
+            log10_M1=12.6964410,
+            alpha=0.858693714,
+            epsilon=0.283887020,
+            sigma_intr=0.180949022,
+            z_pivot=0.4544,
+        )
 
     def mu_sat(self, ln_mass, z):
         r""":math:`\langle\lambda^{\rm sat}\rangle(M,z)`, zero below M_min."""

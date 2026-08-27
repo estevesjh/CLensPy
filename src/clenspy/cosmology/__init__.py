@@ -10,7 +10,11 @@ the universe.
 """
 
 from .concentration import child18, child18_powerlaw, duffy08, m_star_hinv
-from .distances import comoving_to_theta, theta_to_comoving
+from .distances import (
+    comoving_to_theta,
+    comoving_volume_element,
+    theta_to_comoving,
+)
 from .fiducial import fiducial_cosmology, mean_matter_density
 from .growth import growth_factor, growth_unnormalised
 from .mass_function import TinkerMassFunction, consumed_mask
@@ -34,6 +38,7 @@ __all__ = [
     "lnr_grid",
     "TinkerMassFunction",
     "consumed_mask",
+    "comoving_volume_element",
 ]
 
 

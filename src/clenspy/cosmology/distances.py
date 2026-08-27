@@ -138,6 +138,45 @@ __all__ = [
 ]
 
 
+def comoving_volume_element(z, cosmology=None):
+    r"""Comoving volume element :math:`dV/(dz\,d\Omega)` in Mpc^3/sr.
+
+    .. math::
+        \frac{dV}{dz\,d\Omega} = \frac{c}{H(z)}\,\chi^2(z)
+
+    NOTE: **per steradian**, so it pairs directly with an
+    :math:`\Omega(z)` in steradians -- which is what
+    `clenspy.survey.survey` returns. Pairing it with a footprint in square
+    degrees is a silent factor of :math:`(180/\pi)^2 \approx 3283`.
+
+    NOTE: h-free (Mpc^3). The mass function is per
+    :math:`(h^{-1}{\rm Mpc})^3`, so a counts integral needs one visible
+    factor of :math:`h^3`; that conversion lives in
+    `clenspy.observables.abundance.ClusterAbundance._volume_per_dz` and
+    nowhere else.
+
+    Parameters
+    ----------
+    z : float or array-like
+        Redshift, positive.
+    cosmology : astropy.cosmology.Cosmology, optional
+        Defaults to `~clenspy.cosmology.fiducial_cosmology`.
+
+    Returns
+    -------
+    float or np.ndarray
+        Scalar in, scalar out.
+    """
+    from .fiducial import fiducial_cosmology
+
+    cosmology = fiducial_cosmology() if cosmology is None else cosmology
+    scalar = np.ndim(z) == 0
+    values = cosmology.differential_comoving_volume(
+        np.atleast_1d(np.asarray(z, dtype=float))
+    ).to_value("Mpc3 / sr")
+    return float(values[0]) if scalar else values
+
+
 if __name__ == "__main__":
     from .fiducial import fiducial_cosmology
 

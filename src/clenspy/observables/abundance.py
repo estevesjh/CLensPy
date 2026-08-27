@@ -60,6 +60,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..cosmology.distances import comoving_volume_element
+
 __all__ = ["ClusterAbundance"]
 
 
@@ -120,9 +122,7 @@ class ClusterAbundance:
         Mpc^3 to :math:`(h^{-1}{\rm Mpc})^3` so the two cancel and the
         count is dimensionless. Written here, once, and nowhere else.
         """
-        dv_dz_domega = self.cosmology.differential_comoving_volume(
-            self.z
-        ).to_value("Mpc3 / sr")
+        dv_dz_domega = comoving_volume_element(self.z, self.cosmology)
         omega_sr = np.asarray(self.omega(self.z), dtype=float)
         # Mpc^3 -> (Mpc/h)^3 : one visible multiplication
         return omega_sr * dv_dz_domega * self.h**3

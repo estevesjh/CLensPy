@@ -512,3 +512,46 @@ def test_selection_function_rejects_bad_edges():
     with pytest.raises(ValueError, match="positive"):
         SelectionFunction(LAM_EDGES, Z_EDGES, LogNormalMor(), PARAMS,
                           sigma_z=0.0)
+
+
+# -- the calibrated parameter sets ------------------------------------------
+
+
+def test_the_two_hod_parameter_sets_differ_only_in_the_evolution():
+    """des_y1 keeps epsilon = 0; buzzard carries the epsilon fix."""
+    a, b = HodMor.des_y1(), HodMor.buzzard()
+    assert a.log10_Mmin == b.log10_Mmin
+    assert a.log10_M1 == b.log10_M1
+    assert a.alpha == b.alpha
+    assert a.sigma_intr == b.sigma_intr
+    assert a.epsilon == 0.0
+    assert b.epsilon == pytest.approx(0.283887020)
+    assert b.z_pivot == pytest.approx(0.4544)
+
+
+def test_the_buzzard_set_tilts_the_evolution_not_the_amplitude():
+    r"""A 9% swing across the DES Y1 range, and a tilt, not an offset.
+
+    An offset would absorb into the amplitude and be harmless for a mass
+    calibration. A tilt does not, which is why Buzzard comparisons must use
+    the Buzzard set.
+    """
+    a, b = HodMor.des_y1(), HodMor.buzzard()
+    lm = np.log(3e14)
+    ratios = np.array([b.mu_sat(lm, z).item() / a.mu_sat(lm, z).item()
+                       for z in (0.20, 0.35, 0.50, 0.65)])
+    assert np.all(np.diff(ratios) > 0.0)              # monotonic tilt
+    assert ratios[0] == pytest.approx(0.947, abs=2e-3)
+    assert ratios[-1] == pytest.approx(1.036, abs=2e-3)
+    assert ratios.max() / ratios.min() == pytest.approx(1.094, abs=5e-3)
+
+
+def test_the_parameter_sets_stay_in_hinv_msun():
+    r"""The exponents are used as written -- no h anywhere.
+
+    The source stores :math:`10^{\log_{10}M}/h` in Msun; this class keeps
+    :math:`h^{-1}M_\odot`, so the tabulated exponent is the value. One
+    fewer place for an h to be applied twice.
+    """
+    assert HodMor.buzzard().log10_Mmin == pytest.approx(11.3852818)
+    assert HodMor.buzzard().log10_M1 == pytest.approx(12.6964410)
