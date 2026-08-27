@@ -75,14 +75,12 @@ concerns on purpose: $\Omega(z)$ appears in $\langle N_{ij}\rangle$ and
 **cancels** in the shear projection, so it must never be applied to both as
 an ambient survey property.
 
+$\Omega(z)$ is code (a polynomial transcribed from `y3_cluster_cpp`); bin
+edges, $\sigma_z$, $\sigma_\gamma$, $n_{\rm src}$ and the $p(z_s)$
+parameters are analysis choices and live in `clenspy/configs/<survey>.json`.
+
 ```{eval-rst}
-.. automodule:: clenspy.survey.area
-   :members:
-
-.. automodule:: clenspy.survey.sources
-   :members:
-
-.. automodule:: clenspy.survey.bins
+.. automodule:: clenspy.survey.survey
    :members:
 ```
 

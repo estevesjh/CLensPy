@@ -80,7 +80,7 @@ where = ["src"]
 include = ["clenspy*"]
 
 [tool.setuptools.package-data]
-clenspy = ["py.typed", "data/*.npz", "data/*.txt"]
+clenspy = ["py.typed", "data/*.npz", "data/*.txt", "configs/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -115,7 +115,7 @@ class Profile(Protocol):
 class Survey(Protocol):
     r"""A shear catalogue: its redshift distribution and its noise.
 
-    Satisfied by `clenspy.survey.SourcePopulation`. The contract is the
+    Satisfied by `clenspy.survey.Survey`. The contract is the
     four things a lensing weight or a covariance actually asks for, and
     nothing else.
 
@@ -159,7 +159,7 @@ if __name__ == "__main__":
     print("EinastoProfile satisfies Profile?",
           isinstance(EinastoProfile(alpha=0.2, rho_0=1e15, r_s=0.3), Profile))
 
-    from clenspy.survey import SourcePopulation
+    from clenspy.survey import Survey
 
-    print("SourcePopulation satisfies Survey?",
-          isinstance(SourcePopulation.des_y1(), Survey))
+    print("Survey satisfies Survey?",
+          isinstance(Survey.des_y1(), Survey))

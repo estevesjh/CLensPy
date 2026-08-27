@@ -669,40 +669,47 @@ Keep the decomposition and sum at the end (rule 6); the exemplar's shape:
 
 Steps 1–5 are done. Steps 6–10 stand. Then:
 
-11. `survey/` — **done.** `area.py` ($\Omega(z)$), `sources.py`
-    (`SourcePopulation`) and `bins.py`, kept as three objects because
-    $\Omega(z)$ is in the counts and cancels in the shear. `Survey` is now
-    in `protocols.py`, and it is the source population — *not*
+11. `survey/` — **done**, as one module plus a config directory.
+    `survey/survey.py` holds $\Omega(z)$; the analysis choices live in
+    `clenspy/configs/<survey>.json`. `Survey` is now in `protocols.py`, and
+    it is the source population — *not*
     $\langle\Sigma_{\rm crit}^{-1}\rangle$, *not* $\Omega(z)$.
 
-    Four things settled by reading the sources rather than assuming:
+    **The split is code vs. configuration.** A footprint fit is a
+    transcribed polynomial, so it is code — one mistyped digit is a silent
+    normalisation error. Bin edges, $\sigma_z$, $\sigma_\gamma$,
+    $n_{\rm src}$ and the $p(z_s)$ parameters are analysis choices, so
+    they are JSON with a `_provenance` string on every group. Changing an
+    analysis edits a config, never this module.
 
-    - **`y3_cluster::OMEGA_Z_DES` is DES Y1, not Y3.** It gives 1494 deg²
-      at $z=0.2$ against Y1's published 1437; Y3 is 4143. The y3 repo's own
-      python transcription names it `omega_z_des_y1`, which settles it.
-    - **No $z$-dependent DES Y3 fit exists anywhere.** `omega_des_y3` is
-      therefore flat at the 4143 deg² *gold* footprint — the data. The
-      downstream `configs/des_y3.json` carries 5000 deg², but that file is
-      a forecast (its counts are "DES Y1 counts scaled by 5000/1437"), so
-      the two describe different things and must not be reconciled. The
-      precedent for a flat placeholder is the C++'s own `OMEGA_Z_Y3XSPT`.
-    - **The DES Y1 fit has three pathologies**, all present in the C++ and
-      now pinned by tests: discontinuous by $-0.37\%$ at $z=0.504$ and by
+    Five things settled by reading the sources rather than assuming:
+
+    - **`y3_cluster::OMEGA_Z_DES` is DES Y1, not Y3.** 1494 deg² at
+      $z=0.2$ against Y1's published 1437; Y3 is 4143. The y3 repo's own
+      python transcription names it `omega_z_des_y1`.
+    - **No $z$-dependent DES Y3 fit exists anywhere**, so `omega_des_y3`
+      is flat at the 4143 deg² **gold** footprint — the area of the data.
+      The downstream `configs/des_y3.json` carries 5000, but that file is a
+      forecast ("DES Y1 counts scaled by 5000/1437"), so the two describe
+      different things and must not be reconciled. Precedent for a flat
+      placeholder is the C++'s own `OMEGA_Z_Y3XSPT`.
+    - **$\sigma_z = 0.01$, not 0.03.** The `SIGMA_Z = 0.03` in the y3
+      production config is the **3σ window**, not the scatter. Using it as
+      $\sigma_z$ widens every photo-z kernel threefold.
+    - **The DES Y1 fit has three pathologies**, all in the C++ and now
+      pinned by tests: discontinuous by $-0.37\%$ at $z=0.504$ and
       $-30.6\%$ at $z=0.700$, and it crosses zero at $z=0.9378$. Clamped
-      at zero here, which is a deliberate divergence from the C++ above
-      $z=0.94$. Its domain of validity is the analysis range $[0.20,
-      0.65]$.
-    - **The DES header names its arrays `SDSS_fit`.** A copy-paste
-      artifact the C++ flags itself ("A+ naming SDSS_fit for DES =P"). The
-      numbers are DES; renamed on transcription.
+      at zero here — a deliberate divergence above $z=0.94$. Domain of
+      validity is the analysis range $[0.20, 0.65]$.
+    - **The DES header names its arrays `SDSS_fit`** — a copy-paste
+      artifact the C++ flags itself. Renamed on transcription.
 
     Coverage is uneven on purpose. SDSS has an $\Omega(z)$ fit, because
-    one exists in `y3_cluster_cpp`, but `SourcePopulation.sdss()` and
-    `sdss_bins()` **raise** — no record of that shear catalogue's
-    $p(z_s)$, $\sigma_\gamma$, $n_{\rm src}$, or of its bin edges, is
-    available here, and a guessed bin edge is an integration limit that
-    looks right. Same principle as the missing Einasto miscentering
+    one exists upstream, but no config — so `load_config("sdss")` raises.
+    A bin edge is an integration limit, and a guessed one is a wrong number
+    that looks right. Same principle as the missing Einasto miscentering
     table.
+
 12. `kernels/` — $\Sigma_{\rm crit}$, $\langle\Sigma_{\rm crit}^{-1}\rangle$,
     the three covariance callables, the two photo-z kernels, Limber.
 13. `halo/mass_function.py` — `SigmaGrid`, the halo mass function, the

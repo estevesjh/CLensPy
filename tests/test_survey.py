@@ -12,23 +12,24 @@ nothing else would catch.
 import numpy as np
 import pytest
 
-from clenspy.protocols import Survey
+from clenspy.protocols import Survey as SurveyProtocol
 from clenspy.survey import (
-    DES_Y1_Z_RANGE,
-    SourcePopulation,
+    Survey,
+    available_configs,
     deg2,
-    des_y1_bins,
-    des_y3_bins,
+    load_config,
     omega_des_y1,
     omega_des_y3,
     omega_sdss,
     omega_y3xspt,
-    sdss_bins,
     survey_area,
     survey_bins,
 )
+from clenspy.survey.survey import DES_Y1_Z_RANGE
 
 OMEGAS = (omega_des_y1, omega_des_y3, omega_sdss, omega_y3xspt)
+_OMEGA_BY_NAME = {"des_y1": omega_des_y1, "des_y3": omega_des_y3,
+                  "sdss": omega_sdss, "y3xspt": omega_y3xspt}
 
 
 # -- Omega(z): transcription ------------------------------------------------
@@ -151,10 +152,10 @@ def test_deg2_round_trips():
 
 def populations():
     return [
-        SourcePopulation.des_y1(),
-        SourcePopulation.des_y3(),
-        SourcePopulation.top_hat(zs_min=0.8, zs_max=1.2),
-        SourcePopulation.tabulated(
+        Survey.from_config("des_y1"),
+        Survey.from_config("des_y3"),
+        Survey.top_hat(zs_min=0.8, zs_max=1.2),
+        Survey.tabulated(
             z=np.linspace(0.1, 2.0, 40),
             dndz=np.exp(-((np.linspace(0.1, 2.0, 40) - 0.8) ** 2) / 0.08),
         ),
@@ -162,8 +163,14 @@ def populations():
 
 
 @pytest.mark.parametrize("pop", populations(), ids=lambda p: p.name)
-def test_source_populations_conform_to_the_protocol(pop):
-    assert isinstance(pop, Survey)
+def test_surveys_conform_to_the_protocol(pop):
+    """The concrete class and the protocol share a name, so alias one.
+
+    NOTE: importing both as ``Survey`` makes this check compare the class
+    against itself and pass vacuously -- which is what it did for one
+    commit.
+    """
+    assert isinstance(pop, SurveyProtocol)
 
 
 @pytest.mark.parametrize("pop", populations(), ids=lambda p: p.name)
@@ -189,14 +196,14 @@ def test_pz_src_is_non_negative_and_finite(pop):
 
 def test_des_y1_carries_the_config_numbers():
     """Transcribed from cluster-lensing-cov/configs/des_y1.json."""
-    pop = SourcePopulation.des_y1()
+    pop = Survey.from_config("des_y1")
     assert pop.sigma_gamma == 0.3
     assert pop.n_src_arcmin == 6.28
 
 
 def test_des_y3_has_y3_noise_but_the_y1_pz_shape():
     """The config says so itself; the test records that it is a placeholder."""
-    y1, y3 = SourcePopulation.des_y1(), SourcePopulation.des_y3()
+    y1, y3 = Survey.from_config("des_y1"), Survey.from_config("des_y3")
     assert y3.sigma_gamma == 0.261 and y3.n_src_arcmin == 5.59
     z = np.linspace(0.1, 2.5, 50)
     np.testing.assert_allclose(y3.pz_src(z), y1.pz_src(z))
@@ -205,8 +212,7 @@ def test_des_y3_has_y3_noise_but_the_y1_pz_shape():
 def test_a_narrow_top_hat_approaches_a_single_source_plane():
     """The analytic limit: p(z) -> delta(z - z_s) as the width shrinks."""
     for width in (0.2, 0.02, 0.002):
-        pop = SourcePopulation.top_hat(zs_min=1.0 - width / 2,
-                                       zs_max=1.0 + width / 2)
+        pop = Survey.top_hat(zs_min=1.0 - width / 2, zs_max=1.0 + width / 2)
         z = np.linspace(0.9, 1.1, 20001)
         mean = np.trapezoid(z * pop.pz_src(z), x=z)
         assert mean == pytest.approx(1.0, abs=1e-3)
@@ -214,7 +220,7 @@ def test_a_narrow_top_hat_approaches_a_single_source_plane():
 
 def test_tabulated_does_not_extrapolate():
     z = np.linspace(0.5, 1.5, 21)
-    pop = SourcePopulation.tabulated(z=z, dndz=np.ones_like(z))
+    pop = Survey.tabulated(z=z, dndz=np.ones_like(z))
     assert pop.zs_range() == (0.5, 1.5)
     assert pop.pz_src(0.4).item() == 0.0
     assert pop.pz_src(1.6).item() == 0.0
@@ -232,72 +238,99 @@ def test_source_population_validates_eagerly(kwargs, match):
     base = dict(pz_shape=lambda z: np.ones_like(z), sigma_gamma=0.3,
                 n_src_arcmin=6.0)
     with pytest.raises(ValueError, match=match):
-        SourcePopulation(**{**base, **kwargs})
+        Survey(**{**base, **kwargs})
 
 
 def test_a_pz_that_integrates_to_zero_is_refused():
     with pytest.raises(ValueError, match="must be positive"):
-        SourcePopulation(pz_shape=lambda z: np.zeros_like(z),
+        Survey(pz_shape=lambda z: np.zeros_like(z),
                          sigma_gamma=0.3, n_src_arcmin=6.0)
 
 
 def test_tabulated_rejects_bad_tables():
     with pytest.raises(ValueError, match="increasing"):
-        SourcePopulation.tabulated(z=[1.0, 0.5, 2.0], dndz=[1.0, 1.0, 1.0])
+        Survey.tabulated(z=[1.0, 0.5, 2.0], dndz=[1.0, 1.0, 1.0])
     with pytest.raises(ValueError, match="non-negative"):
-        SourcePopulation.tabulated(z=[0.5, 1.0], dndz=[1.0, -1.0])
+        Survey.tabulated(z=[0.5, 1.0], dndz=[1.0, -1.0])
     with pytest.raises(ValueError, match="shape"):
-        SourcePopulation.tabulated(z=[0.5, 1.0], dndz=[1.0, 1.0, 1.0])
-
-
-def test_sdss_source_population_refuses_rather_than_inventing():
-    """Omega(z) exists for SDSS; the shear catalogue's properties do not."""
-    with pytest.raises(NotImplementedError, match="transcribes"):
-        SourcePopulation.sdss()
-    # but the area fit is there, which is the asymmetry being asserted
-    assert omega_sdss(0.2).item() > 0.0
+        Survey.tabulated(z=[0.5, 1.0], dndz=[1.0, 1.0, 1.0])
 
 
 # -- the bins ---------------------------------------------------------------
 
 
 def test_des_y1_bins_are_the_production_grid():
-    bins = des_y1_bins()
+    bins = survey_bins("des_y1")
     assert len(bins) == 12
     assert (bins.n_lam, bins.n_z) == (4, 3)
     assert bins.at(0, 0).lam_edges == (20.0, 30.0)
     assert bins.at(3, 0).lam_edges == (60.0, 200.0)  # 200, not 1000
     assert bins.at(0, 2).z_edges == (0.50, 0.65)
-    assert all(b.sigma_z == 0.03 for b in bins)
+    # sigma_z is the scatter, 0.01. The 0.03 that appears as SIGMA_Z in the
+    # y3 production config is the 3-sigma window, not the scatter.
+    assert all(b.sigma_z == 0.01 for b in bins)
 
 
 def test_des_y3_bins_match_y1():
-    """No distinct Y3 binning is recorded; the function exists for later."""
-    y1, y3 = des_y1_bins(), des_y3_bins()
+    """No distinct Y3 binning is recorded; the config exists to be edited."""
+    y1, y3 = survey_bins("des_y1"), survey_bins("des_y3")
     assert [b.index for b in y1] == [b.index for b in y3]
     assert [b.lam_edges for b in y1] == [b.lam_edges for b in y3]
 
 
 def test_bin_redshift_range_matches_the_omega_validity_range():
     """The bins must lie inside the fit's stated domain of validity."""
-    bins = des_y1_bins()
+    bins = survey_bins("des_y1")
     z_lo = min(b.z_min for b in bins)
     z_hi = max(b.z_max for b in bins)
     assert (z_lo, z_hi) == DES_Y1_Z_RANGE
     assert np.all(omega_des_y1(np.linspace(z_lo, z_hi, 30)) > 0)
 
 
-def test_survey_bins_registry_matches_survey_area_keys():
-    """A driver names its survey once, so the two registries must agree."""
+def test_every_config_names_an_omega_fit_that_exists():
+    """A config's ``omega_z`` must resolve, or its counts are unnormalised."""
+    for name in available_configs():
+        cfg = load_config(name)
+        assert survey_area(cfg["omega_z"]) is not None
+
+
+def test_config_and_omega_fit_are_addressed_consistently():
     for name in ("des_y1", "des_y3"):
-        assert len(survey_bins(name)) == 12
-        assert survey_area(name) is not None
-    with pytest.raises(KeyError, match="des_y1"):
-        survey_bins("des_y2")
+        cfg = load_config(name)
+        assert len(survey_bins(cfg)) == 12
+        assert survey_area(cfg["omega_z"]) is _OMEGA_BY_NAME[name]
 
 
-def test_sdss_bins_refuse_rather_than_inventing():
-    with pytest.raises(NotImplementedError, match="transcribes"):
-        sdss_bins()
-    with pytest.raises(NotImplementedError):
+def test_sdss_has_an_omega_fit_but_no_config():
+    """The asymmetry is the point: the fit is transcribed, the choices are not."""
+    assert omega_sdss(0.2).item() > 0.0
+    with pytest.raises(FileNotFoundError, match="transcribes"):
+        load_config("sdss")
+    with pytest.raises(FileNotFoundError):
+        Survey.from_config("sdss")
+    with pytest.raises(FileNotFoundError):
         survey_bins("sdss")
+
+
+def test_a_missing_config_lists_what_exists():
+    with pytest.raises(FileNotFoundError, match="des_y1"):
+        load_config("des_y2")
+
+
+def test_configs_carry_provenance_on_every_group():
+    """A number with no provenance is a number nobody can check."""
+    for name in available_configs():
+        cfg = load_config(name)
+        for section in ("bins", "sources"):
+            keys = cfg[section].keys()
+            assert any(k.startswith("_provenance") for k in keys), (
+                f"{name}.{section} has no _provenance"
+            )
+
+
+def test_sigma_z_is_the_scatter_not_the_window():
+    """0.01 is sigma_z; 0.03 is 3 sigma. Confusing them widens every bin 3x."""
+    for name in available_configs():
+        b = load_config(name)["bins"]
+        assert all(s == 0.01 for s in b["sigma_z"])
+        assert b["sigma_z_n_sigma_window"] == 3.0
