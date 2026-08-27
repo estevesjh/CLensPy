@@ -78,6 +78,17 @@
    :members:
 ```
 
+## Protocols
+
+The structural contracts the sibling classes conform to. Nothing in the
+science modules imports these at runtime, and no class inherits from them --
+conformance is by shape, and `tests/test_protocols.py` checks it.
+
+```{eval-rst}
+.. automodule:: clenspy.protocols
+   :members:
+```
+
 ## Miscentering tables
 
 The miscentered profiles are interpolated from a packaged grid, never

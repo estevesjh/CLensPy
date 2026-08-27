@@ -394,6 +394,23 @@ class EinastoProfile:
         return out
 
     @scalar_array_output
+    def mean_sigma(self, R):
+        r"""
+        Mean interior surface density :math:`\bar\Sigma(<R)`, in Msun/Mpc^2.
+
+        .. math::
+            \bar\Sigma(<R) = \frac{M_{\rm 2D}(R)}{\pi R^2}
+
+        Taken from `enclosed_mass_2D`, which has its own closed form, rather
+        than assembled as :math:`\Sigma + \Delta\Sigma`.
+
+        Completes the `~clenspy.protocols.Profile` surface, which
+        `NfwProfile` also satisfies.
+        """
+        R = np.atleast_1d(np.asarray(R, float))
+        return self.enclosed_mass_2D(R) / (np.pi * R ** 2)
+
+    @scalar_array_output
     def deltasigma(self, R):
         r"""
         Excess surface density :math:`\Delta\Sigma(R) \equiv \bar\Sigma(<R) -
