@@ -17,17 +17,24 @@ Msun, lengths in Mpc, densities in Msun/Mpc^3, surface densities in
 Msun/Mpc^2 and wavenumbers in 1/Mpc.
 
 The contracts here are the ones CLensPy actually has. The `cosmology-code`
-skill lists six; `Survey`, `Selection` and `Kernel` are deliberately absent
-because the package has no such layer yet, and writing a contract before an
+skill lists six; `Selection` and `Kernel` are still absent because the
+package has no such layer yet, and writing a contract before an
 implementation would be inventing rather than transcribing. See
-``docs/refactor-plan.md`` for what they will need to be -- in particular
-`Survey` is :math:`\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)`, not a source
-:math:`p(z)`.
+``docs/refactor-plan.md`` for what they will need to be.
+
+NOTE: `Survey` is the **source population** -- :math:`p(z_s)` and the shape
+noise. It is *not*
+:math:`\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)`, which is built from a
+source population but is lens-source geometry and belongs to
+`clenspy.kernels`; nor is it :math:`\Omega(z)`, which is a footprint, is
+consumed only by the counts, and cancels in the shear projection. All three
+are in `clenspy.survey` or `clenspy.kernels` as separate objects on purpose
+(errata E.1, E.2).
 """
 
 from typing import Protocol, runtime_checkable
 
-__all__ = ["Cosmology", "Profile"]
+__all__ = ["Cosmology", "Profile", "Survey"]
 
 
 @runtime_checkable
@@ -104,6 +111,37 @@ class Profile(Protocol):
         ...
 
 
+@runtime_checkable
+class Survey(Protocol):
+    r"""A shear catalogue: its redshift distribution and its noise.
+
+    Satisfied by `clenspy.survey.SourcePopulation`. The contract is the
+    four things a lensing weight or a covariance actually asks for, and
+    nothing else.
+
+    NOTE: units -- :math:`p(z_s)` is a density in redshift and integrates
+    to 1 over :math:`[z_s^{\min}, z_s^{\max}]`; ``sigma_gamma`` is
+    dimensionless; ``n_src_arcmin`` is a **sky surface density in
+    arcmin^-2**, the one non-Mpc unit in the package, which is why the unit
+    is in the name.
+
+    NOTE: deliberately excluded -- :math:`\Omega(z)` (a footprint, in the
+    counts only) and :math:`\langle\Sigma_{\rm crit}^{-1}\rangle(z_l)`
+    (lens-source geometry, `clenspy.kernels`). A `Survey` that carried
+    either would let a counts consumer and a shear consumer pick up each
+    other's factors.
+    """
+
+    sigma_gamma: float
+    n_src_arcmin: float
+    zs_min: float
+    zs_max: float
+
+    def pz_src(self, z):
+        r"""Normalised source redshift density :math:`p(z_s)` [1/z]."""
+        ...
+
+
 if __name__ == "__main__":
     # Sanity: the Protocols are runtime_checkable and reject an empty class.
     class NotAProfile:
@@ -120,3 +158,8 @@ if __name__ == "__main__":
           isinstance(NfwProfile(m200=1e14), Profile))
     print("EinastoProfile satisfies Profile?",
           isinstance(EinastoProfile(alpha=0.2, rho_0=1e15, r_s=0.3), Profile))
+
+    from clenspy.survey import SourcePopulation
+
+    print("SourcePopulation satisfies Survey?",
+          isinstance(SourcePopulation.des_y1(), Survey))

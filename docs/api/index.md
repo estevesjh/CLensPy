@@ -68,6 +68,24 @@ integrated at runtime. See {doc}`../miscentering_math` section 9.
    mean_matter_density
 ```
 
+## `clenspy.survey`
+
+What the dataset is, as distinct from what the universe is. Three separate
+concerns on purpose: $\Omega(z)$ appears in $\langle N_{ij}\rangle$ and
+**cancels** in the shear projection, so it must never be applied to both as
+an ambient survey property.
+
+```{eval-rst}
+.. automodule:: clenspy.survey.area
+   :members:
+
+.. automodule:: clenspy.survey.sources
+   :members:
+
+.. automodule:: clenspy.survey.bins
+   :members:
+```
+
 ## `clenspy.kernels`
 
 Line-of-sight windows and the geometry that weights them. $\Sigma_{\rm crit}$

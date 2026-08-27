@@ -87,6 +87,9 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 | One-halo term | $\Sigma^{1h}$, $\Delta\Sigma^{1h}$ | The cluster's own halo | $M_\odot\,{\rm Mpc}^{-2}$ | `halo_profile` | `lensing.profile` | ✅ |
 | Two-halo / projection | $\Sigma^{\rm prj}$, $\Delta\Sigma^{\rm prj}$ | Correlated LSS along the line of sight (E26 eq. Sprj) | $M_\odot\,{\rm Mpc}^{-2}$ | `TwoHaloTerm` | `halo.twohalo` | 🔶 |
 | Source redshift | $z_s$ | | — | `z_source` | `lensing.profile` | 🔶 |
+| Source $p(z)$ | $p(z_s)$ | Normalised source density; Rozo 2011 eq. 14 $z^m e^{-(z/z_\star)^\beta}$ | $z^{-1}$ | `pz_src(z)` | `survey.sources` | ✅ |
+| Shape noise | $\sigma_\gamma$ | Per-galaxy ellipticity dispersion | — | `sigma_gamma` | `survey.sources` | ✅ |
+| Source density | $n_{\rm src}$ | Effective sources per unit sky area. **The one non-Mpc unit in the package** | ${\rm arcmin}^{-2}$ | `n_src_arcmin` | `survey.sources` | ✅ |
 | Lens / cluster redshift | $z_l$, $z_{\rm cls}$ | | — | `z_cluster` | `lensing.profile` | ✅ |
 
 > 🔶 `TwoHaloTerm` implements the linear-bias $b(M)\rho_m\xi(r)$ form, **not** the
@@ -108,10 +111,10 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 | Observed richness | $\lambda^{\rm ob}$ | redMaPPer measured richness | — | `lam_ob` | ⬜ | ⬜ |
 | True redshift | $z^{\rm tr}$ | | — | `z_tr` | ⬜ | ⬜ |
 | Observed redshift | $z^{\rm ob}$ | Cluster photo-z | — | `z_ob` | ⬜ | ⬜ |
-| Richness bin | $\Delta\lambda_i=[\lambda_i^{\min},\lambda_i^{\max}]$ | $i$-th richness bin | — | `RichnessBin` | `utils.binning` | ⬜ |
-| Redshift bin | $\Delta z_j=[z_j^{\min},z_j^{\max}]$ | $j$-th photo-z bin | — | `RichnessBin` | `utils.binning` | ⬜ |
+| Richness bin | $\Delta\lambda_i=[\lambda_i^{\min},\lambda_i^{\max}]$ | $i$-th richness bin | — | `RichnessBin`, `des_y1_bins()` | `utils.binning`, `survey.bins` | ✅ |
+| Redshift bin | $\Delta z_j=[z_j^{\min},z_j^{\max}]$ | $j$-th photo-z bin | — | `RichnessBin`, `des_y1_bins()` | `utils.binning`, `survey.bins` | ✅ |
 | Binned counts | $\langle N_{ij}\rangle$ | Expected clusters in bin $(i,j)$ (RSF eq. Nij_2D) | — | ⬜ | ⬜ | ⬜ |
-| Survey solid angle | $\Omega(z)$ | Effective footprint. **In counts; cancels in shear** | sr | ⬜ | `survey` | ⬜ |
+| Survey solid angle | $\Omega(z)$ | Effective footprint. **In counts; cancels in shear** | sr | `omega_des_y1()`, `omega_des_y3()`, `omega_sdss()` | `survey.area` | ✅ |
 | Selection function | $\mathcal S_{ij}(\lambda^{\rm tr},z^{\rm tr})$ | Prob. of scattering into bin $(i,j)$; factorises as $\mathcal S_i\mathcal S_j$ | — | ⬜ | `selection` | ⬜ |
 | Richness kernel | $\mathcal S_i$, $\mathcal K_i$ | $(1-f^{\rm prj})\Phi\vert_{\Delta\lambda_i}+f^{\rm prj}F_{\rm EMG}\vert_{\Delta\lambda_i}$ (RSF eq. Ki_final) | — | ⬜ | `selection` | ⬜ |
 | Photo-z kernel (counts) | $\mathcal S_j(z^{\rm tr})$ | $\Phi\big(\frac{z^{\rm ob}-z^{\rm tr}}{\sigma_z}\big)\big\vert_{\Delta z_j}$ — **Gaussian** | — | ⬜ | `selection` | ⬜ |
