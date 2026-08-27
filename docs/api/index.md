@@ -230,6 +230,46 @@ to a lensing profile as well.
    :members:
 ```
 
+## `clenspy.covariance`
+
+The `Estimator` layer. In both blocks the physical components are stored
+**separately** and summed at the end, with switches to isolate each one —
+the scientific argument is almost always about which term dominates where.
+
+**Counts**: Poisson plus sample variance. The sample-variance term is
+**rank one** within each redshift slice, because every cluster in the slice
+sees the same window mode, and exactly zero between slices. Dropping it
+understates the error by 4–10×.
+
+**$\Delta\Sigma$**: the Gaussian-field expression of Wu et al. (2019),
+whose bracket expands into five terms — `lss_lss`, `lss_shape`,
+`shot_lss`, `shot_shape`, `cross`. Grouping them into three would require
+choosing where the mixed terms go, so all five are kept and `cov` takes a
+`terms` selector.
+
+Two things worth knowing before using it:
+
+- it is valid for a **thin** halo-redshift slice only, since
+  $\theta = r_p/\chi_h$ and $\ell = k\chi_h$ are evaluated at a single
+  $\chi_h$;
+- there is **no FFTLog**, deliberately. The integral is a bilinear form,
+  $\hat J_2(kr_p)\hat J_2(kr_p')$ under one $k$ integral, not a Hankel
+  transform of a single function — so it does not factorise into anything
+  FFTLog could accelerate. As a matrix product it costs
+  $O(n_k n_r^2)$ and is already negligible.
+
+Survey area appears twice meaning two different things: $\Omega(z)$
+normalises the counts, while $f_{\rm sky}$ sets the number of independent
+modes. Conflating them is a factor of $4\pi$.
+
+```{eval-rst}
+.. automodule:: clenspy.covariance.counts
+   :members:
+
+.. automodule:: clenspy.covariance.deltasigma
+   :members:
+```
+
 ## Protocols
 
 The structural contracts the sibling classes conform to. Nothing in the
