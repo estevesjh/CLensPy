@@ -7,7 +7,16 @@ import numpy as np
 def scalar_array_output(method):
     """
     Decorator: return a Python scalar if the method's first positional
-    argument was scalar-like, otherwise return the ndarray unchanged.
+    argument was scalar-like **and** the result really is a single number;
+    otherwise return the array unchanged.
+
+    NOTE: the size check is not belt-and-braces, it is required. A scalar
+    first argument does not imply a scalar result: `NfwProfile.fourier`
+    with an array ``m200`` and a scalar ``k`` legitimately returns one
+    value per halo. The earlier version keyed only on the argument and
+    called ``.item()`` unconditionally, which raised
+    ``ValueError: can only convert an array of size 1`` for exactly that
+    call -- a real combination, just one no test happened to make.
 
     Parameters
     ----------
@@ -27,9 +36,11 @@ def scalar_array_output(method):
         scalar_in = np.ndim(args[0]) == 0
 
         if scalar_in:
-            # Accept numpy scalars, 0-D arrays or size-1 arrays
             if isinstance(result, np.ndarray):
-                return result.squeeze().item()   # safe, future-proof
+                # only collapse when there is genuinely one number to give
+                if result.size == 1:
+                    return result.reshape(()).item()
+                return result
             return float(result)                 # already a scalar
         return result
     return wrapper
@@ -95,3 +106,27 @@ def time_method(func):
         return result
 
     return wrapper
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    class Demo:
+        """A stand-in showing what each decorator changes."""
+
+        @scalar_array_output
+        def square(self, x):
+            return np.atleast_1d(np.asarray(x, dtype=float)) ** 2
+
+        @time_method
+        def slow(self, n):
+            return float(np.sum(np.arange(n, dtype=float)))
+
+    d = Demo()
+    print("scalar_array_output: a scalar in gives a scalar out")
+    print(f"  square(3.0)          = {d.square(3.0)!r}  "
+          f"(ndim {np.ndim(d.square(3.0))})")
+    print(f"  square([1, 2, 3])    = {d.square([1.0, 2.0, 3.0])!r}")
+
+    print("\ntime_method: prints its own wall time")
+    d.slow(1_000_00)

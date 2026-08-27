@@ -1,0 +1,48 @@
+name: Buzzard
+omega_z: des_y3
+bins:
+  lam_edges: [20.0, 30.0, 45.0, 60.0, 200.0]
+  z_edges: [0.2, 0.35, 0.5, 0.65]
+  sigma_z: [0.01, 0.01, 0.01, 0.01]
+  _provenance: >-
+    Buzzard is a simulated light-cone, not a real survey: it has no fitted
+    footprint or observed binning of its own in any source this package
+    tracks. These are the des_y3.yaml edges, reused deliberately -- Buzzard
+    mocks exist to validate the DES Y3 pipeline against a known truth, so
+    matching the analysis binning is the point, not a placeholder chosen
+    for lack of a better number.
+  sigma_z_n_sigma_window: 3.0
+  _note_sigma_z: >-
+    sigma_z is the photo-z scatter, 0.01. The 0.03 seen in the y3 configs is
+    3*sigma_z, the window half-width used by the parabolic b_sel projection
+    weight (clenspy.kernels.photoz_projection, n_sigma=3) -- it is NOT the
+    scatter. The counts kernel S_j uses sigma_z itself. Confusing them
+    widens one kernel 3x or narrows the other 3x, in opposite directions
+    and silently.
+sources:
+  pz_model: smail
+  z_star: 0.74
+  m: 1.68
+  beta: 2.33
+  zs_min: 0.0
+  zs_max: 3.0
+  sigma_gamma: 0.261
+  n_src_arcmin: 5.59
+  _provenance: >-
+    Same placeholder as des_y3.yaml: DES Y3 metacalibration sigma_gamma /
+    n_src_arcmin with the Y1 Smail p(z_s) SHAPE, since no Buzzard-specific
+    source catalogue is tracked in this package either.
+  _note_pz_is_a_placeholder: >-
+    Replace pz_model with 'tabulated' and supply the Buzzard mock's own
+    source n(z) and shape-noise properties when they are available; see
+    the identical note in des_y3.yaml.
+z_integration_range: [0.05, 0.8]
+_note_omega_z: >-
+  omega_z is set to 'des_y3' -- the flat 4143 deg^2 gold footprint -- as a
+  stand-in. Buzzard octant/patch geometry is not the same as the DES Y3
+  gold footprint and no Buzzard-specific Omega(z) fit is transcribed
+  anywhere in this package (see clenspy.selection.bsel for the one
+  Buzzard-calibrated number that *is* ported here, the b_large boost slope
+  0.13, which is unrelated to the footprint). Replace this the moment a
+  real Buzzard mask area is needed for a counts normalisation, rather than
+  trusting the DES Y3 number for it.

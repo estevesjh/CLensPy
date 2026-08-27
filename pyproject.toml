@@ -36,6 +36,7 @@ dependencies = [
     "matplotlib>=3.3.0",
     "mpmath>=1.3.0",
     "mcfit>=0.0.22",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -80,7 +81,7 @@ where = ["src"]
 include = ["clenspy*"]
 
 [tool.setuptools.package-data]
-clenspy = ["py.typed"]
+clenspy = ["py.typed", "data/*.npz", "data/*.txt", "configs/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -19,13 +19,30 @@ from ..utils.interpolate import LogGridInterpolator
 
 
 class TwoHaloTerm:
-    """
+    r"""
     Compute 2-halo correlation functions and lensing profiles from gridded P(k, z).
 
     Provides:
       - Correlation function ξ(r, z)
       - Projected surface density Σ(R, z)
       - Excess surface density ΔΣ(R, z)
+
+    NOTE: units are h-free absolute -- wavenumbers in 1/Mpc, P(k) in
+    Mpc^3, radii in Mpc. `xi` is dimensionless.
+
+    NOTE: `sigma` and `deltasigma` are **unnormalised**. They are the pure
+    projections of ξ(r, z) with no density factor, so they carry units of
+    length (Mpc), not Msun/Mpc^2. The caller multiplies by :math:`\rho_m`
+    to get a surface density -- see
+    `~clenspy.lensing.profile.LensingProfile.sigma`.
+
+    NOTE: that factor is the **comoving** mean matter density
+    :math:`\rho_m = \Omega_{m,0}\rho_{c,0}`, with *no* redshift
+    dependence (`~clenspy.cosmology.mean_matter_density`). Using
+    :math:`\rho_c(z)\Omega_m` instead folds in :math:`E^2(z)` and is high
+    by ~34% at z = 0.25 -- and ξ here is comoving too, so the two must
+    match. This docstring previously said "multiply by ρ_m(z)", which is
+    that error.
 
     Parameters
     ----------
@@ -59,32 +76,13 @@ class TwoHaloTerm:
     deltasigma_rz_interp : LogGridInterpolator
         Interpolator for ΔΣ(R, z).
 
-    Methods
-    -------
-    build_all(R_vals=None, z=None, **sigma_kwargs):
-        Compute and cache all interpolators for ξ, Σ, ΔΣ.
-    xi(R_vals=None, z=None):
-        Compute or interpolate ξ(r, z) at given radii and redshifts.
-    sigma(R_vals=None, z=None, **kwargs):
-        Compute/interpolate Σ(R, z) on the current grid and integration method.
-    deltasigma(R_vals=None, z=None, **kwargs):
-        Compute/interpolate ΔΣ(R, z) for the grid.
-
-    Notes
-    -----
-    `sigma` and `deltasigma` are computed purely from the correlation
-    function ξ(r, z) (no mean-matter-density factor applied); the caller
-    must multiply by ρ_m(z) to get physical Msun/Mpc^2 (see
-    `~clenspy.lensing.profile.LensingProfile.sigma`/`deltasigma` for the
-    pattern, and `tests/test_twohalo.py` for a validated reference).
-
-    Example
-    -------
+    Examples
+    --------
     >>> from clenspy.halo.twohalo import TwoHaloTerm
     >>> kvec = np.logspace(-3, 1, 100)  # Wavenumber grid
     >>> Pk = np.random.rand(100)  # Example power spectrum
     >>> zvec = np.array([0.0, 0.5, 1.0])  # Redshift grid
-    >>> two_halo = TwoHaloTerm(kvec, Pk, zvec=zvec).buildAll()
+    >>> two_halo = TwoHaloTerm(kvec, Pk, zvec=zvec).build_all()
     >>> R_vals = np.logspace(-2, 1, 50)  # Projected radius grid
     >>> sigma = two_halo.sigma(R_vals, z=0.5)  # Compute Σ(R, z=0.5)
     >>> deltasigma = two_halo.deltasigma(R_vals, z=0.5)  # Compute ΔΣ(R, z=0.5)
@@ -183,8 +181,8 @@ class TwoHaloTerm:
             \Sigma(R, z) = 2 \int_R^\infty \xi(r, z)\, \frac{r\, dr}
             {\sqrt{r^2 - R^2}}
 
-        Not yet multiplied by the mean matter density - see the class
-        Notes.
+        NOTE: **unnormalised** -- units of Mpc, not Msun/Mpc^2. Multiply by
+        the comoving :math:`\rho_m` (see the class NOTEs).
 
         Parameters
         ----------
@@ -232,8 +230,8 @@ class TwoHaloTerm:
         .. math::
             \Delta\Sigma(R, z) \equiv \bar\Sigma(<R, z) - \Sigma(R, z)
 
-        Not yet multiplied by the mean matter density - see the class
-        Notes. See `~clenspy.utils.integrate.sigma_to_deltasigma_cumtrapz`
+        NOTE: **unnormalised** -- units of Mpc, not Msun/Mpc^2. Multiply by
+        the comoving :math:`\rho_m` (see the class NOTEs). See `~clenspy.utils.integrate.sigma_to_deltasigma_cumtrapz`
         for the near-``R=0`` accuracy caveat this inherits.
 
         Parameters
@@ -328,3 +326,30 @@ def prepare_pk_grid(
 
 
 __all__ = ["TwoHaloTerm"]
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    k = np.logspace(-3, 1, 64)
+    Pk = 2e4 * k**-1.5          # a pure power law -> smooth, monotonic output
+    z = 0.25
+
+    th = TwoHaloTerm(k, Pk, zvec=z)
+    R = np.array([0.1, 0.5, 1.0, 5.0, 10.0])
+    print("TwoHaloTerm from a power-law P(k), z = 0.25")
+    print(f"{'R [Mpc]':>9s}  {'xi(r)':>11s}  {'Sigma_hat':>11s}  "
+          f"{'DSigma_hat':>11s}")
+    xi = np.ravel(th.xi(R, z))
+    sig = np.ravel(th.sigma(R, z))
+    ds = np.ravel(th.deltasigma(R, z))
+    for i, r in enumerate(R):
+        print(f"{r:9.2f}  {xi[i]:11.4e}  {sig[i]:11.4e}  {ds[i]:11.4e}")
+
+    print("\nNOTE: Sigma and DeltaSigma above are UNNORMALISED -- units of")
+    print("      Mpc, not Msun/Mpc^2. Multiply by the comoving rho_m:")
+    from ..cosmology import fiducial_cosmology, mean_matter_density
+
+    rho_m = mean_matter_density(fiducial_cosmology())
+    print(f"      rho_m = {rho_m:.4e} Msun/Mpc^3 (comoving, no z dependence)")
+    print(f"      Sigma(1 Mpc) = {sig[2] * rho_m:.4e} Msun/Mpc^2")

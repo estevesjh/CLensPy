@@ -57,10 +57,22 @@ Validated against mpmath Abel/cap quadrature to <= 4e-9 relative error for
 n in [0.35, 1.5] (including 6/5, 4/3, 7/5) and R/h in [0.01, 40], and to
 <= 1e-13 for n in {2.5, 10/3, 5, 10} (integer-resonant cases) over
 R/h in [0.01, 20].
+
+NOTE: throughout this module ``h`` is the Einasto **scale radius**
+(rho_0 exp[-(r/h)^(1/n)], x = R/h), following the .tex notes -- it is *not*
+the Hubble parameter H_0/100, which never appears here. ``EinastoLowN``
+takes it as the ``h`` keyword, matching the algebra it transliterates;
+``EinastoProfile`` spells the same quantity ``r_s``.
+
+NOTE: this module is unit-agnostic -- it carries no cosmology and simply
+propagates the caller's units. The package convention is h-free absolute
+units, so with r_s in Mpc and rho_0 in Msun/Mpc^3 the outputs are Sigma and
+DeltaSigma in Msun/Mpc^2.
 """
 
 import numpy as np
-from scipy.special import gamma as _gamma, gammainc, gammaln
+from scipy.special import gamma as _gamma
+from scipy.special import gammainc, gammaln
 
 SQPI = np.sqrt(np.pi)
 
@@ -124,16 +136,22 @@ def expn_cf(nu, z, iters=120):
 
 
 class EinastoLowN:
-    """Series backend for any n > 0 (see module docstring).
+    r"""Series backend for any n > 0 (see module docstring).
 
     ``EinastoProfile`` handles the exact anchors n = 1/2 and n = 1 with
     closed forms and only constructs this class for other n.
+
+    NOTE: ``rho_0 = h = 1`` is not a placeholder default -- it is the
+    dimensionless normalisation, in which `sigma` and `deltasigma` return
+    the hatted profiles :math:`\hat\Sigma(x)`, :math:`x = R/h`, that the
+    series is actually derived for. Every unit and every scale enters
+    through those two numbers and nowhere else.
     """
 
     Z_CAP = 30.0          # never use the power series beyond this z
     K_ENU = 6000          # E_nu branch truncation (tail-corrected)
 
-    def __init__(self, n, rho_0, h, tol=1e-9):
+    def __init__(self, n, rho_0=1.0, h=1.0, tol=1e-9):
         self.n = float(n)
         self.rho_0 = float(rho_0)
         self.h = float(h)
@@ -361,7 +379,7 @@ class EinastoLowN:
         nu/(z+nu)^3; a1: next order of the Catalan weights, -1/8 for Sigma,
         -9/8 for DeltaSigma.)
         """
-        from .einasto import _catalan_over_4k, expint_asymptotic, expn_fast
+        from ..utils.special import catalan_over_4k, expint_asymptotic, expn_fast
 
         R = np.atleast_1d(np.asarray(R, float))
         n = self.n
@@ -369,11 +387,11 @@ class EinastoLowN:
         K_e = self.K_ENU
         if which == "sigma":
             k = np.arange(0, K_e + 1, dtype=float)
-            w = (k + 1) * _catalan_over_4k(k)
+            w = (k + 1) * catalan_over_4k(k)
             a1 = -1.0 / 8.0
         else:
             k = np.arange(1, K_e + 1, dtype=float)
-            w = k * _catalan_over_4k(k)
+            w = k * catalan_over_4k(k)
             a1 = -9.0 / 8.0
         nu = 2 * k * n - n + 1
         E = np.empty((z.size, k.size))
@@ -442,3 +460,53 @@ class EinastoLowN:
     def enclosed_mass_2D(self, R):
         R = np.atleast_1d(np.asarray(R, float))
         return np.pi * R ** 2 * self.mean_sigma(R)
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    print("EinastoLowN: the paired-residue evaluator for low n.\n")
+    print("It exists because the legacy Catalan route carried ABSOLUTE")
+    print("rather than relative truncation error -- 30-200% for n = 3.3-10 --")
+    print("and because fp64 cancellation plus resonance poles at k = n(2j-1)")
+    print("break the naive series. See docs/einasto_math and issue #3.\n")
+
+    # rho_0 = h = 1 is the dimensionless normalisation, so sigma/deltasigma
+    # return the hatted profiles the series is derived for
+    print("rho_0 = h = 1, so these are Sigma_hat(x) and DeltaSigma_hat(x).\n")
+    print(f"{'n':>5s}  {'Sigma_hat(x=1)':>16s}  {'DSigma_hat(x=1)':>16s}")
+    for n in (0.6, 1.0, 2.0, 3.3, 5.0, 10.0):
+        ev = EinastoLowN(n)
+        s = float(np.ravel(ev.sigma(1.0))[0])
+        d = float(np.ravel(ev.deltasigma(1.0))[0])
+        print(f"{n:5.1f}  {s:16.9e}  {d:16.9e}")
+
+    print("\nn = 3.3, 5, 10 are exactly where the legacy Catalan route")
+    print("carried 30-200% error; smoothness across the integer n (where")
+    print("every j >= 1 is an exact resonance pole) is what the paired")
+    print("residues buy -- <= 4e-9 against mpmath.\n")
+
+    # the two branches must agree where they meet: the dispatch switches at
+    # zsw, so straddling it is the check that the seam is invisible
+    ev = EinastoLowN(3.3)
+    x_seam = ev.zsw_sig**ev.n
+    # a jump at the seam shows up as a kink, so compare the log-log slope
+    # measured entirely below it against the slope measured entirely above:
+    # both are smooth, and a discontinuity would break their agreement
+    eps = 1e-3
+    xs = x_seam * np.array([1 - 3 * eps, 1 - eps, 1 + eps, 1 + 3 * eps])
+    lg = np.log(np.ravel(ev.sigma(xs)))
+    lx = np.log(xs)
+    slope_below = (lg[1] - lg[0]) / (lx[1] - lx[0])
+    slope_above = (lg[3] - lg[2]) / (lx[3] - lx[2])
+    slope_across = (lg[2] - lg[1]) / (lx[2] - lx[1])
+    print(f"  branch seam at x = zsw^n = {x_seam:.4f}")
+    print(f"  dlnSigma/dlnx  below = {slope_below:.9f}")
+    print(f"                 above = {slope_above:.9f}")
+    print(f"                across = {slope_across:.9f}   <- no kink")
+    midpoint = 0.5 * (slope_below + slope_above)
+    print("  the straddling slope sits at the midpoint of the two one-sided")
+    print(f"  ones to {abs(slope_across / midpoint - 1):.1e} relative, which "
+          "is what pure")
+    print("  curvature gives; a branch discontinuity would instead throw it")
+    print("  outside the bracket entirely.")

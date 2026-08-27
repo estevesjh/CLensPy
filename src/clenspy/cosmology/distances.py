@@ -1,69 +1,22 @@
-"""
-Cosmology utility functions for weak lensing calculations.
+r"""Distances and angular conversions for the fiducial background.
 
-This module provides functions for cosmological calculations using astropy.cosmology,
-with explicit units and proper distance calculations.
+Thin wrappers that fix the unit convention on top of `astropy.cosmology`, so
+that every caller in the package crosses the units boundary in the same
+place and only once.
+
+NOTE: units are h-free absolute -- comoving and angular diameter distances
+in Mpc, angles in the unit named by the ``unit`` argument.
+
+NOTE: :math:`\Sigma_{\rm crit}` used to live here. It moved to
+`clenspy.kernels.sigma_crit`: it depends on the cosmology *and* on two
+redshifts, which makes it lens-source geometry rather than a background
+quantity.
 """
 
 from typing import Union
 
-import astropy.units as u
 import numpy as np
 from astropy.cosmology import FlatLambdaCDM
-
-
-def sigma_critical(z_lens: float, z_source: float, cosmology: FlatLambdaCDM) -> float:
-    """
-    Calculate the lensing critical surface density.
-
-    Parameters
-    ----------
-    z_lens : float
-        Lens redshift
-    z_source : float
-        Source redshift
-    cosmology : astropy.cosmology.FlatLambdaCDM
-        Astropy cosmology object
-
-    Returns
-    -------
-    float
-        Critical surface density in Msun/Mpc^2
-
-    Raises
-    ------
-    ValueError
-        If z_source <= z_lens
-
-    Notes
-    -----
-    The critical surface density is given by:
-    Σ_crit = c² / (4πG) × D_s / (D_l × D_ls)
-
-    where D_l, D_s, D_ls are angular diameter distances to lens,
-    source, and between lens and source respectively.
-    """
-    if z_source <= z_lens:
-        msg = f"Source redshift ({z_source}) must be greater than"
-        msg += f" lens redshift ({z_lens})."
-        raise ValueError(msg)
-
-    # Angular diameter distances using astropy
-    D_l = cosmology.angular_diameter_distance(z_lens)
-    D_s = cosmology.angular_diameter_distance(z_source)
-    D_ls = cosmology.angular_diameter_distance_z1z2(z_lens, z_source)
-
-    # Physical constants
-    c = 299792.458 * u.km / u.s  # Speed of light
-    G = 4.302e-9 * u.Mpc / u.Msun * (u.km / u.s) ** 2  # Gravitational constant
-
-    # Critical surface density
-    sigma_crit = (c**2 / (4 * np.pi * G)) * (D_s / (D_l * D_ls))
-
-    # Convert to Msun/Mpc^2
-    sigma_crit = sigma_crit.to(u.Msun / u.Mpc**2)
-
-    return sigma_crit.value
 
 
 def comoving_to_theta(
@@ -179,50 +132,60 @@ def theta_to_comoving(
     return D_c
 
 
-def critical_density(z: float, cosmology: FlatLambdaCDM) -> float:
-    """
-    Calculate the critical density of the universe at redshift z.
-
-    Parameters
-    ----------
-    z : float
-        Redshift
-    cosmology : astropy.cosmology.FlatLambdaCDM
-        Astropy cosmology object
-
-    Returns
-    -------
-    float
-        Critical density in Msun/Mpc^3
-    """
-    rho_crit = cosmology.critical_density(z)
-    return rho_crit.to(u.Msun / u.Mpc**3).value
-
-
-def hubble_parameter(z: float, cosmology: FlatLambdaCDM) -> float:
-    """
-    Calculate the Hubble parameter H(z) at redshift z.
-
-    Parameters
-    ----------
-    z : float
-        Redshift
-    cosmology : astropy.cosmology.FlatLambdaCDM
-        Astropy cosmology object
-
-    Returns
-    -------
-    float
-        Hubble parameter in km/s/Mpc
-    """
-    H_z = cosmology.H(z)
-    return H_z.to(u.km / u.s / u.Mpc).value
-
-
 __all__ = [
-    "sigma_critical",
     "comoving_to_theta",
     "theta_to_comoving",
-    "critical_density",
-    "hubble_parameter",
 ]
+
+
+def comoving_volume_element(z, cosmology=None):
+    r"""Comoving volume element :math:`dV/(dz\,d\Omega)` in Mpc^3/sr.
+
+    .. math::
+        \frac{dV}{dz\,d\Omega} = \frac{c}{H(z)}\,\chi^2(z)
+
+    NOTE: **per steradian**, so it pairs directly with an
+    :math:`\Omega(z)` in steradians -- which is what
+    `clenspy.survey.survey` returns. Pairing it with a footprint in square
+    degrees is a silent factor of :math:`(180/\pi)^2 \approx 3283`.
+
+    NOTE: h-free (Mpc^3). The mass function is per
+    :math:`(h^{-1}{\rm Mpc})^3`, so a counts integral needs one visible
+    factor of :math:`h^3`; that conversion lives in
+    `clenspy.observables.number_counts.ClusterCounts._volume_per_dz` and
+    nowhere else.
+
+    Parameters
+    ----------
+    z : float or array-like
+        Redshift, positive.
+    cosmology : astropy.cosmology.Cosmology, optional
+        Defaults to `~clenspy.cosmology.fiducial_cosmology`.
+
+    Returns
+    -------
+    float or np.ndarray
+        Scalar in, scalar out.
+    """
+    from .fiducial import fiducial_cosmology
+
+    cosmology = fiducial_cosmology() if cosmology is None else cosmology
+    scalar = np.ndim(z) == 0
+    values = cosmology.differential_comoving_volume(
+        np.atleast_1d(np.asarray(z, dtype=float))
+    ).to_value("Mpc3 / sr")
+    return float(values[0]) if scalar else values
+
+
+if __name__ == "__main__":
+    from .fiducial import fiducial_cosmology
+
+    cosmo = fiducial_cosmology()
+    z = 0.35
+    D_c = np.array([0.1, 1.0, 10.0])
+    theta = comoving_to_theta(D_c, z, cosmo, unit="arcmin")
+    print(f"z = {z}")
+    print("  D_c [Mpc]      ", D_c)
+    print("  theta [arcmin] ", theta)
+    # the pair must round-trip exactly
+    print("  round trip     ", theta_to_comoving(theta, z, cosmo, unit="arcmin"))

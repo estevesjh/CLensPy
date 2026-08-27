@@ -35,12 +35,12 @@ the same way, driven by `.readthedocs.yaml` at the repository root.
 
 ## Package layout
 
-- `clenspy.halo`: `NfwProfile`, `EinastoProfile`, `BiasModel`, `TwoHaloTerm`
+- `clenspy.halo`: `NfwProfile`, `EinastoProfile`, `TwoHaloTerm`
 - `clenspy.lensing`: `LensingProfile` (a higher-level wrapper; currently only
   wraps the NFW model, and its two-halo term needs the `compare` extra for a
   P(k) backend), plus boost-factor and miscentering corrections
-- `clenspy.cosmology`: `PkGrid`, critical surface density, angular/comoving
-  conversions
+- `clenspy.cosmology`: `PkGrid`, `BiasModel`, `TinkerMassFunction`, critical
+  surface density, angular/comoving conversions
 - `clenspy.utils`: log-grid interpolation, numerical integration helpers,
   shared decorators
 - `clenspy.config`: default cosmology and physical constants
@@ -48,8 +48,8 @@ the same way, driven by `.readthedocs.yaml` at the repository root.
 `clenspy.halo.einasto_lown` is the series backend `EinastoProfile` uses for
 all non-anchor `n` (see `docs/einasto_proj_density_v4.tex` and
 {doc}`einasto_math`); it is internal - construct `EinastoProfile`.
-`clenspy.halo.einasto_v2` and `clenspy.halo.einasto_v3` are research/benchmark
-implementations exploring alternative closed-form series for the Einasto
-projected density (see `docs/einasto_proj_density_v2.tex` and `_v3.tex`).
-None of the three are part of the public API - use
+`clenspy.halo.einasto_series` holds the `P(k)` branch evaluators that
+`EinastoProfile.power_spectrum` dispatches between, and
+`clenspy.utils.special` the generalised `E_nu` and Catalan pieces, which are
+not Einasto-specific. None of these are part of the public API - use
 `clenspy.halo.EinastoProfile`.

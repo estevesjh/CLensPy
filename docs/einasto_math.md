@@ -383,12 +383,18 @@ large-k series. Regenerate with `docs/make_einasto_figures.py`.
   `DeltaSigma` target was `1e-3` everywhere; delivered `<= 4e-9`
   (`n <= 3/2`) and `~1e-14` (`n > 3/2`).
 
-## Related research modules (not on the evaluation path)
+## Roads not taken
+
+Two earlier series implementations were carried in the package for a while
+and have been removed; the derivations they transliterate remain in
+`docs/einasto_proj_density_v2.tex` and `_v3.tex`, and the code itself is in
+git history.
 
 - **`einasto_v2.py`** — inner-zone dual form; benchmark/research only.
-- **`einasto_v3.py`** — original case-1 transcription (fixed `K=60/J=5`, no
-  resonance pairing → unusable near `n = 6/5, 4/3, 7/5`); superseded by
-  `einasto_lown.py`.
+- **`einasto_v3.py`** — original case-1 transcription with fixed `K=60/J=5`
+  and no resonance pairing, hence unusable near `n = 6/5, 4/3, 7/5`.
+  Superseded by `einasto_lown.py`, whose exact paired residues are what fix
+  that failure.
 
 ## References
 

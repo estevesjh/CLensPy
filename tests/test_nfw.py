@@ -5,12 +5,11 @@ import pytest
 
 from clenspy.halo.nfw import NfwProfile
 
-try:
-    import pyccl as ccl
-except ImportError:
-    ccl = None
-
-is_plot = False  # Set to True to enable plotting in tests
+# NOTE: the pyccl comparisons that used to live here are in
+# validation/validate_nfw_pyccl.py. They compare against another library
+# rather than checking that this module runs, which is the tests/ vs
+# validation/ split -- and their tolerances were 5e-3 against a measured
+# agreement of 1e-10, so as unit tests they asserted almost nothing.
 
 class TestNfwProfile:
     """Test NFW profile implementation."""
@@ -108,155 +107,105 @@ class TestNfwProfile:
         assert np.isscalar(sigma)
         assert np.isscalar(deltasigma)
 
-@pytest.mark.skipif(ccl is None, reason="pyccl not installed")
-@pytest.mark.parametrize("truncated", [False, True])
-def test_nfw_fourier_matches_pyccl(truncated):
-    """Test NfwProfile.fourier matches pyccl's analytic NFW FT (fractional RMS < 1e-3)."""
-    # --- User's implementation ---
-    m200 = 1e14  # Msun
-    c200 = 4.0
-    k = np.logspace(-3, 2, 200)  # 1/Mpc
-
-    import pyccl as ccl
-
-    cosmo = ccl.Cosmology(Omega_c=0.25, Omega_b=0.05, h=0.7, sigma8=0.8, n_s=0.96)
-
-    # 2.  Mass definition + concentration-mass relation
-    mdef = ccl.halos.massdef.MassDef200m  # 200×ρ̄_m
-    conc = ccl.halos.concentration.constant.ConcentrationConstant(c200, mass_def=mdef)
-    # c_of_m = ccl.halos.concentration.ConcentrationDuffy08(mass_def=mdef)
-
-    # 3.  Analytic NFW profile in k-space
-    p_nfw = ccl.halos.profiles.HaloProfileNFW(
-        mass_def=mdef, concentration=conc, fourier_analytic=True, truncated=truncated
-    )  # analytic FT :contentReference[oaicite:0]{index=0}
-
-    # Fourier transform of NFW profile in k-space
-    uk_ccl = p_nfw.fourier(
-        cosmo, k, m200, 1
-    )
-    # 1.  clenspy NFW Fourier transform
-    nfw = NfwProfile(m200, c200)
-    uk_clenspy = nfw.fourier(k, truncated=truncated)
-
-    if is_plot:
-        import matplotlib.pyplot as plt
-        # --- Plot and compare ---
-        plt.figure()
-        plt.loglog(k, np.abs(uk_clenspy), label="clenspy NFW FT")
-        plt.loglog(k, np.abs(uk_ccl), ls="--", label="pyccl NFW FT")
-        plt.xlabel(r"$k$ [Mpc$^{-1}$]")
-        plt.ylabel(r"$|u_{\mathrm{NFW}}(k)|$")
-        plt.legend()
-        plt.title("NFW Fourier Transform: clenspy vs pyccl")
-        plt.tight_layout()
-        plt.show()
-
-    # Avoid nan at k=0 for truncated case (pyccl returns nan)
-    valid = np.isfinite(uk_ccl)
-    frac_diff = (uk_clenspy[valid] - uk_ccl[valid]) / uk_ccl[valid]
-
-    # Assert: max fractional diff and RMS are both small (<1e-3, tweakable)
-    assert np.nanmax(np.abs(frac_diff)) < 3e-3  # allow some tolerance
-    assert np.sqrt(np.nanmean(frac_diff**2)) < 1e-3
+# --- small-x stability of the projected kernels ----------------------------
+#
+# The miscentering integrand samples x = R/r_s -> 0 whenever the azimuthal
+# ring passes through the halo centre (R = R_mis), so these kernels have to
+# stay accurate far below any physically interesting radius.
 
 
-@pytest.mark.skipif(ccl is None, reason="pyccl not installed")
-def test_nfw_surface_density_matches_pyccl():
-    """Test NfwProfile.surface_density matches pyccl analytic NFW projected profile."""
+@pytest.mark.parametrize("x", [1e-300, 1e-100, 1e-20, 1e-12, 1e-8, 1e-4, 1e-2])
+def test_fNfw_small_x(x):
+    """f(x) -> ln(2/x) - 1; the old arctanh form returned inf below ~1e-17."""
+    f = float(np.ravel(NfwProfile._fNfw(np.array([x])))[0])
+    assert np.isfinite(f)
+    assert f == pytest.approx(np.log(2.0 / x) - 1.0, rel=2e-3)
 
-    m200 = 1e14  # Msun
-    c200 = 4.0
-    R = np.logspace(-3, 1.3, 100)  # R in Mpc, up to ~20 Mpc for outskirts
 
-    cosmo = ccl.Cosmology(Omega_c=0.25, Omega_b=0.05, h=0.7, sigma8=0.8, n_s=0.96)
+@pytest.mark.parametrize("x", [1e-300, 1e-100, 1e-20, 1e-12, 1e-8, 1e-4, 1e-2])
+def test_gbarNfw_small_x(x):
+    """gbar(x) -> ln(2/x) - 1/2, and stays above f(x) by 1/2."""
+    gb = float(np.ravel(NfwProfile._gbarNfw(np.array([x])))[0])
+    f = float(np.ravel(NfwProfile._fNfw(np.array([x])))[0])
+    assert np.isfinite(gb)
+    assert gb == pytest.approx(np.log(2.0 / x) - 0.5, rel=2e-3)
+    # DeltaSigma_hat = gbar - f -> 1/2 exactly
+    assert gb - f == pytest.approx(0.5, rel=1e-3)
 
-    mdef = ccl.halos.massdef.MassDef200m
-    conc = ccl.halos.concentration.constant.ConcentrationConstant(c200, mass_def=mdef)
 
-    # Get halo profile
-    p_nfw = ccl.halos.profiles.HaloProfileNFW(
-        mass_def=mdef, concentration=conc, projected_analytic=True,
-        truncated=False  # Use full profile for comparison
-    )
-    # CCL: projected surface density Sigma(R)
-    sig_ccl = p_nfw.projected(cosmo, R, m200, 1)  # M_sun / Mpc^2
+@pytest.mark.parametrize("x", [1e-300, 1e-100, 1e-20, 1e-12, 1e-8, 1e-4, 1e-2])
+def test_gNfw_small_x_is_positive_and_tends_to_one(x):
+    """g(x) -> 1. The old form went negative below x ~ 1e-9."""
+    g = float(np.ravel(NfwProfile._gNfw(np.array([x])))[0])
+    assert np.isfinite(g)
+    assert g > 0.0, "g(x) must stay positive"
+    assert g == pytest.approx(1.0, rel=2e-3)
 
-    # clenspy: NFW surface density Sigma(R)
-    nfw = NfwProfile(m200, c200)
-    sig_clenspy = nfw.sigma(R)
 
-    # For strict normalization, match scale radius to CCL:
-    # rs_ccl = mdef.get_radius(cosmo, m200, 1) / conc(cosmo, m200, 1)
-    # nfw.rs = rs_ccl  # Sync scale radius
-    # nfw.rhom = cosmo.rho_x(1,'matter')# cosmo.critical_density(0).to_value("Msun/Mpc3")
-    # nfw.rho_s = nfw._calc_rhos(m200, c200)
+def test_gbar_consistent_with_f_and_g():
+    """gbar == f + g/2 wherever the reconstruction is still trustworthy."""
+    x = np.logspace(-3, 3, 60)
+    gb = NfwProfile._gbarNfw(x)
+    recon = NfwProfile._fNfw(x) + 0.5 * NfwProfile._gNfw(x)
+    np.testing.assert_allclose(gb, recon, rtol=1e-8)
 
-    valid = np.isfinite(sig_ccl) & (sig_ccl > 0)
-    frac_diff = (sig_clenspy[valid] - sig_ccl[valid]) / sig_ccl[valid]
-    
-    if is_plot:
-        import matplotlib.pyplot as plt
-        plt.figure()
-        plt.loglog(R, sig_clenspy, label="clenspy NFW FT")
-        plt.loglog(R, sig_ccl, ls="--", label="pyccl NFW FT")
-        plt.xlabel(r"$R$ [Mpc]")
-        plt.ylabel(r"$\Sigma_{\mathrm{NFW}}(R)$ [M$_\odot$ / Mpc$^2$]")
-        plt.legend()
-        plt.title("NFW Surface Density: clenspy vs pyccl")
-        plt.tight_layout()
-        plt.show()
-    # Assert: Require close match
-    assert np.nanmax(np.abs(frac_diff)) < 5e-3
-    assert np.sqrt(np.nanmean(frac_diff**2)) < 2e-3
 
-@pytest.mark.skipif(ccl is None, reason="pyccl not installed")
-def test_nfw_deltasigma_matches_pyccl():
-    """Test NfwProfile.deltasigma matches pyccl analytic NFW DeltaSigma (RMS < 0.2%)."""
-    m200 = 1e14  # Msun
-    c200 = 4.0
-    R = np.logspace(-3, 1.3, 100)  # [Mpc], up to ~20 Mpc
-
-    cosmo = ccl.Cosmology(Omega_c=0.25, Omega_b=0.05, h=0.7, sigma8=0.8, n_s=0.96)
-
-    mdef = ccl.halos.massdef.MassDef200m
-    conc = ccl.halos.concentration.constant.ConcentrationConstant(c200, mass_def=mdef)
-
-    p_nfw = ccl.halos.profiles.HaloProfileNFW(
-        mass_def=mdef, concentration=conc,
-        projected_analytic=True, cumul2d_analytic=True, truncated=False
+def test_mean_sigma_equals_sigma_plus_deltasigma():
+    """The public closed form agrees with the sum over the fitted range."""
+    nfw = NfwProfile(m200=1e14, c200=4.0)
+    R = np.logspace(-2, 1.5, 40)
+    np.testing.assert_allclose(
+        np.ravel(nfw.mean_sigma(R)),
+        np.ravel(nfw.sigma(R)) + np.ravel(nfw.deltasigma(R)),
+        rtol=1e-8,
     )
 
-    # Projected surface density Sigma(R) for reference
-    # sig_ccl = p_nfw.projected(cosmo, R, m200, z)
 
-    # pyccl: excess surface density DeltaSigma(R)
-    sigma_mean = p_nfw.cumul2d(cosmo, R, m200, 1) 
-    delta_ccl = sigma_mean - p_nfw.projected(cosmo, R, m200, 1)
+# -- fourier() broadcasting -------------------------------------------------
+#
+# Ported from codex/clusters. The bug survived because every existing test
+# passed a SCALAR m200, for which the old spelling was correct; an array
+# mass silently produced (n_halo, n_k, n_k).
 
-    # clenspy: NFW excess surface density DeltaSigma(R)
-    nfw = NfwProfile(m200, c200)
-    # Ensure you use the same mass definition and normalization!
-    delta_clenspy = nfw.deltasigma(R)
 
-    if is_plot:
-        import matplotlib.pyplot as plt
-        plt.figure()
-        plt.loglog(R, delta_clenspy, label="clenspy DeltaSigma")
-        plt.loglog(R, delta_ccl, ls="--", label="pyccl DeltaSigma")
-        plt.xlabel(r"$R$ [Mpc]")
-        plt.ylabel(r"$\Delta\Sigma_{\mathrm{NFW}}(R)$ [M$_\odot$ / Mpc$^2$]")
-        plt.legend()
-        plt.title("NFW Excess Surface Density: clenspy vs pyccl")
-        plt.tight_layout()
-        plt.show()
+def _profile(m200):
+    return NfwProfile(m200=m200, c200=4.0, rho_ref=0.3 * 2.775e11)
 
-    valid = np.isfinite(delta_ccl) & (delta_ccl > 0)
-    frac_diff = (delta_clenspy[valid] - delta_ccl[valid]) / delta_ccl[valid]
 
-    print("Max fractional difference:", np.nanmax(np.abs(frac_diff)))
-    print("RMS fractional difference:", np.sqrt(np.nanmean(frac_diff**2)))
+def test_fourier_shapes_for_every_scalar_array_combination():
+    k = np.logspace(-2.0, 1.0, 5)
+    masses = np.array([1e14, 5e14, 1e15])
+    for truncated in (True, False):
+        assert _profile(masses).fourier(k, truncated).shape == (3, 5)
+        assert np.shape(_profile(masses).fourier(1.0, truncated)) == (3,)
+        assert np.shape(_profile(1e14).fourier(k, truncated)) == (5,)
+        assert np.shape(_profile(1e14).fourier(1.0, truncated)) == ()
 
-    # Assert: close match
-    assert np.nanmax(np.abs(frac_diff)) < 5e-3
-    assert np.sqrt(np.nanmean(frac_diff**2)) < 2e-3
+
+def test_fourier_rows_match_the_scalar_mass_evaluation():
+    """The array path must agree with the scalar path halo by halo."""
+    k = np.logspace(-2.0, 1.0, 12)
+    masses = np.array([1e14, 5e14, 1e15])
+    stacked = _profile(masses).fourier(k)
+    for i, m in enumerate(masses):
+        np.testing.assert_allclose(stacked[i], _profile(m).fourier(k),
+                                   rtol=1e-13)
+
+
+def test_fourier_tends_to_the_mass_at_long_wavelength():
+    r""":math:`u(k \to 0) \to M_{200}`: the normalisation, and a check that
+    the broadcast did not scramble which mass went with which row."""
+    masses = np.array([1e14, 5e14, 1e15])
+    got = _profile(masses).fourier(np.array([1e-8]))[:, 0]
+    np.testing.assert_allclose(got / masses, 1.0, rtol=1e-6)
+
+
+def test_scalar_array_output_does_not_collapse_a_multi_element_result():
+    """A scalar first argument does not imply a scalar result.
+
+    `fourier` with array ``m200`` and scalar ``k`` returns one value per
+    halo. The decorator used to call ``.item()`` on it and raise.
+    """
+    got = _profile(np.array([1e14, 5e14])).fourier(1.0)
+    assert np.shape(got) == (2,)
+    assert got[1] > got[0]

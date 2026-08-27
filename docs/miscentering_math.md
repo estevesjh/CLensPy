@@ -323,7 +323,177 @@ The scheme is a fixed matrix–vector product per radius vector (one
 profile evaluation on an $(n_R \times n_{\rm nodes})$ grid), with no
 adaptive quadrature anywhere.
 
-## 9. References
+## 9. Tabulation: making it a lookup
+
+The DES Y3 pipeline (`y3_cluster_cpp`) does not evaluate §5's quadrature per
+call. It reads a precomputed table, and the design is worth adopting.
+
+### 9.1 The scaling that makes one table enough
+
+$\Delta\Sigma_{\rm mis}$ is *universal in units of the scale radius*. Writing
+$x = R/r_s$, $x_{\rm mis} = R_{\rm mis}/r_s$, the whole profile is
+
+$$
+\Delta\Sigma_{\rm mis}(R \mid R_{\rm mis}, M, c)
+= \underbrace{2\, r_s\, \delta_c\, \rho_{\rm ref}}_{\text{amplitude}}
+\;\times\;
+\underbrace{u(x, x_{\rm mis})}_{\text{dimensionless, tabulated once}}
+$$
+
+with
+
+$$
+r_{200} = \left[\frac{3M}{800\pi\rho_{\rm ref}}\right]^{1/3},
+\qquad
+r_s = \frac{r_{200}}{c},
+\qquad
+\delta_c = \frac{200\,c^3/3}{\ln(1+c) - c/(1+c)} .
+$$
+
+Mass, concentration and cosmology enter **only** through the analytic
+prefactor. One dimensionless grid therefore serves every halo, and the
+runtime cost collapses to an interpolation.
+
+Note $\rho_{\rm ref}$ sets **both** the boundary $r_{200}$ and the amplitude
+$\rho_s = \delta_c\rho_{\rm ref}$. Splitting those two conventions is a silent
+normalisation error; keep one $\rho_{\rm ref}$ (see `NfwProfile.rho_ref`).
+
+### 9.2 Store the value, not its log
+
+The natural instinct is to tabulate $\log\Delta\Sigma_{\rm mis}$ and
+exponentiate. **This is wrong**, and for the reason in §7: a log table is
+structurally $\ge 0$, so it deletes the entire negative lobe at
+$R_{\rm mis} > R$. The lobe is what makes the mean-field (random-point)
+projection term cancel — a uniformly distributed halo population is a uniform
+mass sheet and must give zero contrast. With the lobe zeroed it never cancels.
+
+Store the signed linear value. The shipped
+`table_..._deltasigma_signed_single.txt` is 47.6% negative entries; that is
+the physics, not a bug.
+
+### 9.3 Put the cusp on a grid line
+
+$\Delta\Sigma_{\rm mis}$ has a **cusp along $x = x_{\rm mis}$** — it crosses
+zero and turns over where the halo centre sits on the aperture circle.
+Tabulating on axes $(\ln x_{\rm mis}, \ln x)$ puts that ridge at a $45^\circ$
+angle to the grid, so bilinear interpolation cuts *across* it and smooths the
+peak off.
+
+Measured against this module's quadrature (which converges to 11 digits
+against adaptive `quad`), the shipped $250 \times 1000$ table is accurate to
+$\sim\!10^{-4}$ off the diagonal but degrades badly on it:
+
+| $x = x_{\rm mis}$ | rel. error, $(\ln x_{\rm mis}, \ln x)$ axes | rel. error, ratio axes |
+|---|---|---|
+| 0.01 | 6.5 (**sign wrong**) | $8\times10^{-10}$ |
+| 0.1  | 0.33 | $1.3\times10^{-5}$ |
+| 0.37 | 0.10 | $3.9\times10^{-6}$ |
+| 1.0  | 0.064 | $9.0\times10^{-6}$ |
+| 10   | 0.12 | $6.3\times10^{-6}$ |
+| 100  | 0.42 | $2.9\times10^{-5}$ |
+
+The stored values are *correct* — at grid nodes they match this module to
+$10^{-8}$–$10^{-5}$. The error is purely interpolation across the cusp: at
+$x_{\rm mis} = 0.136$, adjacent $x$ nodes hold $-1.372\times10^{-2}$ and
+$+1.028\times10^{-3}$, so the function crosses zero *between two neighbouring
+samples* and bilinear has nothing to work with. The two axes are also
+mismatched — 1000 nodes in $x$ against 250 in $x_{\rm mis}$ — so the ridge
+almost never lands on a grid line.
+
+**Fix: tabulate against the ratio.** Use axes
+$\big(\ln x_{\rm mis},\; \ln(x/x_{\rm mis})\big)$ with $\ln(x/x_{\rm mis}) = 0$
+an exact node. The cusp then lies *along* a grid line and interpolation never
+crosses it. The right-hand column above is a $250 \times 241$ ratio grid —
+four times fewer points than the shipped table and four to nine orders of
+magnitude more accurate where it matters.
+
+$x = x_{\rm mis}$ is not a corner case: with $R_\lambda = (\lambda/100)^{0.2}$,
+$\tau_{\rm mis} = 0.17$ and $c = 4$, a $\lambda \sim 25$, $M \sim 10^{14}$
+cluster sits at $x_{\rm mis} \approx 0.4$ — inside the fitted radial range,
+and in the projection term the "offset" sweeps all $\theta$, so the ridge is
+crossed constantly.
+
+### 9.4 What CLensPy does
+
+**CLensPy is table-only at runtime.** It never solves these integrals during
+evaluation:
+
+| Module | Role |
+|---|---|
+| `clenspy/data/nfw_miscentering.npz` | the packaged grid, 1.3 MB |
+| `selection/miscentering.py` | the runtime path — interpolation only |
+| `selection/miscentering_kernel.py` | the §5 quadrature, **offline generator** |
+| `tools/make_miscentering_table.py` | rebuilds the table |
+| `lensing/miscentering.py` | `MiscenteringProfile`, reads the table |
+
+Domain $x \in [10^{-3}, 5\times10^{3}]$, $x_{\rm mis} \in [10^{-3},
+5\times10^{2}]$ — the DES Y3 extents, with $x_{\rm mis}$ carried one decade
+lower. 300 × 841 nodes.
+
+#### Which generator runs where
+
+`cluster_toolkit` (the marcpaterno fork, in the `y3cl_je_macos` env)
+produces everything it can do accurately: 195 of the 300 rows,
+$x_{\rm mis} \ge 0.1$. The by-parts quadrature produces the remaining 105.
+
+The split is forced, not a preference. $\Delta\Sigma_{\rm mis}$ is the
+difference $\bar\Sigma_{\rm mis} - \Sigma_{\rm mis}$, and that difference
+collapses as $x_{\rm mis}$ shrinks — at $x_{\rm mis} = 10^{-3}$ it is
+$6.6\times10^{-7}$ of $\Sigma$ itself. ct forms it by subtracting two
+nearly-equal numbers, so it is cancellation-limited there:
+
+| $x_{\rm mis}$ | ct | by-parts | ct error |
+|---|---|---|---|
+| 1e-3 | +1.01e-04 | −4.33e-06 | 24×, **wrong sign** |
+| 5e-3 | +2.79e-05 | −7.80e-05 | **wrong sign** |
+| 1e-2 | −2.07e-04 | −2.60e-04 | 2.0e-01 |
+| 1e-1 | −9.473e-03 | −9.489e-03 | 1.6e-03 |
+| 1e+0 | −6.2834e-02 | −6.2841e-02 | 1.0e-04 |
+
+Refining ct's `Rsigma` grid does not help — 30k → 1M points moved
+$x_{\rm mis} = 10^{-2}$ only from 0.35 to 0.14, and moved $5\times10^{-3}$
+not at all. The sign error is the serious part, for §7's reason. The seam at
+$x_{\rm mis} = 0.1$ is where the two agree to $1.65\times10^{-3}$, asserted
+at build time.
+
+Reaching $x_{\rm mis} = 10^{-3}$ with the by-parts kernel required fixing
+the small-$x$ NFW kernels first (`halo/nfw.py`): the azimuthal ring passes
+through the halo centre whenever $R = R_{\rm mis}$, and both $f$ and
+$\bar{g}$ were unusable there. See that module's `_gbarNfw`.
+
+#### Accuracy of the shipped table
+
+Against the by-parts quadrature, which is self-converged to $10^{-11}$:
+
+| region | $\hat\Sigma$ med / max | $\widehat{\Delta\Sigma}$ med / max | sign flips |
+|---|---|---|---|
+| $x_{\rm mis} < 0.1$, global | 5.7e-04 / 2.9e-03 | 4.3e-04 / 2.2e-03 | 0/120 |
+| $x_{\rm mis} < 0.1$, on cusp | 5.3e-08 / 9.2e-06 | 5.2e-04 / 1.1e-03 | 0/120 |
+| $x_{\rm mis}$ 0.1–10, global | 4.3e-04 / 2.8e-03 | 7.1e-04 / 1.2e-02 | 0/120 |
+| $x_{\rm mis}$ 0.1–10, on cusp | 5.2e-05 / 2.2e-04 | 3.1e-04 / 1.4e-03 | 0/120 |
+| $x_{\rm mis}$ 10–500, on cusp | 1.6e-04 / 2.3e-04 | 1.7e-03 / 1.7e-02 | 0/120 |
+
+against 25/60 sign flips for the natural axes at equal budget.
+$r_{\rm mis} = 0$ short-circuits to the analytic centred profile, so that
+limit is exact rather than interpolated.
+
+One known corner: at $\ln q \lesssim -9$ (i.e. $x$ four or more decades
+below $x_{\rm mis}$) the values fall to $10^{-10}$–$10^{-15}$ while the row
+scale is $10^{-2}$, below what float32 storage resolves, so the deep wing
+carries sign noise. $|\Delta\Sigma_{\rm mis}| / \Sigma < 10^{-6}$ there and
+it contributes nothing to any observable.
+
+#### Untabulated profiles raise
+
+`require_tabulated_profile` rejects anything but `NfwProfile` with
+`MiscenteringTableError`, at construction rather than on first evaluation.
+There is deliberately no quadrature fallback — falling back would
+reintroduce the per-call integral the table exists to remove. Einasto is the
+case in practice: its miscentered profile is not universal in one shape
+parameter the way NFW's is, since the index $n$ enters as a third axis, so
+the NFW grid cannot be reused and no Einasto grid exists.
+
+## 10. References
 
 - Wright, C. O. & Brainerd, T. G. 2000, ApJ, 534, 34 — closed-form NFW
   $\Sigma$, $\Delta\Sigma$.

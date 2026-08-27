@@ -7,7 +7,7 @@ from scipy.interpolate import RegularGridInterpolator, interp1d
 
 
 class LogGridInterpolator:
-    """
+    r"""
     Log-linear grid interpolator.
 
     - Interpolates log(values) over log(x) (axis 0) and z (axis 1, linear,
@@ -15,6 +15,18 @@ class LogGridInterpolator:
     - Handles the case where zvec is None (scalar mode).
     - Masks out bad (<=0 or nan/inf) values.
     - On __call__, clips output to [minval, maxval].
+
+    NOTE: **unit-agnostic** -- this is machinery, not physics. ``xvec`` and
+    ``values`` carry whatever units the caller supplies and come back in
+    the same ones. It is listed here only so that no class in the package
+    is silent about units.
+
+    NOTE: interpolating in log(values) means the interpolant is **strictly
+    positive**, and non-positive inputs are masked rather than
+    interpolated. A signed quantity -- the miscentered
+    :math:`\Delta\Sigma`, for instance -- must not be passed through
+    this class; its negative lobe would be discarded silently. See
+    ``docs/miscentering_math.md`` section 9.2.
     """
 
     def __init__(
@@ -161,3 +173,28 @@ def valid_mask_2d(values: np.ndarray) -> np.ndarray:
 
 
 __all__ = ["LogGridInterpolator", "make_log_interpolation"]
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    x = np.logspace(-2, 1, 40)
+    z = np.array([0.0, 0.5, 1.0])
+    # a separable power law, so the log-log interpolant is exact
+    values = np.outer(x**-1.5, 1.0 / (1.0 + z))
+
+    interp = LogGridInterpolator(xvec=x, zvec=z, values=values)
+    xq = np.array([0.05, 0.5, 5.0])
+    print("LogGridInterpolator on a separable power law (exact case)")
+    for zq in (0.0, 0.25, 1.0):
+        got = np.ravel(interp(xq, zq))
+        exact = xq**-1.5 / (1.0 + zq)
+        print(f"  z={zq:.2f}  max rel err = {np.max(np.abs(got / exact - 1)):.2e}")
+
+    print("\nscalar-z mode (zvec=None):")
+    flat = LogGridInterpolator(xvec=x, values=x**-1.5)
+    print("  ", np.ravel(flat(xq)))
+
+    print("\nNOTE: interpolation is in log(values), so the result is")
+    print("      strictly positive and non-positive input is masked. A")
+    print("      signed quantity must not be passed through this class.")

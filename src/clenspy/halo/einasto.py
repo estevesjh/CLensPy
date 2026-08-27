@@ -22,334 +22,49 @@ density note):
 
 The generalized exponential integral E_nu(x) is evaluated by dispatch:
 integer nu>=1 via scipy.special.expn; large nu via the DLMF 8.20 uniform
-asymptotic expansion; otherwise via mpmath.expint.
+asymptotic expansion; otherwise via mpmath.expint.  That dispatch, and the
+Catalan coefficients, live in clenspy.utils.special -- they are not
+Einasto-specific.  The P(k) branch evaluators this class selects between
+live in clenspy.halo.einasto_series; only the selection logic is here.
+
+NOTE: throughout this module ``h`` is the Einasto **scale radius**
+(rho_0 exp[-(r/h)^(1/n)], x = R/h), following the .tex notes -- it is *not*
+the Hubble parameter H_0/100, which never appears here. The public
+constructor spells it ``r_s``; ``h`` survives only in the internal algebra
+and the derivations it transliterates.
+
+NOTE: this module is unit-agnostic -- it carries no cosmology and simply
+propagates the caller's units. The package convention is h-free absolute
+units, so with r_s in Mpc and rho_0 in Msun/Mpc^3 the outputs are Sigma and
+DeltaSigma in Msun/Mpc^2.
 """
 
 import mcfit
 import numpy as np
-from scipy.special import (expn, gamma, gammainc, gammaincc, gammaln, kv,
-                           loggamma, roots_genlaguerre)
+from scipy.special import gamma, gammainc, gammaln, kv
 
 from ..utils.decorators import scalar_array_output
 from ..utils.integrate import compute_sigma_quadvec, sigma_to_deltasigma_cumtrapz
 from ..utils.interpolate import make_log_interpolation
+from ..utils.special import EULER_GAMMA, catalan_over_4k, expn_fast
+from .einasto_series import (
+    _PK_TOL,
+    _pk_asym_eval,
+    _pk_build_kummer,
+    _pk_conv_eval,
+    _pk_direct_eval,
+    _pk_filon,
+    _pk_kummer_eval,
+    _pk_mb_contour,
+    _pk_plateau_eval,
+)
 
 SQPI_ = np.sqrt(np.pi)
-
-# Cache for generalised Gauss-Laguerre nodes/weights, keyed by (alpha_w, N).
-_GL_CACHE: dict = {}
-
-
-def _gauss_laguerre_nodes(alpha_w, N):
-    """Nodes/weights for weight u^{alpha_w} e^{-u} on (0, inf), cached."""
-    key = (float(alpha_w), int(N))
-    if key not in _GL_CACHE:
-        u, w = roots_genlaguerre(N, alpha_w)
-        _GL_CACHE[key] = (u.astype(float), w.astype(float))
-    return _GL_CACHE[key]
-
-
-def _einasto_pk_GL(kt, n, h, rho_0, N=96):
-    """Master-integral GL evaluator: P(k) for kt small (deep plateau).
-
-    P(k) = (rho_0 n h^3 / 4 pi) int_0^inf u^{3n-1} e^{-u} sinc(kt u^n) du,
-    sinc(y) = sin y / y, sinc(0) = 1.  Exact at kt=0 (sum -> Gamma(3n)).
-    Valid only when kt u_N^n stays small enough that the phase varies
-    slowly across the weight; for n=4.3, N=96 covers kt <~ 1e-5.
-    """
-    u, w = _gauss_laguerre_nodes(3.0 * n - 1.0, N)
-    kt = np.atleast_1d(np.asarray(kt, float))
-    phase = kt[:, None] * (u[None, :] ** n)
-    sinc = np.sinc(phase / np.pi)
-    I = (w[None, :] * sinc).sum(axis=1)
-    return rho_0 * n * h ** 3 / (4.0 * np.pi) * I
-
-
-def _einasto_pk_wright_real(kt, n, h, rho_0, M=80):
-    """Real Wright series Eq.(largek), simple log-space exp() with sign.
-
-        P(k) = (rho_0 h^3 / 4 pi kt^3) sum_{m=1}^M A_m^- kt^{-m/n},
-        A_m^- = (-1)^{m+1} Gamma(2 + m/n) sin(pi m / 2n) / m!.
-
-    Stable in fp64 for n>1 and all kt > ~1e-4 with M=80: m! beats
-    Gamma(2+m/n) by m~30 even at xi=10, so terms decay before reaching
-    fp64 dynamic range.  No log-rescale, no theta_pm split, no PCHIP.
-    """
-    kt = np.atleast_1d(np.asarray(kt, float))
-    m = np.arange(1, M + 1, dtype=float)
-    log_coef = gammaln(2.0 + m / n) - gammaln(m + 1.0)
-    sign = (-1.0) ** (m + 1) * np.sin(np.pi * m / (2.0 * n))
-    log_xi = -np.log(kt)[:, None] / n                # (nk, 1)
-    log_terms = log_coef[None, :] + m[None, :] * log_xi
-    terms = sign[None, :] * np.exp(log_terms)
-    series = terms.sum(axis=1)
-    return rho_0 * h ** 3 / (4.0 * np.pi * kt ** 3) * series
 
 try:
     import mpmath as _mp
 except ImportError:  # pragma: no cover
     _mp = None
-
-# Number of terms retained in the DLMF 8.20 asymptotic expansion.
-NTERMS_ASYMP = 5
-
-
-def _nu_asymp_threshold(rtol, nterms=NTERMS_ASYMP):
-    """Minimum nu for asymptotic: error ~ nu^{-nterms} < rtol."""
-    return rtol ** (-1.0 / nterms)
-
-
-_EULER_GAMMA = 0.5772156649015329
-
-# --------------------------------------------------------------------------
-# P(k) for 0 < n < 1: analytic evaluators with computable error estimates
-# (docs/einasto_proj_density_v4.tex, "The power spectrum"). All in the
-# P = rho_tilde/(4 pi)^2 convention with rho_0 = h = 1; caller rescales.
-# --------------------------------------------------------------------------
-_PK_TOL = 1e-9
-
-
-def _pk_build_kummer(n, M=320, dps_cap=300):
-    """Build the Kummer coefficients b_m defined by
-    e^z sum_m A_m^+ z^m = sum_m b_m z^m  (z = (kt/2)^2), i.e.
-
-        b_m = sum_{i<=m} A_i^+ / (m-i)!,
-        A_i^+ = (-1)^i Gamma(3n+2ni) / (i! (3/2)_i).
-
-    The alternating cancellation is absorbed HERE, once, in mpmath with
-    self-consistently chosen precision; at runtime the series in b_m is
-    (near-)cancellation-free for n <~ 0.93. Returns (sign, log|b_m|,
-    usable): as n -> 1 the entire order 1/(2-2n) of f diverges and the
-    build precision explodes -- usable=False then, and the dispatch falls
-    back to the plain series + asymptotics (+ GL in a small window).
-    """
-    import mpmath as mp
-
-    def _pass(dps_):
-        with mp.workdps(dps_):
-            nn = mp.mpf(n)
-            a = [mp.gamma(3 * nn + 2 * nn * i)
-                 / (mp.factorial(i) * mp.rf(mp.mpf(1.5), i))
-                 for i in range(M + 1)]
-            b, lost = [], 0.0
-            for m_ in range(M + 1):
-                s = mp.mpf(0)
-                big = mp.mpf(0)
-                for i in range(m_ + 1):
-                    t = (-1) ** i * a[i] / mp.factorial(m_ - i)
-                    s += t
-                    big = max(big, abs(t))
-                if s != 0 and big > 0:
-                    lost = max(lost, float(mp.log10(big / abs(s))))
-                b.append(s)
-            return b, lost
-
-    dps = 40
-    for _ in range(3):
-        b, lost = _pass(dps)
-        if lost + 25 <= dps:
-            sign = np.array([float(mp.sign(x)) for x in b])
-            with np.errstate(divide="ignore"):
-                logb = np.array([float(mp.log(abs(x))) if x != 0 else -np.inf
-                                 for x in b])
-            return sign, logb, True
-        dps = int(lost) + 30
-        if dps > dps_cap:
-            break
-    return None, None, False
-
-
-def _pk_kummer_eval(n, kt, sign, logb):
-    """P and error estimate from the Kummer form,
-    P = (n/4pi) sum_m sgn(b_m) exp(log|b_m| + m ln(zeta) - zeta),
-    zeta = kt^2/4. The e^{-zeta} factor is folded into each term
-    (overflow-free); estimate = 10^{lost - 15.6}."""
-    kt = np.atleast_1d(np.asarray(kt, float))
-    m = np.arange(logb.size, dtype=float)
-    z = kt * kt / 4.0
-    with np.errstate(divide="ignore", invalid="ignore"):
-        lt = logb[None, :] + m[None, :] * np.log(z)[:, None] - z[:, None]
-    if (z == 0).any():
-        lt[z == 0] = np.where(m == 0, logb[0], -np.inf)
-    ltmax = lt.max(axis=1, keepdims=True)
-    terms = sign[None, :] * np.exp(lt - ltmax)
-    s_scaled = terms.sum(axis=1)
-    with np.errstate(over="ignore", invalid="ignore"):
-        val = n / (4 * np.pi) * s_scaled * np.exp(ltmax[:, 0])
-    with np.errstate(divide="ignore", invalid="ignore"):
-        est = 10.0 ** (-np.log10(np.abs(s_scaled)) - 15.6)
-    # under-truncation is invisible to the cancellation metric (terms still
-    # growing at the cutoff look like a clean single-signed sum): if the
-    # term peak sits at the end of the table, the value is unusable.
-    est[lt.argmax(axis=1) >= logb.size - 2] = np.inf
-    est[~np.isfinite(val)] = np.inf
-    return val, est
-
-
-def _pk_conv_eval(n, kt, M=400):
-    """Plain convergent small-kt series (log-space terms) + estimate."""
-    kt = np.atleast_1d(np.asarray(kt, float))
-    m = np.arange(0, M + 1, dtype=float)
-    logc = gammaln(3 * n + 2 * n * m) - gammaln(m + 1) \
-        - (gammaln(1.5 + m) - gammaln(1.5))
-    z = kt * kt / 4.0
-    with np.errstate(divide="ignore", invalid="ignore"):
-        lt = logc[None, :] + m[None, :] * np.log(z)[:, None]
-    if (z == 0).any():
-        lt[z == 0] = np.where(m == 0, logc[0], -np.inf)
-    ltmax = lt.max(axis=1, keepdims=True)
-    terms = ((-1.0) ** m)[None, :] * np.exp(lt - ltmax)
-    s_scaled = terms.sum(axis=1)
-    with np.errstate(over="ignore", invalid="ignore"):
-        val = n / (4 * np.pi) * s_scaled * np.exp(ltmax[:, 0])
-    with np.errstate(divide="ignore", invalid="ignore"):
-        est = 10.0 ** (-np.log10(np.abs(s_scaled)) - 15.6)
-    est[lt.argmax(axis=1) >= M - 2] = np.inf   # under-truncated: unusable
-    est[~np.isfinite(val)] = np.inf
-    return val, est
-
-
-def _pk_mb_contour(n, kt, c=-0.5, h=0.08):
-    """P(kt) by trapezoidal quadrature of the Mellin-Barnes kernel along
-    w = c + i tau (rho_0 = h = 1 units):
-
-        P = (n/(4 pi kt)) (1/2 pi i) int Gamma(w) sin(pi w/2)
-            Gamma(2n - nw) kt^{-w} dw .
-
-    The integrand decays like e^{-(pi/2) n |tau|} (the sin GROWS like
-    e^{+(pi/2)|tau|}) and is analytic in -1 < Re w < 2 (the w = 0 pole is
-    killed by the sin zero), so the trapezoidal rule converges
-    geometrically (Aceto & Durastante 2022 setting). c = -1/2 keeps the
-    small-kt amplitude cancellation at ~kt^{-1/2}. Validated to <= 8e-12
-    for n in [0.45, 2.5] over kt in [1e-8, 12]; the phase gradient
-    ~ n ln n of Gamma(2n-nw) undersamples for n >~ 3 -- callers must not
-    use it there.
-    """
-    kt = np.atleast_1d(np.asarray(kt, float))
-    tau_max = max((40.0 + 2 * np.abs(np.log(kt)).max())
-                  / ((np.pi / 2) * n), 8.0)
-    tau = np.arange(h / 2, tau_max, h)
-    w = c + 1j * tau
-    logG = loggamma(w) + loggamma(2 * n - n * w) \
-        + np.log(np.sin(np.pi * w / 2))
-    vals = np.exp(logG[None, :] - w[None, :] * np.log(kt)[:, None])
-    integral = 2.0 * (h / (2 * np.pi)) * vals.real.sum(axis=1)
-    return n / (4 * np.pi * kt) * integral
-
-
-def _pk_plateau_eval(n, kt, Mmax=400):
-    """P0 + small-kt series with optimal truncation (asymptotic for n>1).
-    Returns (val, est); est = 10 x smallest retained term / |sum|."""
-    kt = np.atleast_1d(np.asarray(kt, float))
-    m = np.arange(1, Mmax + 1, dtype=float)
-    logc = gammaln(3 * n + 2 * n * m) - gammaln(m + 1) \
-        - (gammaln(1.5 + m) - gammaln(1.5))
-    logP0 = gammaln(3 * n)
-    out = np.empty(kt.size)
-    est = np.empty(kt.size)
-    for i, k_ in enumerate(kt):
-        if k_ <= 0:
-            out[i], est[i] = n / (4 * np.pi) * np.exp(logP0), 0.0
-            continue
-        lt = logc + m * np.log(k_ * k_ / 4.0) - logP0     # terms / P0
-        grow = np.diff(lt) > 0
-        mo = int(np.argmax(grow)) + 1 if grow.any() else Mmax
-        s_rel = 1.0 + (((-1.0) ** m[:mo]) * np.exp(lt[:mo])).sum()
-        out[i] = n / (4 * np.pi) * np.exp(logP0) * s_rel
-        est[i] = 10.0 * np.exp(lt[min(mo, Mmax - 1)]) \
-            / max(abs(s_rel), 1e-300)
-    return out, est
-
-
-def _pk_direct_eval(n, kt, M=600):
-    """Direct large-kt series (convergent for n>1), log-space terms.
-    est covers BOTH fp64 cancellation and the unsummed tail (the
-    cancellation metric alone cannot see under-truncation)."""
-    kt = np.atleast_1d(np.asarray(kt, float))
-    m = np.arange(1, M + 1, dtype=float)
-    logc = gammaln(2 + m / n) - gammaln(m + 1)
-    sgn = (-1.0) ** (m + 1) * np.sin(np.pi * m / (2 * n))
-    out = np.empty(kt.size)
-    est = np.empty(kt.size)
-    for i, k_ in enumerate(kt):
-        if k_ <= 0:
-            out[i], est[i] = 0.0, np.inf
-            continue
-        lt = logc - (m / n) * np.log(k_)
-        ltmax = lt.max()
-        s_scaled = (sgn * np.exp(lt - ltmax)).sum()
-        out[i] = s_scaled * np.exp(ltmax) / (4 * np.pi * k_ ** 3)
-        s_abs = max(abs(s_scaled), 1e-300)
-        cancel = 10.0 ** (-np.log10(s_abs) - 15.6)
-        tail = 10.0 * np.exp(lt[-1] - ltmax) / s_abs
-        est[i] = max(cancel, tail)
-        if lt.argmax() >= M - 2:
-            est[i] = np.inf
-    return out, est
-
-
-def _pk_filon(n, kt, npts=50000):
-    """P(kt) by Filon quadrature of the t-space master integral
-    (rho_0 = h = 1 units):
-
-        P = (1/(4 pi kt)) int_0^{t_hi} g(t) sin(kt t) dt,
-        g(t) = t e^{-t^{1/n}},  t_hi = (2n + 45)^n
-        [u = t^{1/n} substitution: u^{3n-1} du = (1/n) t^2 dt cancels the
-        master integral's overall factor n].
-
-    Piecewise-LINEAR interpolation of the smooth envelope g with the
-    oscillatory factor integrated EXACTLY per interval, so the node count
-    follows the envelope (not the oscillation count) -- the standard cure
-    for large-n turnover kt, where the integrand oscillates ~kt t_hi >> 1
-    times and Gauss-Laguerre undersamples. Cost ~ npts flops per kt.
-    """
-    kt = np.atleast_1d(np.asarray(kt, float))
-    # envelope grid: uniform in z = t^{1/n} resolves g everywhere
-    z = np.linspace(0.0, 2 * n + 45.0, npts)
-    t = z ** n
-    g = t * np.exp(-z)
-    out = np.empty(kt.size)
-    for i, k_ in enumerate(kt):
-        a = k_ * t[:-1]
-        b = k_ * t[1:]
-        dt_ = t[1:] - t[:-1]
-        good = dt_ > 0
-        # exact int_{ta}^{tb} (g_a + s (g_b - g_a)) sin(k t) dt with
-        # s = (t - ta)/dt:  use antiderivatives of sin, t sin
-        ca, cb = np.cos(a), np.cos(b)
-        sa, sb = np.sin(a), np.sin(b)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            I0 = (ca - cb) / k_                       # int sin
-            I1 = (sb - sa) / k_ ** 2 - (t[1:] * cb - t[:-1] * ca) / k_
-            g0, g1 = g[:-1], g[1:]
-            slope = np.where(good, (g1 - g0) / np.where(good, dt_, 1), 0.0)
-            seg = (g0 - slope * t[:-1]) * I0 + slope * I1
-        out[i] = seg[good].sum() / (4 * np.pi * k_)
-    return out
-
-
-def _pk_asym_eval(n, kt, Mmax=2000):
-    """Large-kt series with optimal truncation. For n < 1 it is a valid
-    asymptotic expansion (Watson/Erdelyi); smallest-term truncation gives
-    error ~ exp(-c kt^{1/(1-n)}). Estimate = 10 x smallest term / |sum|."""
-    kt = np.atleast_1d(np.asarray(kt, float))
-    m = np.arange(1, Mmax + 1, dtype=float)
-    logc = gammaln(2 + m / n) - gammaln(m + 1)
-    sgn = (-1.0) ** (m + 1) * np.sin(np.pi * m / (2 * n))
-    out = np.empty(kt.size)
-    est = np.empty(kt.size)
-    for i, k_ in enumerate(kt):
-        if k_ <= 0:
-            out[i], est[i] = 0.0, np.inf
-            continue
-        lt = logc - (m / n) * np.log(k_)
-        grow = np.diff(lt) > 0
-        mo = int(np.argmax(grow)) + 1 if grow.any() else Mmax
-        s = (sgn[:mo] * np.exp(lt[:mo])).sum()
-        out[i] = s / (4 * np.pi * k_ ** 3)
-        est[i] = 10.0 * np.exp(lt[min(mo, Mmax - 1)]) / abs(s) \
-            if s != 0 else np.inf
-    return out, est
 
 
 def _expdisk_deltasigma_factor(x):
@@ -368,7 +83,7 @@ def _expdisk_deltasigma_factor(x):
     if small.any():
         xs = x[small]
         with np.errstate(divide="ignore"):
-            Lt = np.log(xs / 2.0) + _EULER_GAMMA
+            Lt = np.log(xs / 2.0) + EULER_GAMMA
         t = -(xs ** 2 / 2) * (Lt - 0.25) - (xs ** 4 / 12) * (Lt - 7.0 / 6.0) \
             - (xs ** 6 / 256) * (Lt - 13.0 / 8.0)
         out[small] = np.where(xs > 0, t, 0.0)
@@ -391,176 +106,13 @@ def _expdisk_m2d_factor(x):
     if small.any():
         xs = x[small]
         with np.errstate(divide="ignore"):
-            Lb = np.log(xs / 2.0) + _EULER_GAMMA - 0.75
+            Lb = np.log(xs / 2.0) + EULER_GAMMA - 0.75
         t = xs ** 2 / 2 + (xs ** 4 / 8) * Lb + (xs ** 6 / 96) * (Lb - 2.0 / 3.0) \
             + (xs ** 8 / 3072) * (Lb - 25.0 / 24.0)
         out[small] = np.where(xs > 0, t, 0.0)
     if (~small).any():
         xl = x[~small]
         out[~small] = 2.0 - xl ** 2 * kv(2, xl)
-    return out
-
-
-def _catalan_over_4k(k):
-    """
-    c_k = Cat_k / 4^k = C(2k,k) / [(k+1) 4^k], computed in log space to stay
-    finite for large k (both C(2k,k) and 4^k overflow individually near k~500).
-    """
-    k = np.asarray(k, dtype=float)
-    log_ck = gammaln(2 * k + 1) - 2 * gammaln(k + 1) - np.log(k + 1) - k * np.log(4.0)
-    return np.exp(log_ck)
-
-
-def _asymptotic_polys(nterms):
-    """
-    DLMF 8.20.4 recurrence for the polynomials A_k(lambda):
-
-        A_0 = 1,
-        A_{k+1}(l) = (1 - 2 k l) A_k(l) + l (l+1) A_k'(l).
-
-    Returns a list of numpy.polynomial.Polynomial of length ``nterms``.
-    """
-    from numpy.polynomial import Polynomial as P
-
-    polys = [P([1.0])]
-    lam = P([0.0, 1.0])           # lambda
-    lam1 = P([0.0, 1.0, 1.0])     # lambda (lambda + 1)
-    for k in range(nterms - 1):
-        Ak = polys[-1]
-        Akp1 = (P([1.0]) - 2 * k * lam) * Ak + lam1 * Ak.deriv()
-        polys.append(Akp1)
-    return polys
-
-
-_ASYMP_POLYS = _asymptotic_polys(NTERMS_ASYMP)
-
-
-def expint_asymptotic(nu, x, nterms=NTERMS_ASYMP):
-    """
-    Uniform large-index asymptotic of E_nu(x) (DLMF 8.20.6) with x = lambda p,
-    p = nu:
-
-        E_p(lambda p) ~ e^{-x} / [(lambda+1) p]
-                        sum_{k=0}^{nterms-1} A_k(lambda) / [(lambda+1)^{2k} p^k].
-
-    Parameters
-    ----------
-    nu, x : array_like
-        Broadcastable; nu is the index p, x the argument.
-
-    Returns
-    -------
-    ndarray
-        E_nu(x) to the retained order.
-    """
-    nu = np.asarray(nu, dtype=float)
-    x = np.asarray(x, dtype=float)
-    lam = x / nu
-    lam1 = lam + 1.0
-    series = np.zeros(np.broadcast(nu, x).shape)
-    for k in range(nterms):
-        Ak = _ASYMP_POLYS[k](lam)
-        series += Ak / (lam1 ** (2 * k) * nu ** k)
-    return np.exp(-x) / (lam1 * nu) * series
-
-
-def _expint_mpmath(nu, x):
-    """Elementwise E_nu(x) via mpmath.expint (handles any real nu)."""
-    if _mp is None:  # pragma: no cover
-        raise ImportError("mpmath required for non-integer/small-nu E_nu(x)")
-
-    def _one(s, z):
-        return float(_mp.re(_mp.expint(float(s), float(z))))
-
-    f = np.frompyfunc(_one, 2, 1)
-    return f(nu, x).astype(float)
-
-
-def _expint_gamma(nu, x):
-    """
-    E_p(z) = z^{p-1} Gamma(1-p, z) via scipy upper incomplete gamma.
-
-    Valid when a = 1 - p > 0, i.e. p < 1. Uses the regularized form:
-    Gamma(a, z) = gammaincc(a, z) * Gamma(a).
-    """
-    a = 1.0 - nu
-    return x ** (nu - 1.0) * gammaincc(a, x) * gamma(a)
-
-
-def _expint_recurrence(nu, x):
-    """
-    E_nu(x) for nu > 1 by upward recurrence, no mpmath (pitfalls.md S2).
-
-    Start from the base index s0 = nu - floor(nu) < 1 (the scipy gamma branch,
-    :func:`_expint_gamma`) and apply DLMF 8.19.12,
-
-        s E_{s+1}(x) = e^{-x} - x E_s(x)   =>   E_{s+1} = (e^{-x} - x E_s)/s,
-
-    stepping by integers up to nu. Stable to ~1e-13 for the nu >~ x regime
-    relevant here (nu_k grows with k); degrades gracefully (~1e-10) only when
-    x >> nu. nu and x are broadcast together.
-    """
-    nu, x = np.broadcast_arrays(np.asarray(nu, float), np.asarray(x, float))
-    s = nu - np.floor(nu)                 # base in [0,1)
-    E = _expint_gamma(s, x)
-    ex = np.exp(-x)
-    for _ in range(int(np.floor(nu).max()) if nu.size else 0):
-        active = s + 1.0 <= nu + 1e-9
-        if not active.any():
-            break
-        s_safe = np.where(s == 0.0, 1.0, s)
-        E = np.where(active, (ex - x * E) / s_safe, E)
-        s = np.where(active, s + 1.0, s)
-    return E
-
-
-def expn_fast(nu, x, rtol=1e-9, nterms=NTERMS_ASYMP):
-    """
-    Generalized exponential integral E_nu(x) by branch dispatch.
-
-    - integer nu >= 1            : scipy.special.expn (exact, vectorized)
-    - nu >= threshold(rtol)      : DLMF 8.20 uniform asymptotic
-    - nu < 1 (1-nu > 0)         : E_p(z) = z^{p-1} Gamma(1-p, z) via scipy
-    - otherwise                  : mpmath.expint (fallback)
-
-    The asymptotic threshold is set adaptively so that the expansion error
-    ~nu^{-nterms} < rtol.  E.g. rtol=1e-6 → nu_min ≈ 10; rtol=1e-10 → ~100.
-
-    Parameters
-    ----------
-    nu, x : array_like
-        Broadcastable arrays.
-    rtol : float, optional
-        Target relative accuracy for the asymptotic branch (default 1e-6).
-    nterms : int, optional
-        Number of asymptotic terms (default 5).
-
-    Returns
-    -------
-    ndarray
-        E_nu(x), shape = broadcast(nu, x).
-    """
-    nu_asymp = _nu_asymp_threshold(rtol, nterms)
-
-    nu_b, x_b = np.broadcast_arrays(np.asarray(nu, float), np.asarray(x, float))
-    out = np.empty(nu_b.shape, dtype=float)
-
-    nu_round = np.rint(nu_b)
-    is_int_pos = np.isclose(nu_b, nu_round) & (nu_round >= 1)
-    is_asymp = (~is_int_pos) & (nu_b >= nu_asymp)
-    is_gamma = (~is_int_pos) & (~is_asymp) & (nu_b < 1.0)
-    is_rest = ~(is_int_pos | is_asymp | is_gamma)
-
-    if is_int_pos.any():
-        out[is_int_pos] = expn(nu_round[is_int_pos].astype(int), x_b[is_int_pos])
-    if is_asymp.any():
-        out[is_asymp] = expint_asymptotic(nu_b[is_asymp], x_b[is_asymp], nterms)
-    if is_gamma.any():
-        out[is_gamma] = _expint_gamma(nu_b[is_gamma], x_b[is_gamma])
-    if is_rest.any():
-        # Non-integer 1 < nu < threshold: upward recurrence (no mpmath).
-        out[is_rest] = _expint_recurrence(nu_b[is_rest], x_b[is_rest])
-
     return out
 
 
@@ -664,7 +216,7 @@ class EinastoProfile:
         n = self.n_index
         k = np.arange(0, order + 1)
         self._k = k
-        self._ck = _catalan_over_4k(k)                       # Cat_k / 4^k
+        self._ck = catalan_over_4k(k)                       # Cat_k / 4^k
         self._nu_k = 2 * k * n - n + 1                        # nu_k
 
     # ------------------------------------------------------------------
@@ -830,7 +382,7 @@ class EinastoProfile:
         # sum evaluated once.
         K = 200000
         kk = np.arange(0, K + 1, dtype=float)
-        ck = _catalan_over_4k(kk)
+        ck = catalan_over_4k(kk)
         out = np.zeros_like(R)
         fact = 1.0
         for p in range(1, self._DS_ASYMP_NTERMS + 1):
@@ -840,6 +392,23 @@ class EinastoProfile:
             C_p = -A_p * (n + p) / (3.0 * n + p)
             out += C_p * z ** (n + p)
         return out
+
+    @scalar_array_output
+    def mean_sigma(self, R):
+        r"""
+        Mean interior surface density :math:`\bar\Sigma(<R)`, in Msun/Mpc^2.
+
+        .. math::
+            \bar\Sigma(<R) = \frac{M_{\rm 2D}(R)}{\pi R^2}
+
+        Taken from `enclosed_mass_2D`, which has its own closed form, rather
+        than assembled as :math:`\Sigma + \Delta\Sigma`.
+
+        Completes the `~clenspy.protocols.Profile` surface, which
+        `NfwProfile` also satisfies.
+        """
+        R = np.atleast_1d(np.asarray(R, float))
+        return self.enclosed_mass_2D(R) / (np.pi * R ** 2)
 
     @scalar_array_output
     def deltasigma(self, R):
@@ -956,7 +525,7 @@ class EinastoProfile:
         x_col = x[:, None]
 
         k = np.arange(0, max_order + 1)
-        ck = _catalan_over_4k(k)
+        ck = catalan_over_4k(k)
         nu_k = 2 * k * n - n + 1
         if quantity == "sigma":
             weight, p_decay = (k + 1) * ck, 1.5
@@ -1261,3 +830,31 @@ class EinastoProfile:
     def shear(self, R, sigma_crit=1.0):
         """Tangential shear gamma(R) = DeltaSigma(R) / Sigma_crit."""
         return self.deltasigma(R) / sigma_crit
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    r = np.array([0.05, 0.2, 1.0, 5.0])
+    print("EinastoProfile, rho_0 = 1e15 Msun/Mpc^3, r_s = 0.3 Mpc\n")
+    print(f"{'alpha':>6s} {'n=1/alpha':>10s}  {'rho(r)':>11s}  {'Sigma(r)':>11s}"
+          f"  {'DSigma(r)':>11s}  branch")
+    for alpha in (0.5, 0.2, 0.1667, 0.1):
+        p = EinastoProfile(alpha=alpha, rho_0=1e15, r_s=0.3)
+        rho = float(np.ravel(p.density(1.0))[0])
+        sig = float(np.ravel(p.sigma(1.0))[0])
+        ds = float(np.ravel(p.deltasigma(1.0))[0])
+        n = 1.0 / alpha
+        # which closed form / series the index selects
+        branch = ("exact n=1/2" if abs(n - 0.5) < 1e-9 else
+                  "exact n=1" if abs(n - 1.0) < 1e-9 else "series + E_nu")
+        print(f"{alpha:6.4f} {n:10.4f}  {rho:11.4e}  {sig:11.4e}  "
+              f"{ds:11.4e}  {branch}")
+
+    p = EinastoProfile(alpha=0.2, rho_0=1e15, r_s=0.3)
+    print("\nthe three projections are consistent at every r:")
+    print("  Sigmabar - (Sigma + DeltaSigma) max |rel| = "
+          f"{np.max(np.abs(np.ravel(p.mean_sigma(r)) / (np.ravel(p.sigma(r)) + np.ravel(p.deltasigma(r))) - 1)):.2e}")
+    print(f"\nu(k) at k = 1 /Mpc: {float(np.ravel(p.fourier(1.0))[0]):.6e}")
+    print("NOTE: h-free absolute units; alpha is the Einasto shape index,")
+    print("      unrelated to the HOD alpha or the source-p(z) slope.")

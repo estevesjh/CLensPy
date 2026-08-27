@@ -8,16 +8,30 @@ density profiles in weak lensing analysis.
 from __future__ import annotations
 
 import numpy as np
-from astropy import cosmology
 from scipy.special import sici
 
-from ..config import DEFAULT_COSMOLOGY
+from ..cosmology.fiducial import mean_matter_density
 from ..utils.decorators import scalar_array_output
 
 
 class NfwProfile:
     r"""
     Analytical NFW lensing profile for a single halo or a vector of halos.
+
+    NOTE: **the mass definition is carried by ``rho_ref``**, the reference
+    density that closes :math:`M_{200} = 200\,\rho_{\rm ref}\,
+    \frac{4}{3}\pi r_{200}^3`. This class fixes only the overdensity 200;
+    which density it is measured against is the caller's choice. Pass the
+    comoving mean matter density and ``m200`` means M_200m; pass the
+    critical density and it means M_200c. Mixing the two is a ~30% mass
+    error, so whoever supplies ``rho_ref`` owns that decision.
+
+    NOTE: this class carries no cosmology. That one density is the only
+    cosmological input an NFW profile needs; everything else is geometry.
+    Pass the density, not a cosmology.
+
+    NOTE: all quantities are h-free absolute units -- mass in Msun,
+    lengths in Mpc, densities in Msun/Mpc^3, wavenumbers in 1/Mpc.
 
     The 3D density profile is
 
@@ -35,11 +49,16 @@ class NfwProfile:
     Parameters
     ----------
     m200 : float, array-like
-        Halo mass M_200 [Msun]. Can be scalar or array.
+        Halo mass [Msun] within r200, w.r.t. 200x ``rho_ref``. Can be
+        scalar or array.
     c200 : float, array-like
-        Concentration c_200 (dimensionless). Can be scalar or array.
-    cosmo : astropy.cosmology instance
-        Cosmology instance to use for calculations.
+        Concentration c_200 = r_200 / r_s (dimensionless). Can be scalar
+        or array.
+    rho_ref : float, optional
+        Reference density [Msun/Mpc^3] defining the overdensity, and with
+        it the mass definition. Defaults to `mean_matter_density()` -- the
+        comoving mean matter density at z=0 of the fiducial cosmology,
+        making the default definition M_200m.
 
     Notes
     -----
@@ -50,16 +69,15 @@ class NfwProfile:
         self,
         m200: np.ndarray | float,
         c200: np.ndarray | float = 4.0,
-        cosmo: cosmology = DEFAULT_COSMOLOGY,
+        rho_ref: float | None = None,
     ) -> None:
         # Broadcast shapes for mass and concentration
         m200, c200 = np.broadcast_arrays(m200, c200)
         self.m200 = m200
         self.c200 = c200
-
-        # Critical density in Msun/Mpc^3
-        rhoc = cosmo.critical_density(0).to_value("Msun/Mpc^3")
-        self.rhom = rhoc * cosmo.Om0  # Msun/Mpc^3
+        self.rho_ref = (
+            mean_matter_density() if rho_ref is None else float(rho_ref)
+        )
 
         # Calculate r200 and rs
         self.r200 = self._calculateAtR200(self.m200)  # (n_halo,)
@@ -69,7 +87,7 @@ class NfwProfile:
     def _calculateAtR200(self, m200: np.ndarray | float) -> np.ndarray | float:
         """Calculate r200 [Mpc] for given m200 [Msun]."""
         m200 = np.asarray(m200)
-        return (3 * m200 / (4 * np.pi * 200 * self.rhom)) ** (1.0 / 3.0)
+        return (3 * m200 / (4 * np.pi * 200 * self.rho_ref)) ** (1.0 / 3.0)
 
     def _calculateRhos(
         self, m200: np.ndarray | float, c200: np.ndarray | float
@@ -147,27 +165,35 @@ class NfwProfile:
         uk : np.ndarray
             Dimensionless Fourier transform. Shape: (n_halo, n_k)
         """
-        m200, c200, rs = self.m200, self.c200, self.rs
-        k = np.atleast_1d(k)
-        m200, c200, rs = np.broadcast_arrays(m200, c200, rs)
-        x = rs[..., None] * k
-        norm = np.log(1 + c200)[..., None] - (c200[..., None] / (1 + c200[..., None]))
-        P1 = m200[..., None] / norm
+        k_in = k
+        k = np.atleast_1d(np.asarray(k, dtype=float))
+        m200, c200, rs = np.broadcast_arrays(
+            np.atleast_1d(self.m200), np.atleast_1d(self.c200),
+            np.atleast_1d(self.rs),
+        )
+        # NOTE: explicit (n_halo, n_k) layout. The previous spelling put a
+        # second ``[..., None]`` on P1, which was already (n_halo, n_k), so
+        # an array ``m200`` broadcast to (n_halo, n_k, n_k) -- silently, and
+        # only for array mass. Scalar mass was correct, which is why it
+        # survived: every test passed a scalar.
+        x = rs[:, None] * k[None, :]
+        norm = np.log(1 + c200) - c200 / (1 + c200)      # (n_halo,)
+        P1 = (m200 / norm)[:, None]
         Si2, Ci2 = sici(x)
         if truncated:
-            Si1, Ci1 = sici((1 + c200)[..., None] * x)
+            Si1, Ci1 = sici((1 + c200)[:, None] * x)
             P2 = np.sin(x) * (Si1 - Si2) + np.cos(x) * (Ci1 - Ci2)
-            P3 = np.sin(c200[..., None] * x) / ((1 + c200[..., None]) * x)
-            prof = P1[..., None] * (P2 - P3)
+            P3 = np.sin(c200[:, None] * x) / ((1 + c200)[:, None] * x)
+            prof = P1 * (P2 - P3)
         else:
             P2 = np.sin(x) * (0.5 * np.pi - Si2) - np.cos(x) * Ci2
-            prof = P1[..., None] * P2
+            prof = P1 * P2
 
-        if np.ndim(k) == 0:
-            prof = np.squeeze(prof, axis=-1)
-        if np.ndim(m200) == 0:
-            prof = np.squeeze(prof, axis=0)
-
+        # squeeze on the *input* shapes, not the broadcast ones
+        if np.ndim(self.m200) == 0:
+            prof = prof[0]
+        if np.ndim(k_in) == 0:
+            prof = prof[..., 0]
         return prof
 
     @scalar_array_output
@@ -206,6 +232,35 @@ class NfwProfile:
         Rs = R / rs
         sigma = 2 * rs * rho_s * self._fNfw(Rs)
         return sigma
+
+    @scalar_array_output
+    def mean_sigma(self, R: np.ndarray | float) -> np.ndarray | float:
+        r"""
+        Mean interior surface density :math:`\bar\Sigma(<R)`, in [Msun/Mpc^2].
+
+        .. math::
+            \bar\Sigma(<R) = \frac{2}{R^2}\int_0^R \Sigma(R')\, R'\, dR'
+            = 2 r_s \rho_s\, \bar{g}(x), \qquad x = R / r_s
+
+        with the closed form of `_gbarNfw`. Equal to
+        :math:`\Sigma(R) + \Delta\Sigma(R)` analytically, but evaluated
+        directly: forming it as that sum cancels catastrophically at small
+        :math:`x` (see `_gbarNfw`).
+
+        Parameters
+        ----------
+        R : float or np.ndarray
+            Projected radius [Mpc].
+
+        Returns
+        -------
+        mean_sigma : np.ndarray
+            Mean interior surface density, shape = broadcast(n_halo, n_R)
+        """
+        R = np.atleast_1d(R)
+        rs = self.rs[..., None]
+        rho_s = self.rho_s[..., None]
+        return 2 * rs * rho_s * self._gbarNfw(R / rs)
 
     @scalar_array_output
     def deltasigma(self, R: np.ndarray | float) -> np.ndarray | float:
@@ -271,6 +326,61 @@ class NfwProfile:
     ])
     _SERIES_WINDOW = 1e-2
 
+    #: Below this x, the closed form for gbar cancels; use the series.
+    #: Chosen where the two meet -- both are ~5e-11 there, against mpmath.
+    _GBAR_SMALL_X = 3e-3
+
+    @classmethod
+    def _gbarNfw(cls, x):
+        r"""Mean interior projected NFW kernel
+        :math:`\bar{g}(x) = \bar\Sigma(<x) / (2 r_s \rho_s)`.
+
+        .. math::
+            \bar{g}(x) = \frac{2}{x^2}\left[\ln\frac{x}{2}
+            + \begin{cases}
+              \operatorname{arccosh}(1/x)/\sqrt{1 - x^2}, & x < 1\\
+              1, & x = 1\\
+              \arccos(1/x)/\sqrt{x^2 - 1}, & x > 1
+              \end{cases}\right]
+
+        NOTE: evaluated from this closed form rather than reconstructed as
+        :math:`f + g/2`. The bracket is a difference of two terms that both
+        behave like :math:`\ln(2/x)` while their sum is
+        :math:`O(x^2\ln x)`, so the reconstruction loses every digit below
+        :math:`x \sim 10^{-6}` -- `_gNfw` there returns values that are
+        orders of magnitude wrong and eventually negative. The same
+        cancellation eventually reaches this form too, hence the series
+        branch below `_GBAR_SMALL_X`:
+
+        .. math::
+            \bar{g}(x) = \ln\frac{2}{x} - \frac{1}{2}
+            + x^2\left[\frac{3}{4}\ln\frac{2}{x} - \frac{7}{16}\right]
+            + O(x^4\ln x)
+
+        Both branches agree with mpmath to <= 5e-11 at the switch.
+        """
+        x = np.array(x, dtype=float)
+        out = np.empty_like(x)
+
+        tiny = x < cls._GBAR_SMALL_X
+        if np.any(tiny):
+            L = np.log(2.0 / x[tiny])
+            out[tiny] = L - 0.5 + x[tiny] ** 2 * (0.75 * L - 7.0 / 16.0)
+
+        rest = ~tiny
+        lo = rest & (x < 1.0 - 1e-8)
+        hi = rest & (x > 1.0 + 1e-8)
+        eq = rest & ~(lo | hi)
+        xl, xh = x[lo], x[hi]
+        out[lo] = (2.0 / xl**2) * (
+            np.log(xl / 2.0) + np.arccosh(1.0 / xl) / np.sqrt(1.0 - xl * xl)
+        )
+        out[hi] = (2.0 / xh**2) * (
+            np.log(xh / 2.0) + np.arccos(1.0 / xh) / np.sqrt(xh * xh - 1.0)
+        )
+        out[eq] = 2.0 * (1.0 + np.log(0.5))
+        return out
+
     @classmethod
     def _fNfw(cls, x):
         """Projected NFW profile kernel f(x)."""
@@ -282,11 +392,16 @@ class NfwProfile:
         mask2 = ~(mask1 | mask3)
         x1 = x[mask1]
         x3 = x[mask3]
-        # For x < 1
+        # For x < 1. Written with arccosh(1/x) rather than the equivalent
+        # 2 arctanh(sqrt((1-x)/(1+x))): the arctanh argument rounds to
+        # exactly 1 once x drops below ~1e-17, giving arctanh(1) = inf,
+        # and the miscentering integrand samples x -> 0 whenever the
+        # azimuthal ring passes through the halo centre (R = R_mis).
+        # arccosh(1/x) stays accurate down to the 1/x overflow.
         result[mask1] = (
             1.0
             / (x1**2 - 1.0)
-            * (1 - 2 / np.sqrt(1 - x1**2) * np.arctanh(np.sqrt((1 - x1) / (1 + x1))))
+            * (1 - np.arccosh(1.0 / x1) / np.sqrt(1 - x1**2))
         )
         # For |x - 1| <= eps: Taylor series (direct form is 0/0 at x=1)
         result[mask2] = np.polynomial.polynomial.polyval(
@@ -314,12 +429,25 @@ class NfwProfile:
         res[mask_c] = np.polynomial.polynomial.polyval(
             x[mask_c] - 1.0, cls._G_SERIES
         )
+        # Small x: the 1/x^2 terms below are individually ~ln(2/x)/x^2 and
+        # cancel down to O(1), so the direct form loses every digit by
+        # x ~ 1e-6 and turns negative by 1e-9. Use the limit instead,
+        #     g(x) = 1 - x^2 [ (3/2) ln(2/x) - 13/8 ] + O(x^4 ln x),
+        # which follows from g = 2(gbar - f) and the expansions of both.
+        tiny = mask_l & (x < cls._GBAR_SMALL_X)
+        if np.any(tiny):
+            L = np.log(2.0 / x[tiny])
+            res[tiny] = 1.0 - x[tiny] ** 2 * (1.5 * L - 13.0 / 8.0)
+        mask_l = mask_l & ~tiny
+
         sqrt1mx2 = np.sqrt(1.0 - x[mask_l] ** 2)
-        atanh = np.arctanh(sqrt1mx2 / (1.0 + x[mask_l]))
-        term1 = 8.0 * atanh / (x[mask_l] ** 2 * sqrt1mx2)
+        # arccosh(1/x) == 2 arctanh(sqrt((1-x)/(1+x))), but stays finite
+        # once the arctanh argument would round to exactly 1 (see _fNfw).
+        acosh = np.arccosh(1.0 / x[mask_l])
+        term1 = 4.0 * acosh / (x[mask_l] ** 2 * sqrt1mx2)
         term2 = 4.0 / x[mask_l] ** 2 * np.log(x[mask_l] / 2.0)
         term3 = -2.0 / (x[mask_l] ** 2 - 1.0)
-        term4 = 4.0 * atanh / ((x[mask_l] ** 2 - 1.0) * sqrt1mx2)
+        term4 = 2.0 * acosh / ((x[mask_l] ** 2 - 1.0) * sqrt1mx2)
         res[mask_l] = term1 + term2 + term3 + term4
 
         # x > 1

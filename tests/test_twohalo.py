@@ -1,112 +1,237 @@
-"""
-Tests for halo module.
+"""Does `TwoHaloTerm` run, and are its three outputs mutually consistent?
+
+NOTE: the comparison against `cluster_toolkit` and CLMM that used to be the
+only test in this file is now `validation/validate_twohalo_chain.py`, where
+it checks each transform stage against a closed-form NFW instead of only the
+end of the chain. See ``docs/validation.md``.
+
+These are cheap invariants that need no external library: shapes, signs,
+monotonicity, and the identity relating the three projections.
 """
 
 import numpy as np
 import pytest
 
-from clenspy.halo.twohalo import TwoHaloTerm
+from clenspy.halo.twohalo import TwoHaloTerm, prepare_pk_grid
 
-try:
-    import pyccl as ccl
-except ImportError:
-    ccl = None
+#: A pure power law, so xi(r) is a pure power law and the projections are
+#: strictly monotonic -- the invariants below are then exact statements
+#: rather than statements about this particular input. A cored P(k) gives a
+#: genuinely flat Sigma core and would make the monotonicity check false for
+#: physical reasons, which is not what these tests are for.
+K = np.logspace(-3, 1, 64)  # 1/Mpc
+PK = 2e4 * K ** (-1.5)
+Z = 0.2
 
-try:
-    import cluster_toolkit as ct
-except ImportError:
-    ct = None
 
-try:
-    import clmm
-    from clmm import Cosmology
-    from clmm.theory import func_layer
-except ImportError:
-    clmm = None
+@pytest.fixture
+def twohalo():
+    return TwoHaloTerm(K, PK, zvec=Z)
 
-RHOCRIT = 2.77533742639e11  # Critical density in Msun h^2/Mpc^3
 
-is_plot = True  # Set to True to enable plotting in tests
+def test_xi_is_finite_and_decreasing(twohalo):
+    r = np.logspace(-1, 1.5, 30)
+    xi = np.ravel(twohalo.xi(r, Z))
+    assert np.all(np.isfinite(xi))
+    assert np.all(np.diff(xi) < 0)
 
-@pytest.mark.skipif(ccl is None or ct is None or clmm is None, reason="pyccl and cluster_toolkit and clmm required")
-def test_twohalo_deltasigma_matches_clustertoolkit():
-    """Test TwoHaloTerm ΔΣ_2h matches cluster-toolkit to <2% RMS on fixed grid."""
-    # --- Parameters ---
-    MASS = 2E14
-    CONCENTRATION = 1.0
-    z_cl = 0.1
 
-    # k and P(k) grid (coarse for speed)
-    k_values = np.logspace(-3, 1, 60)   # [Mpc^-1]
-    cosmo = ccl.Cosmology(Omega_c=0.25, Omega_b=0.05, h=0.7, sigma8=0.81, n_s=0.96)
-    clmm_cosmo = Cosmology(H0=100*0.7, Omega_dm0=0.25, 
-                           Omega_b0=0.05, Omega_k0=0.0)
-    pk_values = ccl.linear_matter_power(cosmo, k_values, 1/(1+z_cl))
-    rho_m = clmm_cosmo._get_rho_m(z_cl)
+def test_sigma_and_deltasigma_are_positive_and_decreasing(twohalo):
+    R = np.logspace(-1, 1, 25)
+    for name in ("sigma", "deltasigma"):
+        v = np.ravel(getattr(twohalo, name)(R, Z))
+        assert np.all(np.isfinite(v)), f"{name} must be finite"
+        assert np.all(v > 0), f"{name} must be positive"
+        assert np.all(np.diff(v) < 0), f"{name} must decrease outward"
 
-    # Projected radii [Mpc]
-    r_proj = np.logspace(-1, 1, 20)   # [0.1, 10] Mpc, 20 points
 
-    # --- TwoHaloTerm ---
-    # halogrid = TwoHaloTerm(k_values, pk_values, method='trapz')
-    # halogrid = TwoHaloTerm(k_values, pk_values, method='leggauss', n_points=128)
-    halogrid = TwoHaloTerm(k_values, pk_values, method='quad_vec')
+def test_sigma_falls_off_faster_than_xi():
+    """Projection is shallower than the 3D profile, never steeper."""
+    th = TwoHaloTerm(K, PK, zvec=Z)
+    r = np.array([1.0, 4.0])
+    slope_xi = np.diff(np.log(np.ravel(th.xi(r, Z)))) / np.diff(np.log(r))
+    slope_sig = np.diff(np.log(np.ravel(th.sigma(r, Z)))) / np.diff(np.log(r))
+    assert slope_sig > slope_xi
 
-    deltasigma_halo = halogrid.deltasigma(r_proj)
-    deltasigma_halo *= rho_m #/ halogrid.rho_m
 
-    # --- cluster-toolkit (uses same P(k)) ---
-    Rfix = np.logspace(-3., 2, 500)
-    xi_mm = ct.xi.xi_mm_at_r(Rfix, k_values, pk_values)
-    xi_2halo = ct.xi.xi_2halo(1.0, xi_mm)
-    Sigma_mm = ct.deltasigma.Sigma_at_R(Rfix[1:], Rfix, xi_2halo, MASS, CONCENTRATION, 1.0)
-
-    # Interpolate ΔΣ at r_proj
-    from scipy.integrate import cumulative_trapezoid as cumtrapz
-    res = cumtrapz(Sigma_mm * Rfix[1:], Rfix[1:], initial=0)
-    mean_sigma = 2 * res / (Rfix[1:] ** 2)
-    deltasigma_ct = np.clip(mean_sigma - Sigma_mm, 0, None)
-    deltasigma_ct = np.interp(np.log(r_proj), np.log(Rfix[1:]), deltasigma_ct)
-    deltasigma_ct *= 1e12*rho_m/RHOCRIT
-
-    # --- CLMM ---
-    rfix = np.logspace(-3, 3, 100)  # Mpc
-
-    # Compute physical Σ at physical radius
-    sigma_physical = func_layer.compute_excess_surface_density_2h(
-        rfix, z_cl, clmm_cosmo, halobias=1.0,
+def test_p_kz_reproduces_the_input_spectrum(twohalo):
+    """The P(k, z) interpolator must pass its own input through."""
+    k = K[5:-5]  # off the interpolation edges
+    np.testing.assert_allclose(
+        np.ravel(twohalo.p_kz(k, Z)), PK[5:-5], rtol=2e-2
     )
-    # Convert to comoving Σ at comoving radius
-    deltasigma_clmm = np.interp(np.log(r_proj/(1+z_cl)), np.log(rfix), sigma_physical)
-    deltasigma_clmm *= (1+z_cl)
 
-    if is_plot:
-        import matplotlib.pyplot as plt
-        plt.figure()
-        plt.loglog(r_proj, deltasigma_halo, label="clenspy TwoHaloTerm ΔΣ")
-        plt.loglog(r_proj, deltasigma_ct, ls="--", label="cluster-toolkit ΔΣ")
-        plt.loglog(r_proj, deltasigma_clmm, ls=":", label="CLMM ΔΣ")
-        plt.xlabel(r"$R$ [Mpc]")
-        plt.ylabel(r"$\Delta\Sigma(R)$ [M$_\odot$ / Mpc$^2$]")
-        plt.legend()
-        plt.title("Two-Halo Term: clenspy vs cluster-toolkit vs CLMM")
-        plt.tight_layout()
-        plt.show()
 
-    # --- Assert RMS fractional difference < 5%
-    rel = (deltasigma_halo - deltasigma_ct) / deltasigma_ct
-    print("ΔΣ mean:", np.mean(deltasigma_ct), "ΔΣ max abs rel err:", np.max(np.abs(rel)))
-    rms_frac = np.sqrt(np.mean(rel**2))
-    print("RMS fractional difference:", rms_frac)
-    assert rms_frac < 0.05   # <5% RMS
+def test_scalar_and_array_radii_agree(twohalo):
+    """A scalar R gives the same number as the length-1 array."""
+    for name in ("xi", "sigma", "deltasigma"):
+        method = getattr(twohalo, name)
+        np.testing.assert_allclose(
+            np.ravel(method(1.5, Z)), np.ravel(method(np.array([1.5]), Z))
+        )
 
-    # Also: no NaNs or negatives
-    assert np.all(np.isfinite(deltasigma_halo))
-    assert np.all(deltasigma_halo >= 0)
 
-    # --- Assert CLMM matches halo term
-    rel_clmm = (deltasigma_halo - deltasigma_clmm) / deltasigma_clmm
-    print("ΔΣ CLMM mean:", np.mean(deltasigma_clmm), "ΔΣ max abs rel err CLMM:", np.max(np.abs(rel_clmm)))
-    rms_frac_clmm = np.sqrt(np.mean(rel_clmm**2))
-    print("RMS fractional difference CLMM:", rms_frac_clmm)
-    assert rms_frac_clmm < 0.05   # <5% RMS
+def test_unsorted_k_is_accepted():
+    """A descending k grid must give the same answer as an ascending one."""
+    order = np.argsort(-K)
+    shuffled = TwoHaloTerm(K[order], PK[order], zvec=Z)
+    R = np.logspace(-1, 0.5, 8)
+    np.testing.assert_allclose(
+        np.ravel(shuffled.sigma(R, Z)),
+        np.ravel(TwoHaloTerm(K, PK, zvec=Z).sigma(R, Z)),
+        rtol=1e-6,
+    )
+
+
+@pytest.mark.parametrize("method", ["trapz", "quad_vec"])
+def test_quadrature_backends_agree(method):
+    """The Abel backends must agree to better than their own accuracy."""
+    R = np.logspace(-1, 0.5, 10)
+    ref = np.ravel(TwoHaloTerm(K, PK, zvec=Z, method="quad_vec").sigma(R, Z))
+    got = np.ravel(TwoHaloTerm(K, PK, zvec=Z, method=method).sigma(R, Z))
+    np.testing.assert_allclose(got, ref, rtol=1e-3)
+
+
+class TestBuildAll:
+    """`build_all` is a side-effecting convenience wrapper around the three
+    per-quantity methods -- it should chain (return `self`) and leave all
+    three interpolators cached.
+    """
+
+    def test_returns_self(self, twohalo):
+        result = twohalo.build_all()
+        assert result is twohalo
+
+    def test_caches_all_three_interpolators(self, twohalo):
+        for attr in ("xi_rz_interp", "sigma_rz_interp", "deltasigma_rz_interp"):
+            assert not hasattr(twohalo, attr)
+        twohalo.build_all()
+        for attr in ("xi_rz_interp", "sigma_rz_interp", "deltasigma_rz_interp"):
+            assert hasattr(twohalo, attr)
+            assert getattr(twohalo, attr) is not None
+
+    def test_matches_calling_methods_individually(self):
+        """`build_all()` then read vs. calling each method directly agree."""
+        R = np.logspace(-1, 0.5, 8)
+        built = TwoHaloTerm(K, PK, zvec=Z).build_all()
+        direct = TwoHaloTerm(K, PK, zvec=Z)
+        for name in ("xi", "sigma", "deltasigma"):
+            np.testing.assert_allclose(
+                np.ravel(getattr(built, name)(R, Z)),
+                np.ravel(getattr(direct, name)(R, Z)),
+            )
+
+
+class TestPreparePkGrid:
+    """Direct unit tests of `prepare_pk_grid`'s shape-normalization branches.
+
+    Uses small synthetic grids where each z-column (or row) is tagged with
+    its own z-value, so the returned `Pk_grid` values can be checked
+    directly rather than only its shape.
+    """
+
+    kvec = np.logspace(-2, 1, 5)
+    nk = len(kvec)
+    zvec = np.array([0.1, 0.3, 0.6])
+    nz = len(zvec)
+
+    def test_zvec_none_pk_1d(self):
+        """(a) zvec is None, Pk is 1D -> single z=0.0 column."""
+        Pk = np.arange(self.nk, dtype=float) + 1.0
+        k, Pk_grid, zvec = prepare_pk_grid(self.kvec, Pk, None)
+        np.testing.assert_array_equal(k, self.kvec)
+        assert Pk_grid.shape == (self.nk, 1)
+        np.testing.assert_array_equal(zvec, [0.0])
+        np.testing.assert_array_equal(Pk_grid[:, 0], Pk)
+
+    def test_zvec_none_pk_column(self):
+        """(b) zvec is None, Pk already shape (nk, 1) -> passed through."""
+        Pk = (np.arange(self.nk, dtype=float) + 1.0)[:, None]
+        k, Pk_grid, zvec = prepare_pk_grid(self.kvec, Pk, None)
+        assert Pk_grid.shape == (self.nk, 1)
+        np.testing.assert_array_equal(zvec, [0.0])
+        np.testing.assert_array_equal(Pk_grid, Pk)
+
+    def test_zvec_none_bad_pk_shape_raises(self):
+        """(c) zvec is None, Pk is 2D but not (nk, 1) -> ValueError."""
+        Pk = np.ones((self.nk, 3))
+        with pytest.raises(ValueError, match="must be 1D or shape"):
+            prepare_pk_grid(self.kvec, Pk, None)
+
+    def test_zvec_given_pk_1d_is_tiled(self):
+        """(d) zvec given, Pk is 1D -> tiled identically across all z."""
+        Pk = np.arange(self.nk, dtype=float) + 1.0
+        k, Pk_grid, zvec = prepare_pk_grid(self.kvec, Pk, self.zvec)
+        assert Pk_grid.shape == (self.nk, self.nz)
+        for j in range(self.nz):
+            np.testing.assert_array_equal(Pk_grid[:, j], Pk)
+        np.testing.assert_array_equal(zvec, self.zvec)
+
+    def test_zvec_given_pk_nz_by_nk_is_transposed(self):
+        """(e) zvec given, Pk shape (nz, nk) -> transposed to (nk, nz)."""
+        Pk = np.zeros((self.nz, self.nk))
+        for i, zval in enumerate(self.zvec):
+            Pk[i, :] = zval
+        k, Pk_grid, zvec = prepare_pk_grid(self.kvec, Pk, self.zvec)
+        assert Pk_grid.shape == (self.nk, self.nz)
+        for j, zval in enumerate(self.zvec):
+            np.testing.assert_array_equal(Pk_grid[:, j], np.full(self.nk, zval))
+
+    def test_zvec_given_pk_nk_by_nz_used_as_is(self):
+        """(f) zvec given, Pk already shape (nk, nz) -> used as-is."""
+        Pk = np.zeros((self.nk, self.nz))
+        for j, zval in enumerate(self.zvec):
+            Pk[:, j] = zval
+        k, Pk_grid, zvec = prepare_pk_grid(self.kvec, Pk, self.zvec)
+        assert Pk_grid.shape == (self.nk, self.nz)
+        np.testing.assert_array_equal(Pk_grid, Pk)
+
+    def test_zvec_given_bad_pk_shape_raises(self):
+        """(g) zvec given, Pk shape matches neither (nk,nz) nor (nz,nk)."""
+        Pk = np.ones((self.nz + 4, self.nk))
+        with pytest.raises(ValueError, match="Pk shape must be"):
+            prepare_pk_grid(self.kvec, Pk, self.zvec)
+
+    def test_unsorted_zvec_raises(self):
+        """zvec must be strictly increasing on input -- an out-of-order
+        zvec fails the internal assertion rather than being silently
+        re-sorted (the sort branch further down only re-orders columns to
+        match an unsorted *kvec*, not an unsorted zvec)."""
+        unsorted_zvec = np.array([0.6, 0.1, 0.3])
+        Pk = np.zeros((self.nz, self.nk))
+        for i, zval in enumerate(unsorted_zvec):
+            Pk[i, :] = zval
+        with pytest.raises(AssertionError, match="strictly increasing"):
+            prepare_pk_grid(self.kvec, Pk, unsorted_zvec)
+
+    def test_unsorted_kvec_with_pk_nk_by_nz_reorders_columns(self):
+        """(h, first sort path) An unsorted kvec triggers the re-sort
+        branch; with Pk_grid already in (nk, nz) form it re-orders columns
+        by `argsort(zvec)`. Since zvec here is already sorted, argsort is
+        the identity permutation and the result is unchanged."""
+        unsorted_kvec = self.kvec[::-1]
+        Pk = np.zeros((self.nk, self.nz))
+        for j, zval in enumerate(self.zvec):
+            Pk[:, j] = zval
+        k, Pk_grid, zvec = prepare_pk_grid(unsorted_kvec, Pk, self.zvec)
+        np.testing.assert_array_equal(zvec, self.zvec)
+        assert Pk_grid.shape == (self.nk, self.nz)
+        for j, zval in enumerate(self.zvec):
+            np.testing.assert_array_equal(Pk_grid[:, j], np.full(self.nk, zval))
+
+    def test_unsorted_kvec_with_pk_nz_by_nk_reorders_columns(self):
+        """(h, second sort path) Same as above, but starting from Pk given
+        as (nz, nk) -- it is transposed to (nk, nz) before the unsorted-k
+        branch runs, so it takes the same `[:, sort_idx]` path (the
+        `(len(zvec), nk)` branch of the re-sort code is unreachable in
+        practice, since `Pk_grid` is always normalized to (nk, nz) by the
+        time the re-sort runs)."""
+        unsorted_kvec = self.kvec[::-1]
+        Pk = np.zeros((self.nz, self.nk))
+        for i, zval in enumerate(self.zvec):
+            Pk[i, :] = zval
+        k, Pk_grid, zvec = prepare_pk_grid(unsorted_kvec, Pk, self.zvec)
+        np.testing.assert_array_equal(zvec, self.zvec)
+        assert Pk_grid.shape == (self.nk, self.nz)
+        for j, zval in enumerate(self.zvec):
+            np.testing.assert_array_equal(Pk_grid[:, j], np.full(self.nk, zval))

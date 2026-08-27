@@ -1,8 +1,18 @@
-"""
-Boost factor correction functions for weak lensing profiles.
+r"""The boost factor: member dilution of the source sample.
 
-Boost factors account for the enhancement in the lensing signal due to
-correlated satellite galaxies and substructure around the main halo.
+Cluster members and correlated structure scattered into the source
+catalogue are not lensed by the cluster, so they dilute the measured
+signal. :math:`\mathcal{B}(R)` is the multiplicative correction that
+removes that dilution (McClintock et al. 2019, eq. 27).
+
+NOTE: :math:`\mathcal{B}(R)` is **dimensionless** and > 1, and the radii it
+is evaluated at are in Mpc, matching the rest of the package's h-free
+absolute convention. The loaders below read DES Y1 data files whose radii
+are also in Mpc; nothing here converts units.
+
+NOTE: this is a *measured* correction read from disk, not a model. The
+files are the DES Y1 unblinded boost measurements and are not distributed
+with `clenspy` -- `load_boost_factor_data` needs a path to them.
 """
 
 from __future__ import annotations
@@ -65,8 +75,13 @@ def boost_factor_nfw(
 
 @dataclass
 class BoostFactorData:
-    """
+    r"""
     Measured boost factor B(R) for one richness/redshift bin.
+
+    NOTE: ``R`` is in Mpc; ``data_vector``, ``sigma_B``, ``covariance`` and
+    ``inv_cov`` are all in units of :math:`\mathcal{B}` itself, which is
+    dimensionless. ``i_lam`` and ``i_z`` are bin *indices*, not physical
+    values -- see `~clenspy.utils.RichnessBin` for the edges they name.
 
     Attributes
     ----------
@@ -80,10 +95,10 @@ class BoostFactorData:
         Covariance matrix of ``data_vector``, after scale cuts.
     inv_cov : np.ndarray
         Pseudo-inverse of ``covariance`` (set by `load_boost_factor_data`).
-    l : int
-        Richness bin index.
-    z : int
-        Redshift bin index.
+    i_lam : int
+        Richness bin index -- the :math:`i` of `~clenspy.utils.RichnessBin`.
+    i_z : int
+        Redshift bin index -- the :math:`j` of `~clenspy.utils.RichnessBin`.
     """
 
     R: np.ndarray
@@ -91,13 +106,17 @@ class BoostFactorData:
     sigma_B: np.ndarray
     covariance: np.ndarray
     inv_cov: np.ndarray
-    l: int
-    z: int
+    i_lam: int
+    i_z: int
 
 @dataclass
 class BoostFactorCollection:
     """
     A collection of `BoostFactorData` spanning a grid of richness/redshift bins.
+
+    NOTE: units are those of `BoostFactorData`. ``lbins`` and ``zbins``
+    hold bin indices, and ``datasets`` is keyed ``"{l}l_{z}z"`` on those
+    same indices.
 
     Attributes
     ----------
@@ -113,7 +132,9 @@ class BoostFactorCollection:
     zbins: list
     datasets: dict[str, BoostFactorData]
 
-def load_boost_factor_data(path: str, lbin: int, zbin: int, scale_cut: tuple[float, float]) -> BoostFactorData:
+def load_boost_factor_data(
+    path: str, lbin: int, zbin: int, scale_cut: tuple[float, float]
+) -> BoostFactorData:
     """
     Load a measured boost factor for one richness/redshift bin from disk.
 
@@ -139,8 +160,9 @@ def load_boost_factor_data(path: str, lbin: int, zbin: int, scale_cut: tuple[flo
         The loaded, scale-cut data with its inverse covariance.
     """
     config = BoostFactorData(None, None, None, None, None, lbin, zbin)
-    data_file = f"{path}/full-unblind-v2-mcal-zmix_y1clust_l{lbin}_z{zbin}_zpdf_boost.dat"
-    cov_file  = f"{path}/full-unblind-v2-mcal-zmix_y1clust_l{lbin}_z{zbin}_zpdf_boost_cov.dat"
+    stem = f"{path}/full-unblind-v2-mcal-zmix_y1clust_l{lbin}_z{zbin}_zpdf_boost"
+    data_file = f"{stem}.dat"
+    cov_file = f"{stem}_cov.dat"
     
     # load the data
     config.R, config.data_vector, config.sigma_B = np.genfromtxt(data_file, unpack=True)
@@ -188,16 +210,20 @@ def load_boost_factor_collection(
     BoostFactorCollection
         One `BoostFactorData` per ``(l, z)`` bin, keyed ``"{l}l_{z}z"``.
     """
-    lambda_bins = range(l0, le)  # Richness bins from l0 to le
-    z_bins = range(z0, ze)        # Redshift bins from z0 to ze
-    
-    configCollection = BoostFactorCollection(lambda_bins, z_bins, {})
-    for l in lambda_bins:
-        for z in z_bins:
-            configCollection.datasets[f'{l}l_{z}z'] = load_boost_factor_data(path, l, z, scale_cut)
-    return configCollection
+    lambda_bins = range(l0, le)
+    z_bins = range(z0, ze)
 
-def scale_cuts(config: BoostFactorData, r_min: float =0.1, r_max: float =5.0) -> BoostFactorData:
+    collection = BoostFactorCollection(lambda_bins, z_bins, {})
+    for i_lam in lambda_bins:
+        for i_z in z_bins:
+            collection.datasets[f"{i_lam}l_{i_z}z"] = load_boost_factor_data(
+                path, i_lam, i_z, scale_cut
+            )
+    return collection
+
+def scale_cuts(
+    config: BoostFactorData, r_min: float = 0.1, r_max: float = 5.0
+) -> BoostFactorData:
     """
     Restrict a `BoostFactorData` to radii in ``[r_min, r_max]``.
 
@@ -230,3 +256,22 @@ __all__ = [
     "load_boost_factor_collection",
     "load_boost_factor_data",
 ]
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    R = np.array([0.1, 0.3, 1.0, 3.0, 10.0])
+    rs = 0.35  # Mpc, an NFW scale radius for M ~ 1e14
+    print("boost factor B(R), McClintock et al. 2019 eq. 27")
+    print(f"  r_s = {rs} Mpc\n")
+    print(f"{'R [Mpc]':>9s}  " + "  ".join(f"B0={b:<6.2f}" for b in
+                                           (0.05, 0.10, 0.20)))
+    rows = [boost_factor_nfw(R, b0, rs) for b0 in (0.05, 0.10, 0.20)]
+    for i, r in enumerate(R):
+        print(f"{r:9.2f}  " + "  ".join(f"{row[i]:9.5f}" for row in rows))
+
+    print("\nB -> 1 at large R (dilution vanishes) and is largest in the")
+    print("core, where the cluster's own members dominate the catalogue.")
+    print("NOTE: dimensionless, R in Mpc. The loaders in this module read")
+    print("      DES Y1 measurement files that are not shipped with clenspy.")
