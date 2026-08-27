@@ -202,7 +202,7 @@ class NfwMiscenteringTable:
         return self._query(self._sigma, self._centred_sigma, x, x_mis)
 
     def ds_hat(self, x, x_mis) -> np.ndarray:
-        r""":math:`\widehat{\Delta\Sigma}_{\rm mis}`, signed. See the module docstring."""
+        r""":math:`\widehat{\Delta\Sigma}_{\rm mis}`, signed (see the module)."""
         if x_mis == 0.0:
             return self._centred_ds(np.atleast_1d(np.asarray(x, dtype=float)))
         return self._query(self._ds, self._centred_ds, x, x_mis)
