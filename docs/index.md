@@ -97,5 +97,6 @@ Einasto profile math <einasto_math>
 Einasto series investigation <einasto_series_investigation>
 Miscentering math <miscentering_math>
 Notation <notation>
+Validation <validation>
 Refactor plan <refactor-plan>
 ```

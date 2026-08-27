@@ -498,7 +498,16 @@ Each step is independently reviewable and leaves the package working.
    constructor arguments, so a driver can supply collaborators or reuse one
    P(k). `_validate_inputs` stays eager. `tests/test_lensing_profile.py`
    asserts the laziness structurally, so it cannot regress silently.
-9. **`validation/`** — move the pyccl and cluster_toolkit comparisons out of `tests/`.
+9. **`validation/`** — done. `validate_nfw_pyccl.py` and
+   `validate_twohalo_chain.py`, plus `analytic_nfw.py` as an independent
+   closed-form reference and `docs/validation.md` as the results page. Two
+   things came out of the move: the pyccl tolerances were 5e-3 against a
+   measured 1e-10, and the two-halo comparison is now the **per-stage**
+   chain bench from `y3_cluster_cpp/validations/second_halo_term/
+   10_chain_residuals.py` (CLensPy issue #4), which localises a
+   disagreement to one transform instead of reporting one number at the end
+   of the chain. `tests/test_twohalo.py` had only that comparison in it, so
+   it was rewritten as dependency-free invariants.
 10. **`docs/notation.md`**, then the unit `NOTE:` sweep.
 11. **`survey/survey.py`** — the new capability, once the spine is in place.
 
