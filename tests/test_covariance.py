@@ -297,10 +297,23 @@ def test_the_whole_covariance_scales_inversely_with_f_sky():
     np.testing.assert_allclose(b.cov() / a.cov(), 0.5, rtol=1e-12)
 
 
+def _ratio_where_nonzero(numerator, denominator):
+    """Element-wise ratio, skipping structural zeros.
+
+    ``shot_shape`` is exactly diagonal now, so a bare element-wise ratio
+    hits 0/0 off the diagonal. Comparing only where the denominator is
+    nonzero keeps the scaling check meaningful.
+    """
+    mask = denominator != 0.0
+    assert mask.any()
+    return numerator[mask] / denominator[mask]
+
+
 def test_the_shot_noise_terms_scale_as_one_over_n_h():
     a, b = make_cov(), make_cov(n_h=2.0 * N_H)
     for name in ("shot_lss", "shot_shape"):
-        ratio = (b.components()[name] / a.components()[name])
+        ratio = _ratio_where_nonzero(b.components()[name],
+                                     a.components()[name])
         np.testing.assert_allclose(ratio, 0.5, rtol=1e-12), name
 
 
@@ -319,7 +332,8 @@ def test_the_shape_noise_terms_scale_linearly_in_the_shape_noise():
         # 1e-10, not machine epsilon: the off-diagonal entries involve
         # cancelling J2 oscillations, so their ratio carries a few ulp more
         np.testing.assert_allclose(
-            b.components()[name] / a.components()[name], 3.0, rtol=1e-10
+            _ratio_where_nonzero(b.components()[name],
+                                 a.components()[name]), 3.0, rtol=1e-10
         ), name
 
 
@@ -355,9 +369,12 @@ def test_neighbouring_radial_bins_are_positively_correlated():
     assert np.all(off < 1.0)
 
 
-def test_the_k_grid_is_converged():
+def test_the_k_grid_is_converged_on_both_axes():
     """Measured, not asserted -- the module's named approximation."""
-    assert make_cov(n_k=8192).convergence() < 1e-3
+    conv = make_cov(n_k=8192).convergence()
+    assert set(conv) == {"n_k", "k_max"}
+    assert conv["n_k"] < 1e-4
+    assert conv["k_max"] < 1e-4
 
 
 def test_the_diagonal_falls_with_radius():
@@ -395,7 +412,152 @@ def test_the_bilinear_form_uses_the_right_k_measure():
     b = make_cov(shape_noise=2.0 * SHAPE_NOISE, n_h=N_H)
     # shot_shape is the constant-bracket term: strictly linear
     np.testing.assert_allclose(
-        b.components()["shot_shape"] / a.components()["shot_shape"], 2.0,
+        _ratio_where_nonzero(b.components()["shot_shape"],
+                             a.components()["shot_shape"]), 2.0,
         rtol=1e-12,
     )
     assert np.all(np.diag(a.components()["shot_shape"]) > 0.0)
+
+
+# -- the Hankel closure identity, and the precision it buys ----------------
+#
+# These exist because the claim "FFTLog buys nothing" was only true about
+# COST. On precision the quadrature was losing 3.5e-3 on the total, and the
+# fix turned out to be better than FFTLog: the dominant term has an exact
+# closed form. These tests pin that, and pin the error scaling of what is
+# left, so neither can silently regress.
+
+
+def closure_reference(rp_edges, f_sky, n_h, shape_noise):
+    r"""The exact ``shot_shape`` term, from Hankel closure.
+
+    :math:`\int_0^\infty J_2(ka)J_2(kb)\,k\,dk = \delta(a-b)/a`, averaged
+    over disjoint contiguous annuli, gives
+    :math:`\delta_{ij}/A_{{\rm ann},i}` with
+    :math:`A_{\rm ann} = \pi(r_{p,\max}^2 - r_{p,\min}^2)` in **Mpc^2**.
+    """
+    area = np.pi * (rp_edges[1:] ** 2 - rp_edges[:-1] ** 2)
+    return np.diag((shape_noise / n_h) / (4.0 * np.pi * f_sky) / area)
+
+
+def test_the_closed_form_shot_shape_is_the_closure_result():
+    """The analytic reference, independent of the implementation."""
+    cov = make_cov()
+    np.testing.assert_allclose(
+        cov.components()["shot_shape"],
+        closure_reference(RP_EDGES, F_SKY, N_H, SHAPE_NOISE), rtol=1e-14,
+    )
+
+
+def test_the_closed_form_shot_shape_is_strictly_diagonal():
+    r"""Disjoint annuli, so :math:`\delta(a-b)` gives nothing off-diagonal.
+
+    The quadrature leaks here; the closed form cannot.
+    """
+    m = make_cov().components()["shot_shape"]
+    assert np.count_nonzero(m - np.diag(np.diag(m))) == 0
+
+
+def test_the_quadrature_converges_onto_the_closed_form():
+    """Both compute the same integral, so they must agree in the limit."""
+    exact = np.diag(closure_reference(RP_EDGES, F_SKY, N_H, SHAPE_NOISE))
+    previous = np.inf
+    for k_max in (1e2, 1e3, 1e4):
+        got = np.diag(
+            make_cov(k_range=(1e-4, k_max), n_k=8192,
+                     exact_shot_shape=False).components()["shot_shape"]
+        )
+        error = np.max(np.abs(got / exact - 1.0))
+        assert error < previous
+        previous = error
+    assert previous < 1e-3
+
+
+def test_the_quadrature_error_is_truncation_limited_not_node_limited():
+    r"""Which is why `convergence` had to start reporting both axes.
+
+    At fixed :math:`k_{\max}` the error is flat in ``n_k`` to better than
+    10%, while a decade of :math:`k_{\max}` buys a decade of accuracy. A
+    diagnostic that varied only ``n_k`` therefore reported 4e-4 when the
+    true error was 2.4e-3.
+    """
+    exact = np.diag(closure_reference(RP_EDGES, F_SKY, N_H, SHAPE_NOISE))
+
+    def error(k_max, n_k):
+        got = np.diag(make_cov(k_range=(1e-4, k_max), n_k=n_k,
+                               exact_shot_shape=False
+                               ).components()["shot_shape"])
+        return np.max(np.abs(got / exact - 1.0))
+
+    # nodes barely matter
+    coarse, fine = error(1e3, 2048), error(1e3, 16384)
+    assert fine / coarse == pytest.approx(1.0, rel=0.1)
+
+    # truncation is everything: err * k_max is roughly constant
+    for k_max in (1e2, 1e3, 1e4):
+        assert error(k_max, 8192) * k_max == pytest.approx(2.5, rel=0.3)
+
+
+def test_the_shot_shape_term_does_not_depend_on_chi_h():
+    r"""The Mpc^2-vs-steradian trap, pinned.
+
+    :math:`\ell\theta = k r_p`, so this term is a function of :math:`r_p`
+    alone. If :math:`A_{\rm ann}` were taken in steradians it would pick up
+    a :math:`\chi_h^2` -- a factor of :math:`10^6` at
+    :math:`\chi_h = 1100` Mpc. Both routes must be flat in ``chi_h``.
+    """
+    for exact in (True, False):
+        a = make_cov(chi_h=500.0, exact_shot_shape=exact
+                     ).components()["shot_shape"]
+        b = make_cov(chi_h=2500.0, exact_shot_shape=exact
+                     ).components()["shot_shape"]
+        np.testing.assert_allclose(np.diag(b), np.diag(a), rtol=1e-6), exact
+
+
+def test_the_closed_form_improves_the_total_by_orders_of_magnitude():
+    """The gain, measured against a heavily converged reference.
+
+    This is the test the claim "FFTLog buys nothing" needed: on cost it was
+    right, on precision it was not, and the closure identity is where the
+    precision came from.
+    """
+    truth = np.diag(make_cov(k_range=(1e-4, 1e7), n_k=131072).cov())
+    with_exact = np.diag(make_cov().cov())
+    without = np.diag(make_cov(exact_shot_shape=False).cov())
+
+    err_exact = np.max(np.abs(with_exact / truth - 1.0))
+    err_quad = np.max(np.abs(without / truth - 1.0))
+    assert err_exact < 1e-6
+    assert err_quad > 10 * err_exact
+
+
+def test_the_old_default_grid_was_measurably_wrong():
+    """k_max = 1e3 with quadrature-only carried ~1e-3 on the total.
+
+    Kept as a test so the default cannot quietly drift back.
+    """
+    truth = np.diag(make_cov(k_range=(1e-4, 1e7), n_k=131072).cov())
+    old = np.diag(make_cov(k_range=(1e-4, 1e3), n_k=4096,
+                           exact_shot_shape=False).cov())
+    assert np.max(np.abs(old / truth - 1.0)) > 1e-3
+    # ...and the current default is far better
+    assert np.max(np.abs(np.diag(make_cov().cov()) / truth - 1.0)) < 1e-6
+
+
+def test_the_exact_switch_is_honoured_by_both_entry_points():
+    """`cov` and `components` must not disagree about which route ran."""
+    for exact in (True, False):
+        cov = make_cov(exact_shot_shape=exact)
+        np.testing.assert_allclose(
+            cov.cov(terms=("shot_shape",)), cov.components()["shot_shape"],
+            rtol=1e-12,
+        )
+        # and the five components still sum to the total
+        np.testing.assert_allclose(sum(cov.components().values()),
+                                   cov.cov(), rtol=1e-12)
+
+
+def test_annulus_area_is_in_mpc_squared():
+    cov = make_cov()
+    expected = np.pi * (RP_EDGES[1:] ** 2 - RP_EDGES[:-1] ** 2)
+    np.testing.assert_allclose(cov.annulus_area(), expected, rtol=1e-14)

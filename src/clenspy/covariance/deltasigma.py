@@ -55,16 +55,53 @@ applies only to a **thin** halo-redshift bin. Wu et al. say so explicitly.
 A wide bin needs the covariance evaluated per slice and averaged, not this
 formula at the mean redshift.
 
-NOTE: **there is no FFTLog here, and that is deliberate.** The integral is
-a *bilinear* form -- :math:`\hat J_2(kr_p)\hat J_2(kr_p')` under one
-:math:`k` integral -- not a Hankel transform of a single function, so it
-does not factorise into a transform that FFTLog could accelerate. Written
-as a matrix product it is
-:math:`A^{\rm T}\,{\rm diag}(w_k P_k)\,A` with
-:math:`A_{k i} = \hat J_2(k r_{p,i})`, which costs
-:math:`O(n_k n_{r}^2)` and is already negligible. The plan's "FFTLog
-engine" would buy nothing; a log-:math:`k` quadrature *is* the engine, and
-`n_k` is a stated, convergence-tested grid rather than a hidden choice.
+NOTE: **the shot_shape term is evaluated in closed form, not by
+quadrature** -- and it is the term that dominates at small :math:`r_p`.
+Its bracket :math:`N_h N_\Sigma` carries no :math:`k`, so Hankel closure,
+:math:`\int_0^\infty J_2(ka)J_2(kb)\,k\,dk = \delta(a-b)/a`, applies
+exactly. Bin-averaging over **disjoint contiguous** annuli collapses it:
+
+.. math::
+    \int_0^\infty \frac{k\,dk}{2\pi}\,
+      \hat J_2(k r_p)\,\hat J_2(k r_p')
+    = \frac{\delta_{ij}}{A_{{\rm ann},i}},
+    \qquad
+    A_{\rm ann} = \pi\left(r_{p,\max}^2 - r_{p,\min}^2\right)
+
+so that term is exact, diagonal, and free. ``exact_shot_shape=False``
+forces the quadrature instead, which is how the two are cross-checked.
+
+NOTE: :math:`A_{\rm ann}` is in **Mpc^2, not steradians**. The integration
+variable is conjugate to :math:`r_p`, so the closure bin-averages over
+:math:`r_p`; using the angular area is wrong by :math:`\chi_h^2`, a factor
+of :math:`10^6` at :math:`\chi_h = 1100` Mpc. I made exactly that error
+while deriving this, and the test against the closure is what caught it.
+
+NOTE: **the surviving quadrature is truncation-limited, not
+node-limited**, measured rather than assumed. Against the closure result
+the relative error goes as
+
+.. math::
+    \epsilon \simeq \frac{2.5}{k_{\max}\,[{\rm Mpc}^{-1}]}
+
+-- 2.5e-2 at :math:`k_{\max}=10^2`, 2.4e-3 at :math:`10^3`, 2.4e-4 at
+:math:`10^4` -- while raising ``n_k`` from 2048 to 32768 at fixed
+:math:`k_{\max}` changes nothing at all. The cause is the
+:math:`\hat J_2 \sim x^{-3/2}` oscillatory tail, which leaves
+:math:`k\hat J_2^2` falling only as :math:`k^{-2}`. Hence the default
+:math:`k_{\max} = 10^5`, and `convergence` sweeps **both** axes.
+
+NOTE: **there is still no FFTLog, and now for a sharper reason.** The
+integral is a *bilinear* form -- :math:`\hat J_2(kr_p)\hat J_2(kr_p')`
+under one :math:`k` integral -- not a Hankel transform of a single
+function, so it does not factorise into a transform FFTLog could
+accelerate; as :math:`A^{\rm T}{\rm diag}(w_kP_k)A` it costs
+:math:`O(n_kn_r^2)`, already negligible. What FFTLog *would* have bought
+is **precision** on that oscillatory tail. But the one term where the tail
+dominates is exactly the one that is now analytic, so the remaining
+quadrature acts only on brackets that fall with :math:`k` and converge
+quickly. The gain is taken by the closure identity instead, and taken
+exactly rather than approximately.
 
 NOTE: **units.** :math:`r_p` in Mpc (comoving, h-free) and
 :math:`\Delta\Sigma` in :math:`M_\odot/{\rm Mpc}^2`, so the covariance is
@@ -229,13 +266,20 @@ class DeltaSigmaCovariance:
         steradian. Passed pre-combined because the three factors come from
         three different layers and combining them here would hide which.
     k_range : tuple of float, optional
-        :math:`(k_{\min}, k_{\max})` in 1/Mpc for the quadrature.
+        :math:`(k_{\min}, k_{\max})` in 1/Mpc for the quadrature. The
+        default :math:`k_{\max} = 10^5` is set by the measured truncation
+        scaling in the module NOTE, not by taste.
     n_k : int, optional
-        Number of log-spaced :math:`k` nodes (default 4096).
+        Number of log-spaced :math:`k` nodes (default 8192).
+    exact_shot_shape : bool, optional
+        Use the closed-form Hankel-closure result for the ``shot_shape``
+        term (default True). Set False to evaluate it by the same
+        quadrature as the others, which is how the two are compared.
     """
 
     def __init__(self, rp_edges, chi_h, f_sky, c_ell_hh, c_ell_SS, c_ell_hS,
-                 n_h, shape_noise, k_range=(1e-4, 1e3), n_k=4096):
+                 n_h, shape_noise, k_range=(1e-4, 1e5), n_k=8192,
+                 exact_shot_shape=True):
         self.rp_edges = np.asarray(rp_edges, dtype=float)
         if self.rp_edges.ndim != 1 or self.rp_edges.size < 2:
             raise ValueError("rp_edges must be 1-D with >= 2 entries")
@@ -257,6 +301,7 @@ class DeltaSigmaCovariance:
         self.c_ell_hS = c_ell_hS
         self.n_h = float(n_h)
         self.shape_noise = float(shape_noise)
+        self.exact_shot_shape = bool(exact_shot_shape)
         self.k = np.logspace(np.log10(k_range[0]), np.log10(k_range[1]),
                              int(n_k))
 
@@ -314,10 +359,36 @@ class DeltaSigmaCovariance:
         # eigenvalue routines get a genuinely symmetric matrix.
         return 0.5 * (out + out.T)
 
+    def annulus_area(self):
+        r""":math:`A_{\rm ann} = \pi(r_{p,\max}^2 - r_{p,\min}^2)`, in Mpc^2.
+
+        NOTE: **Mpc^2, not steradians** -- see the module NOTE. Using the
+        angular area is wrong by :math:`\chi_h^2`.
+        """
+        return np.pi * (self.rp_edges[1:] ** 2 - self.rp_edges[:-1] ** 2)
+
+    def _shot_shape_exact(self):
+        r"""The ``shot_shape`` term in closed form, by Hankel closure.
+
+        .. math::
+            {\rm Cov}^{\rm shot\_shape}_{ij} =
+              \frac{N_h N_\Sigma}{4\pi f_{\rm sky}}\,
+              \frac{\delta_{ij}}{A_{{\rm ann},i}}
+
+        Exact: no quadrature, hence no truncation error, in the term that
+        dominates at small :math:`r_p`.
+        """
+        bracket = self.shape_noise / self.n_h
+        return np.diag(bracket / (4.0 * np.pi * self.f_sky)
+                       / self.annulus_area())
+
     def components(self):
         """``{name: matrix}`` for the five bracket terms."""
-        return {name: self._integrate(w)
-                for name, w in self._spectra().items()}
+        out = {name: self._integrate(w)
+               for name, w in self._spectra().items()}
+        if self.exact_shot_shape:
+            out["shot_shape"] = self._shot_shape_exact()
+        return out
 
     def cov(self, terms=ALL_TERMS):
         r"""The total, or any subset of the five terms.
@@ -335,18 +406,50 @@ class DeltaSigmaCovariance:
                 f"{list(ALL_TERMS)}"
             )
         spectra = self._spectra()
-        total_weight = sum(spectra[name] for name in terms)
-        return self._integrate(total_weight)
+        # the exact term is added separately, not folded into the bracket
+        quadrature = [n for n in terms
+                      if not (self.exact_shot_shape and n == "shot_shape")]
+        total = np.zeros((self.n_rp, self.n_rp))
+        if quadrature:
+            total += self._integrate(sum(spectra[n] for n in quadrature))
+        if self.exact_shot_shape and "shot_shape" in terms:
+            total += self._shot_shape_exact()
+        return total
+
+    def _variant(self, **kw):
+        """A copy of self with some construction arguments replaced."""
+        base = dict(
+            rp_edges=self.rp_edges, chi_h=self.chi_h, f_sky=self.f_sky,
+            c_ell_hh=self.c_ell_hh, c_ell_SS=self.c_ell_SS,
+            c_ell_hS=self.c_ell_hS, n_h=self.n_h,
+            shape_noise=self.shape_noise,
+            exact_shot_shape=self.exact_shot_shape,
+            k_range=(self.k[0], self.k[-1]), n_k=self.k.size,
+        )
+        base.update(kw)
+        return DeltaSigmaCovariance(**base)
 
     def convergence(self):
-        """Relative change in the diagonal when the k grid is halved."""
-        coarse = DeltaSigmaCovariance(
-            self.rp_edges, self.chi_h, self.f_sky, self.c_ell_hh,
-            self.c_ell_SS, self.c_ell_hS, self.n_h, self.shape_noise,
-            k_range=(self.k[0], self.k[-1]), n_k=self.k.size // 2,
+        r"""Relative change in the diagonal under coarsening **both** axes.
+
+        Returns ``{"n_k": ..., "k_max": ...}``.
+
+        NOTE: an earlier version halved only ``n_k`` and reported 4e-4 when
+        the true error against the closure identity was 2.4e-3. This
+        quadrature is **truncation**-limited, so :math:`k_{\max}` is the
+        axis that matters, and reporting only ``n_k`` is a false
+        reassurance. Both are returned so neither can be mistaken for the
+        other.
+        """
+        fine = np.diag(self.cov())
+        halved = np.diag(self._variant(n_k=self.k.size // 2).cov())
+        shorter = np.diag(
+            self._variant(k_range=(self.k[0], self.k[-1] / 10.0)).cov()
         )
-        fine, crude = np.diag(self.cov()), np.diag(coarse.cov())
-        return float(np.max(np.abs(crude / fine - 1.0)))
+        return {
+            "n_k": float(np.max(np.abs(halved / fine - 1.0))),
+            "k_max": float(np.max(np.abs(shorter / fine - 1.0))),
+        }
 
     def __repr__(self):
         return (f"DeltaSigmaCovariance(n_rp={self.n_rp}, "
@@ -377,7 +480,25 @@ if __name__ == "__main__":
                                n_h, shape_noise)
     print(cov)
     print(f"f_sky = {f_sky:.5f}  (1500 deg^2)")
-    print(f"k grid convergence: {cov.convergence():.2e}\n")
+    conv = cov.convergence()
+    print(f"convergence:  n_k axis {conv['n_k']:.2e}   "
+          f"k_max axis {conv['k_max']:.2e}")
+
+    # the closure identity, and the precision it buys
+    quad_only = DeltaSigmaCovariance(rp_edges, chi_h, f_sky, c_hh, c_ss,
+                                     c_hs, n_h, shape_noise,
+                                     exact_shot_shape=False)
+    exact_diag = np.diag(cov._shot_shape_exact())
+    quad_diag = np.diag(quad_only.components()["shot_shape"])
+    print("\nshot_shape: closed form (Hankel closure) vs quadrature")
+    print(f"  max |quadrature/exact - 1| = "
+          f"{np.max(np.abs(quad_diag / exact_diag - 1.0)):.3e}")
+    off = quad_only.components()["shot_shape"]
+    off = off - np.diag(np.diag(off))
+    print(f"  quadrature off-diagonal leak = "
+          f"{np.max(np.abs(off)) / np.max(quad_diag):.3e}   (exact: 0)")
+    print("  the closed form has no truncation error at all, in the term")
+    print("  that dominates at small rp -- which is the whole gain.\n")
 
     rp_mid = np.sqrt(rp_edges[:-1] * rp_edges[1:])
     print("fractional contribution of each term to the diagonal:")
