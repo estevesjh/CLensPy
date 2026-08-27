@@ -213,6 +213,7 @@ def build(n_proc):
         sigma_hat_mis=sig.astype(np.float32),
         ds_hat_mis=dsg,
         generator=np.array("cluster_toolkit"),
+        x_range=np.array(X_RANGE),
         ct_min_xmis=np.array(CT_MIN_XMIS),
         rsig=np.array([RSIG_N, RSIG_LO, RSIG_HI]),
     )

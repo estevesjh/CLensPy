@@ -259,3 +259,73 @@ def test_zero_offset_is_exact_not_interpolated():
     np.testing.assert_allclose(
         table.ds_hat(x, 0.0), nfw_mean_sigma_hat(x) - nfw_sigma_hat(x), rtol=1e-15
     )
+
+
+def test_out_of_range_x_uses_clamp_below_and_centred_above():
+    """Below the table: clamp. Above it: the centred closed form."""
+    from clenspy.halo.miscentering_table import load_nfw_miscentering_table
+
+    table = load_nfw_miscentering_table()
+    x_lo, x_hi = table.x_range
+    x_mis = 0.4
+
+    # below: the value freezes at the left edge
+    edge_s = float(np.ravel(table.sigma_hat(np.array([x_lo]), x_mis))[0])
+    edge_d = float(np.ravel(table.ds_hat(np.array([x_lo]), x_mis))[0])
+    for x in (x_lo * 0.5, x_lo * 1e-3, x_lo * 1e-8):
+        assert float(np.ravel(table.sigma_hat(np.array([x]), x_mis))[0]) == edge_s
+        assert float(np.ravel(table.ds_hat(np.array([x]), x_mis))[0]) == edge_d
+
+    # above: the centred profile, and it must keep FALLING, not freeze
+    prev_s = float(np.ravel(table.sigma_hat(np.array([x_hi]), x_mis))[0])
+    prev_d = float(np.ravel(table.ds_hat(np.array([x_hi]), x_mis))[0])
+    for x in (x_hi * 2.0, x_hi * 10.0, x_hi * 1e3):
+        s = float(np.ravel(table.sigma_hat(np.array([x]), x_mis))[0])
+        d = float(np.ravel(table.ds_hat(np.array([x]), x_mis))[0])
+        assert s < prev_s, "Sigma must keep decreasing past the table"
+        assert d < prev_d, "DeltaSigma must keep decreasing past the table"
+        # and it must equal the centred closed form there
+        assert s == pytest.approx(
+            float(np.ravel(NfwProfile._fNfw(np.array([x])))[0]), rel=1e-12
+        )
+        prev_s, prev_d = s, d
+
+
+def test_centred_extrapolation_is_accurate_at_the_right_edge():
+    """Past the right edge, centred == true miscentered to ~1/q^2."""
+    from clenspy.halo.miscentering_kernel import (
+        miscentered_deltasigma, miscentered_sigma, nfw_mean_sigma_hat,
+        nfw_sigma_hat,
+    )
+    from clenspy.halo.miscentering_table import load_nfw_miscentering_table
+
+    table = load_nfw_miscentering_table()
+    x_hi = table.x_range[1]
+    for x_mis, tol in [(0.01, 1e-5), (1.0, 1e-5), (100.0, 5e-3)]:
+        x = np.array([x_hi * 2.0])
+        got_s = float(np.ravel(table.sigma_hat(x, x_mis))[0])
+        got_d = float(np.ravel(table.ds_hat(x, x_mis))[0])
+        ref_s = float(np.ravel(miscentered_sigma(nfw_sigma_hat, x, x_mis, 2048))[0])
+        ref_d = float(
+            np.ravel(
+                miscentered_deltasigma(
+                    nfw_sigma_hat, nfw_mean_sigma_hat, x, x_mis, 2048
+                )
+            )[0]
+        )
+        assert got_s == pytest.approx(ref_s, rel=tol)
+        assert got_d == pytest.approx(ref_d, rel=tol)
+
+
+def test_mixed_in_and_out_of_range_vector():
+    """A single call spanning both bounds routes each element correctly."""
+    from clenspy.halo.miscentering_table import load_nfw_miscentering_table
+
+    table = load_nfw_miscentering_table()
+    x_lo, x_hi = table.x_range
+    x = np.array([x_lo * 1e-3, x_lo, 1.0, x_hi, x_hi * 100.0])
+    got = table.ds_hat(x, 0.4)
+    assert got.shape == x.shape
+    assert np.all(np.isfinite(got))
+    one_by_one = [float(np.ravel(table.ds_hat(np.array([v]), 0.4))[0]) for v in x]
+    np.testing.assert_allclose(got, one_by_one, rtol=0, atol=0)

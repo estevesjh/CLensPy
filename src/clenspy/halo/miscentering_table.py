@@ -113,10 +113,9 @@ class NfwMiscenteringTable:
 
     Attributes
     ----------
-    x_mis_range, q_range : tuple of float
-        Covered ranges in :math:`x_{\rm mis}` and :math:`q = x/x_{\rm mis}`.
-        Queries outside are clamped to the edge, as the profile is smooth
-        and monotonic there.
+    x_mis_range, q_range, x_range : tuple of float
+        Covered ranges. Out-of-range handling differs by edge -- clamp
+        below, centred closed form above; see `_query`.
     """
 
     def __init__(self, path=TABLE_PATH) -> None:
@@ -131,6 +130,7 @@ class NfwMiscenteringTable:
             self._ln_q = data["ln_q"]
             sigma_hat = data["sigma_hat_mis"]
             ds_hat = data["ds_hat_mis"]
+            self._x_range = tuple(float(v) for v in data["x_range"])
         grid = (self._ln_x_mis, self._ln_q)
         opts = dict(method="linear", bounds_error=False, fill_value=None)
         self._sigma = RegularGridInterpolator(grid, sigma_hat, **opts)
@@ -145,30 +145,66 @@ class NfwMiscenteringTable:
     def q_range(self) -> tuple[float, float]:
         return (float(np.exp(self._ln_q[0])), float(np.exp(self._ln_q[-1])))
 
-    def _query(self, interp, x, x_mis):
-        """Clamped lookup at (x, x_mis), broadcasting over x."""
+    @property
+    def x_range(self) -> tuple[float, float]:
+        r"""Tabulated range in :math:`x = R / r_s`."""
+        return self._x_range
+
+    @staticmethod
+    def _centred_sigma(x):
+        r"""Centred :math:`\Sigma / \Sigma_0 = f(x)`."""
+        return NfwProfile._fNfw(x)
+
+    @staticmethod
+    def _centred_ds(x):
+        r"""Centred :math:`\Delta\Sigma / \Sigma_0 = \bar{g}(x) - f(x)`."""
+        return NfwProfile._gbarNfw(x) - NfwProfile._fNfw(x)
+
+    def _query(self, interp, centred, x, x_mis):
+        r"""Lookup at (x, x_mis), with the two bounds handled differently.
+
+        Below the table's smallest x, clamp: the query sits deep inside the
+        offset ring, where the miscentered profile is flat, so the edge
+        value is the right constant.
+
+        Above the table's largest x, evaluate the **centred** closed form
+        instead. There :math:`R \gg R_{\rm mis}` and the offset is
+        irrelevant -- the miscentered profile converges on the centred one
+        as :math:`1/q^2`, so at the right edge the centred form is accurate
+        to :math:`\sim\!10^{-6}` for small :math:`x_{\rm mis}` and
+        :math:`\sim\!10^{-2}` for the largest. Clamping there would instead
+        return a constant while the true profile keeps falling, which is
+        unbounded error.
+
+        ``x_mis`` outside its own range is clamped either way.
+        """
         x = np.atleast_1d(np.asarray(x, dtype=float))
-        ln_xm = np.clip(np.log(x_mis), self._ln_x_mis[0], self._ln_x_mis[-1])
-        ln_q = np.clip(np.log(x / x_mis), self._ln_q[0], self._ln_q[-1])
-        pts = np.stack([np.full_like(ln_q, ln_xm), ln_q], axis=-1)
-        return interp(pts)
+        x_lo, x_hi = self._x_range
+        out = np.empty(x.shape, dtype=float)
+
+        above = x > x_hi
+        tabled = ~above
+        if np.any(tabled):
+            xt = np.maximum(x[tabled], x_lo)          # clamp the left bound
+            ln_xm = np.clip(np.log(x_mis), self._ln_x_mis[0], self._ln_x_mis[-1])
+            ln_q = np.clip(np.log(xt / x_mis), self._ln_q[0], self._ln_q[-1])
+            pts = np.stack([np.full_like(ln_q, ln_xm), ln_q], axis=-1)
+            out[tabled] = interp(pts)
+        if np.any(above):
+            out[above] = centred(x[above])
+        return out
 
     def sigma_hat(self, x, x_mis) -> np.ndarray:
         r""":math:`\hat\Sigma_{\rm mis} = \Sigma_{\rm mis}/\Sigma_0`."""
         if x_mis == 0.0:
-            from .miscentering_kernel import nfw_sigma_hat
-
-            return nfw_sigma_hat(np.atleast_1d(x))
-        return self._query(self._sigma, x, x_mis)
+            return self._centred_sigma(np.atleast_1d(np.asarray(x, dtype=float)))
+        return self._query(self._sigma, self._centred_sigma, x, x_mis)
 
     def ds_hat(self, x, x_mis) -> np.ndarray:
         r""":math:`\widehat{\Delta\Sigma}_{\rm mis}`, signed. See the module docstring."""
         if x_mis == 0.0:
-            from .miscentering_kernel import nfw_mean_sigma_hat, nfw_sigma_hat
-
-            x = np.atleast_1d(x)
-            return nfw_mean_sigma_hat(x) - nfw_sigma_hat(x)
-        return self._query(self._ds, x, x_mis)
+            return self._centred_ds(np.atleast_1d(np.asarray(x, dtype=float)))
+        return self._query(self._ds, self._centred_ds, x, x_mis)
 
     # -- physical, for a given halo --------------------------------------
 
