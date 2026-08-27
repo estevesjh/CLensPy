@@ -798,13 +798,81 @@ Steps 1–5 are done. Steps 6–10 stand. Then:
       is: they are not taken against the same measure. The product crosses
       1 across the bin range (1.09, 1.10, 0.89, 0.55). My first test
       asserted the bound and was wrong.
-13. `halo/mass_function.py` — `SigmaGrid`, the halo mass function, the
-    growth factor. Needed by both counts and covariance.
-14. `selection/` — the EMG richness kernel, the two MORs, $\mathcal S_{ij}$.
-15. `observables/` — $N_{ij}$ and $\Delta\Sigma_{ij}$ as contractions of the
-    weights against an integrand.
-16. `covariance/` — counts and $\Delta\Sigma$ blocks, FFTLog engine,
-    reference implementation, assembly.
+13. `cosmology/{growth,sigma,mass_function}.py` — **done**, as three
+    modules rather than one, and **ported** from `y3_cluster_cpp`'s in-repo
+    replacement for CosmoSIS's `MfTinker`
+    (`mf_tinker_cpp/python/tinker_core.py`) rather than reimplemented: that
+    evaluator already agrees with arbitrary-precision mpmath to 4.4e-16.
+
+    Six conventions came across with it, each stated where it is used:
+    the $k \le 20/R$ upper limit **depends on $R$** and is
+    algorithm-defining; **FFTLog cannot express that**, so the fast path
+    computes the untruncated quantity and its docstring says to validate it
+    against `truncate=False` only (the gap it cannot capture is 7.0e-3 in
+    $dn/d\ln M$ over $0\le z\le2$); $d\sigma^2/d\ln R$ is taken under the
+    integral sign and the moving boundary contributes a Leibniz term;
+    $\delta_c = 1.6865$ in the mass function but **1.686** in the bias and
+    in $M_\star$, and both are kept separately; the mass axis carries no
+    $\Omega_m$, so it is in $\Omega_m h^{-1}M_\odot$; and these three
+    modules are h-scaled, which every identifier says.
+
+    **13b.** `BiasModel` now shares that one `SigmaGrid` instead of
+    computing $\sigma(M)$ by a second FFTLog. Four defects went with the
+    old inline version: it splined the *variance* linearly in $\log_{10}R$
+    then square-rooted it, it let `np.interp` silently **clamp** outside
+    the FFTLog range, it rebuilt the FFTLog every call, and `bias()` cached
+    $\nu$ from the first mass and returned it for every later one.
+
+14. `selection/` — **done**. `richness_kernel.py` (the Costanzi EMG kernel
+    and its closed-form bin integral), `scaling_relation.py` (log-normal
+    and HOD shifted-Poisson), `selection_function.py`
+    ($\mathcal S_{ij} = S_i\,\mathcal S_j$).
+
+    The EMG CDF is **not** evaluated in the form the derivation produces.
+    $\Phi(z) - e^{A}\Phi(z-\tau\sigma)$ is a product of a factor that
+    overflows and one that underflows: for $\tau\sigma \gtrsim 40$ it is
+    `inf * 0 = nan` where the true value is an ordinary number in $[0,1]$.
+    The `erfcx` rewrite absorbs the exponent exactly, via
+    $A - u^2 = -z^2/2$.
+
+    Two things found and recorded rather than smoothed over: the continuous
+    shifted-Poisson density's first moment sits **exactly 1.0** above
+    $\lambda^{\rm cen}+\langle\lambda^{\rm sat}\rangle$ at
+    $\sigma_{\rm intr}=0$ (an artifact of interpolating a discrete law, so
+    `HodMor.mean` is documented as being for bracket placement only), and
+    the log-normal Poisson floor is
+    $(\langle\lambda\rangle-1)/\langle\lambda\rangle^2$, **not**
+    $1/\langle\lambda\rangle$ — the central galaxy carries no shot noise,
+    and the term goes negative below $\langle\lambda\rangle = 1$.
+
+15. `observables/` — **done**. One weight, two contractions: contracting
+    $W_{ij}$ against 1 gives $\langle N_{ij}\rangle$ and against
+    $\Delta\Sigma(R\mid M,z)$ gives the stack. `StackedDeltaSigma` owns no
+    weight of its own, so it *cannot* disagree with the counts about the
+    sample — checked by identities that an implementation with two weights
+    fails: unity stacks to exactly 1, $M$ stacks to exactly
+    $\langle M\rangle_{ij}$, $\Delta\Sigma = M/R$ stacks to
+    $\langle M\rangle_{ij}/R$.
+
+    E.2 is now executable: $\Omega(z)$ scales the counts by exactly 2 when
+    doubled and cancels to 1e-14 in every average.
+
+16. `covariance/` — **done**. Counts (Poisson + sample variance, the latter
+    **rank one** per redshift slice and exactly zero between slices) and
+    $\Delta\Sigma$ (Wu et al. `eq:cov_DS`, bracket expanded into its five
+    terms with a `terms` selector).
+
+    Two results worth carrying forward. First, `j2_bin`'s published closed
+    form is **unusable** for $\ell\theta \lesssim 1$ — its bracket cancels
+    to nine orders, leaving about four correct digits, measured at 4.8e-4
+    against quadrature — so a Taylor series branch covers $x < 1$ and
+    neither form alone suffices. Second, **the FFTLog engine this step
+    asked for buys nothing**: the integral is a *bilinear* form,
+    $\hat J_2(kr_p)\hat J_2(kr_p')$ under one $k$ integral, not a Hankel
+    transform of a single function, so it does not factorise. Written as
+    $A^{\rm T}{\rm diag}(wP)A$ it costs $O(n_k n_r^2)$ and is already
+    negligible; the log-$k$ quadrature *is* the engine, with a
+    convergence-tested grid.
 
 Validate each against `cluster-lensing-cov`'s frozen Stage-A snapshots,
 which exist precisely to pin refactor equivalence.
