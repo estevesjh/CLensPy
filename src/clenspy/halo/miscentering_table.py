@@ -186,7 +186,8 @@ class NfwMiscenteringTable:
         tabled = ~above
         if np.any(tabled):
             xt = np.maximum(x[tabled], x_lo)          # clamp the left bound
-            ln_xm = np.clip(np.log(x_mis), self._ln_x_mis[0], self._ln_x_mis[-1])
+            ln_xm = np.clip(
+                np.log(x_mis), self._ln_x_mis[0], self._ln_x_mis[-1])
             ln_q = np.clip(np.log(xt / x_mis), self._ln_q[0], self._ln_q[-1])
             pts = np.stack([np.full_like(ln_q, ln_xm), ln_q], axis=-1)
             out[tabled] = interp(pts)

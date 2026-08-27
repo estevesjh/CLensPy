@@ -294,7 +294,9 @@ def test_out_of_range_x_uses_clamp_below_and_centred_above():
 def test_centred_extrapolation_is_accurate_at_the_right_edge():
     """Past the right edge, centred == true miscentered to ~1/q^2."""
     from clenspy.halo.miscentering_kernel import (
-        miscentered_deltasigma, miscentered_sigma, nfw_mean_sigma_hat,
+        miscentered_deltasigma,
+        miscentered_sigma,
+        nfw_mean_sigma_hat,
         nfw_sigma_hat,
     )
     from clenspy.halo.miscentering_table import load_nfw_miscentering_table
