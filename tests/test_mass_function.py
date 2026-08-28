@@ -47,6 +47,16 @@ def power_law_grid(n=N_SPEC):
     return SigmaGrid(LinearPk(K, 2.0e4 * K**n))
 
 
+def power_law_kpk(n=N_SPEC):
+    """``(k_h, pk_h3)`` for `TinkerMassFunction`, which builds its own grid."""
+    return K, 2.0e4 * K**n
+
+
+def tinker_mf(n=N_SPEC, **kwargs):
+    k_h, pk_h3 = power_law_kpk(n)
+    return TinkerMassFunction(k_h=k_h, pk_h3=pk_h3, **kwargs)
+
+
 # -- the top-hat window -----------------------------------------------------
 
 
@@ -293,14 +303,14 @@ def test_tinker_table_is_the_published_table():
 
 
 def test_the_b_evolution_exponent_matches_eq_8_at_delta_200():
-    hmf = TinkerMassFunction(power_law_grid())
+    hmf = tinker_mf()
     expected = 10.0 ** (-((0.75 / np.log10(200.0 / 75.0)) ** 1.2))
     assert hmf.alpha == pytest.approx(expected, rel=1e-14)
     assert hmf.alpha == pytest.approx(0.0107, abs=1e-4)
 
 
 def test_only_A_a_b_evolve_with_redshift():
-    hmf = TinkerMassFunction(power_law_grid())
+    hmf = tinker_mf()
     A0, a0, b0, c0 = (float(v) for v in hmf.coefficients(0.0))
     A2, a2, b2, c2 = (float(v) for v in hmf.coefficients(2.0))
     assert A2 < A0 and a2 < a0 and b2 < b0
@@ -310,7 +320,7 @@ def test_only_A_a_b_evolve_with_redshift():
 def test_f_sigma_matches_pyccl():
     """Same formula, independent implementation, at matched Delta and z."""
     ccl = pytest.importorskip("pyccl")
-    hmf = TinkerMassFunction(power_law_grid())
+    hmf = tinker_mf()
     cosmo = ccl.Cosmology(Omega_c=0.25, Omega_b=0.05, h=0.7, sigma8=0.8,
                           n_s=0.96)
     ccl_mf = ccl.halos.MassFuncTinker08(mass_def="200m")
@@ -329,44 +339,47 @@ def test_f_sigma_matches_pyccl():
 
 def test_multiplicity_is_half_of_f_sigma():
     """The reference's 1/2, kept explicit rather than folded into A."""
-    hmf = TinkerMassFunction(power_law_grid())
+    hmf = tinker_mf()
     sigma = 1.3
     ln_nu = 2.0 * np.log(DELTA_C_TINKER) - 2.0 * np.log(sigma)
-    assert hmf.multiplicity(ln_nu, 0.0).item() == pytest.approx(
-        0.5 * hmf.f_sigma(sigma, 0.0).item()
+    assert hmf.multiplicity(ln_nu, 0.0) == pytest.approx(
+        0.5 * hmf.f_sigma(sigma, 0.0)
     )
 
 
 def test_dndlnm_is_a_third_of_dndlnr():
-    hmf = TinkerMassFunction(power_law_grid())
-    out = hmf.walk(0.0, lnr=np.log(np.array([1.0, 8.0])))
+    """The identity lives in `outputs` now -- `dndlnm` returns dndlnM only."""
+    hmf = tinker_mf()
+    r = np.array([1.0, 8.0])
+    ln_sigma2 = np.array([np.log(hmf.sigma_grid.sigma2(ri)) for ri in r])
+    dln_sigma2 = np.array([hmf.sigma_grid.dlnsigma2_dlnr(ri) for ri in r])
+    out = hmf.outputs(np.log(r), ln_sigma2, dln_sigma2, 0.0)
     np.testing.assert_allclose(out["dndlnmh"], out["dndlnrh"] / 3.0,
                                rtol=1e-14)
 
 
 def test_dndlnm_falls_steeply_with_mass():
-    hmf = TinkerMassFunction(power_law_grid())
-    out = hmf.walk(0.0, lnr=np.log(np.logspace(-0.5, 1.3, 15)))
-    assert np.all(np.diff(out["dndlnmh"]) < 0.0)
+    hmf = tinker_mf()
+    m = hmf.mass_of_radius(np.logspace(-0.5, 1.3, 15))
+    dn = hmf.dndlnm(m, z=0.0)
+    assert np.all(np.diff(dn) < 0.0)
     # and it is steep: several decades across the range
-    assert out["dndlnmh"][0] / out["dndlnmh"][-1] > 1e3
+    assert dn[0] / dn[-1] > 1e3
 
 
 def test_mass_of_radius_carries_no_omega_m():
     r"""The mass axis is in :math:`\Omega_m h^{-1}M_\odot`, by convention."""
-    hmf = TinkerMassFunction(power_law_grid())
+    hmf = tinker_mf()
     r = 8.0
     expected = (4.0 * PI_FORTRAN / 3.0) * RHO_FACT * r**3
-    assert hmf.mass_of_radius(r).item() == pytest.approx(expected, rel=1e-14)
+    assert hmf.mass_of_radius(r) == pytest.approx(expected, rel=1e-14)
     # explicitly: it is NOT the h-free Omega_m-weighted mass
-    assert hmf.mass_of_radius(r).item() != pytest.approx(
-        expected * 0.3, rel=1e-3
-    )
+    assert hmf.mass_of_radius(r) != pytest.approx(expected * 0.3, rel=1e-3)
 
 
 def test_mass_scales_as_r_cubed():
-    hmf = TinkerMassFunction(power_law_grid())
-    assert (hmf.mass_of_radius(2.0) / hmf.mass_of_radius(1.0)).item() == (
+    hmf = tinker_mf()
+    assert (hmf.mass_of_radius(2.0) / hmf.mass_of_radius(1.0)) == (
         pytest.approx(8.0)
     )
 
@@ -386,25 +399,53 @@ def test_the_fortran_pi_is_the_truncated_literal():
     assert abs(PI_FORTRAN / np.pi - 1.0) < 1e-10
 
 
-def test_outputs_and_walk_agree():
-    """`outputs` is the reusable grid walk; `walk` must just feed it."""
-    hmf = TinkerMassFunction(power_law_grid())
-    lnr = np.log(np.array([1.0, 4.0, 10.0]))
-    out = hmf.walk(0.5, lnr=lnr)
-    again = hmf.outputs(lnr, out["lnsigma2"], out["dlnsigma2"], 0.5)
-    np.testing.assert_allclose(again["dndlnmh"], out["dndlnmh"], rtol=1e-14)
+def test_dndlnm_matches_outputs_at_a_grid_point():
+    """dndlnm_grid is built from outputs(); querying exactly at a grid
+    node must reproduce it (linear interpolation is exact at a node).
+
+    z0 = 0.7, not 0.0: D(0) = 1 trivially, so a z=0 check would not catch
+    a regression that drops the growth-factor scaling from `dndlnm_grid`.
+    """
+    hmf = tinker_mf(zvec=np.array([0.7]))
+    z0 = float(hmf.zvec[0])
+    m0 = float(hmf.mval[100])
+    r0 = hmf.radius_of_mass(m0)
+    ln_sigma2 = (np.log(hmf.sigma_grid.sigma2(r0))
+                 + 2.0 * np.log(growth_factor(z0, hmf.cosmo)))
+    dln_sigma2 = hmf.sigma_grid.dlnsigma2_dlnr(r0)
+    direct = hmf.outputs(np.log(r0), ln_sigma2, dln_sigma2, z0)["dndlnmh"]
+    assert hmf.dndlnm(m0, z=z0) == pytest.approx(float(np.ravel(direct)[0]),
+                                                 rel=1e-10)
+
+
+def test_growth_scaling_of_pk_matches_growth_scaling_of_sigma2():
+    """sigma(M,z) = D(z) sigma(M,0): scaling P(k) by D(z)^2 and
+    recomputing sigma2(R) from scratch must match scaling sigma2(R, z=0)
+    by D(z)^2 directly -- isolates the growth relation itself, independent
+    of the Tinker (A,a,b,c) coefficients' separate z-evolution.
+    """
+    z, r0 = 0.8, 3.7
+    hmf = tinker_mf()
+    d_z = growth_factor(z, hmf.cosmo)
+
+    k_h, pk_h3 = power_law_kpk()
+    hmf_scaled = TinkerMassFunction(k_h=k_h, pk_h3=pk_h3 * d_z**2)
+    sigma2_from_scaled_pk = hmf_scaled.sigma_grid.sigma2(r0)
+    sigma2_scaled_by_hand = hmf.sigma_grid.sigma2(r0) * d_z**2
+    assert sigma2_from_scaled_pk == pytest.approx(sigma2_scaled_by_hand,
+                                                  rel=1e-10)
 
 
 def test_rejects_delta_outside_the_calibration():
-    grid = power_law_grid()
+    k_h, pk_h3 = power_law_kpk()
     with pytest.raises(ValueError, match="calibrated"):
-        TinkerMassFunction(grid, delta=100.0)
+        TinkerMassFunction(k_h=k_h, pk_h3=pk_h3, delta=100.0)
     with pytest.raises(ValueError, match="calibrated"):
-        TinkerMassFunction(grid, delta=5000.0)
+        TinkerMassFunction(k_h=k_h, pk_h3=pk_h3, delta=5000.0)
 
 
 def test_f_sigma_rejects_non_positive_sigma():
-    hmf = TinkerMassFunction(power_law_grid())
+    hmf = tinker_mf()
     with pytest.raises(ValueError, match="sigma must be positive"):
         hmf.f_sigma(np.array([1.0, -0.5, 2.0]))
     with pytest.raises(ValueError, match="sigma must be positive"):
@@ -412,7 +453,7 @@ def test_f_sigma_rejects_non_positive_sigma():
 
 
 def test_tinker_mass_function_repr_contains_the_class_name():
-    hmf = TinkerMassFunction(power_law_grid())
+    hmf = tinker_mf()
     assert "TinkerMassFunction" in repr(hmf)
 
 
@@ -493,7 +534,7 @@ def test_linear_pk_validates_its_input():
 
 
 def test_consumed_mask_selects_an_interior_band():
-    hmf = TinkerMassFunction(power_law_grid())
+    hmf = tinker_mf()
     m_h = hmf.mass_of_radius(np.exp(lnr_grid()))
     mask = consumed_mask(m_h, 0.3)
     assert mask.any() and not mask.all()
@@ -503,7 +544,7 @@ def test_consumed_mask_selects_an_interior_band():
 
 
 def test_consumed_mask_shifts_with_omega_m():
-    hmf = TinkerMassFunction(power_law_grid())
+    hmf = tinker_mf()
     m_h = hmf.mass_of_radius(np.exp(lnr_grid()))
     lo = np.flatnonzero(consumed_mask(m_h, 0.2))[0]
     hi = np.flatnonzero(consumed_mask(m_h, 0.4))[0]
@@ -530,7 +571,7 @@ def test_bias_and_mass_function_read_the_same_sigma():
     m = 1.0e14
     r = (3 * m / (4 * np.pi * model.rhom)) ** (1 / 3)
     direct = np.sqrt(model.sigma_grid.sigma2(r, truncate=False))
-    assert model.sigma_tophat(m).item() == pytest.approx(direct, rel=2e-5)
+    assert model.sigma_tophat(m) == pytest.approx(direct, rel=2e-5)
 
 
 def test_bias_no_longer_caches_nu_across_different_masses():

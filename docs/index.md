@@ -44,34 +44,24 @@ See {doc}`installation` for optional dependency groups (`mcmc`, `docs`,
 
 ## Quick Start
 
-```python
-import numpy as np
-from clenspy.halo import NfwProfile, EinastoProfile
-from clenspy.cosmology import BiasModel
-
-# Define halo parameters
-M200 = 1e14  # Halo mass [Msun]
-c200 = 5.0   # Concentration
-
-# NFW profile
-nfw = NfwProfile(m200=M200, c200=c200)
-R = np.logspace(-2, 1, 50)  # Projected radius [Mpc]
-sigma = nfw.sigma(R)            # Surface density Sigma(R) [Msun/Mpc^2]
-deltasigma = nfw.deltasigma(R)  # Excess surface density DeltaSigma(R)
-
-# Einasto profile, for comparison
-einasto = EinastoProfile(alpha=0.2, rho_0=nfw.rho_s, r_s=nfw.rs, tol=1e-4)
-deltasigma_einasto = einasto.deltasigma(R)
-
-# Linear halo bias, given a matter power spectrum P(k)
-k = np.logspace(-3, 1, 200)
-Pk = 2e4 * (k / 0.05) ** (-1.5)  # replace with a real P(k), e.g. from CAMB/CLASS
-bias = BiasModel(k, Pk).bias(M200)
+```{literalinclude} ../examples/getting_started.py
+:start-after: "tags=[\"density-profiles\"]"
+:end-before: "%% [markdown]"
+:language: python
 ```
 
-See `examples/demo_basic_usage.py` in the repository for the full runnable
-script, including plots, and `examples/demo_lensing.ipynb` for a 1-halo +
-2-halo walkthrough.
+```
+r200 = 1.4303 Mpc, rs = 0.2861 Mpc, rho_s = 3.547e+14 Msun/Mpc^3
+rho_NFW(r)     [Msun/Mpc^3] = [5.57109391e+14 2.68756655e+13 5.02012592e+12 7.94381981e+11]
+rho_Einasto(r) [Msun/Mpc^3] = [5.83600877e+14 2.77183496e+13 4.86300049e+12 6.13799586e+11]
+rho_tilde_NFW(k)     [Msun] = [9.98998564e+13 9.05346969e+13 8.91993930e+12]
+rho_tilde_Einasto(k) [Msun] = [1.83204136e+14 1.06342641e+14 9.27420738e+12]
+```
+
+This is one section of the same notebook every Theory page's own example
+pulls from — see `examples/getting_started.ipynb` in the repository for
+the full runnable notebook, one section per physical effect, from the
+cosmology through the covariance.
 
 ## API Reference
 
@@ -81,6 +71,9 @@ For a detailed breakdown of every class and function, see the {doc}`api/index`.
 
 - **Development**: see {doc}`development` for running tests, the optional
   comparison-test dependencies, and building these docs locally
+- **Theory**: the {doc}`cosmology` toctree caption onward is a physics-first
+  walkthrough of every quantity CLensPy computes — prose, the governing
+  equation, and a runnable snippet, one page per physical effect
 - **Notes**: see {doc}`einasto_math` for the Einasto profile's math -
   exact anchors, the stable residue-series backend (any `n > 0`, with
   resonance pairing), and the `P(k)` dispatch
@@ -88,18 +81,90 @@ For a detailed breakdown of every class and function, see the {doc}`api/index`.
 - **Issue tracker**: <https://github.com/estevesjh/clenspy/issues>
 
 ```{toctree}
-:maxdepth: 2
-:caption: Contents
+:maxdepth: 1
+:caption: Getting Started
 
 installation
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Cosmology
+
+cosmology
+power_spectrum
+mass_function
+halo_bias
+concentration
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Halo profiles
+
+density_profiles
+projected_profiles
+two_halo_term
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Cluster lensing
+
+lensing_profile
+miscentering
+boost_factor
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Selection effects
+
+selection_function
+selection_bias
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Survey
+
+survey
+lensing_kernel
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Cluster observables
+
+observables
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Covariance
+
+covariance
+covariance_halo_to_halo
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Reference
+
 api/index
+notation
+validation
 development
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Notes
+
 Einasto profile math <einasto_math>
 Einasto series investigation <einasto_series_investigation>
 Miscentering math <miscentering_math>
 Covariance FFTLog math <covariance_fftlog_math>
-Notation <notation>
-Validation <validation>
 Refactor plan <refactor-plan>
 P3 cleanup plan <plan-p3-cleanup>
 ```

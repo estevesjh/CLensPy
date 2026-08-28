@@ -125,20 +125,18 @@ class NfwProfile:
         self, k: np.ndarray | float, truncated: bool = True
     ) -> np.ndarray | float:
         r"""
-        Analytical Fourier transform of the NFW density profile (normalized by M_200).
-
-        This is the standard mass-normalized profile
+        Fourier transform of the NFW density profile, :math:`\tilde\rho(k)`.
 
         .. math::
-            u(k \mid M) \equiv \frac{1}{M} \int d^3r\, \rho_{\rm NFW}(r)\,
-            e^{i \mathbf{k} \cdot \mathbf{r}},
+            \tilde\rho(k) \equiv \int d^3r\, \rho_{\rm NFW}(r)\,
+            e^{i \mathbf{k} \cdot \mathbf{r}}
 
         evaluated with the closed-form expression (see e.g. pyccl, or eq. 81
         of Cooray & Sheth 2002), with :math:`x \equiv k r_s`. For the profile
         truncated at :math:`r_{200} = c_{200} r_s`,
 
         .. math::
-            u(k \mid M) = \frac{1}{\ln(1+c) - c/(1+c)} \Big\{
+            \tilde\rho(k) = \frac{M}{\ln(1+c) - c/(1+c)} \Big\{
             \sin(x)\left[\mathrm{Si}\big((1+c)x\big) - \mathrm{Si}(x)\right]
             + \cos(x)\left[\mathrm{Ci}\big((1+c)x\big) - \mathrm{Ci}(x)\right]
             - \frac{\sin(cx)}{(1+c)x} \Big\},
@@ -146,12 +144,24 @@ class NfwProfile:
         and for the untruncated (infinite-extent) profile,
 
         .. math::
-            u(k \mid M) = \frac{1}{\ln(1+c) - c/(1+c)} \left\{
+            \tilde\rho(k) = \frac{M}{\ln(1+c) - c/(1+c)} \left\{
             \sin(x)\left[\frac{\pi}{2} - \mathrm{Si}(x)\right]
             - \cos(x)\, \mathrm{Ci}(x) \right\},
 
         where :math:`c \equiv c_{200}` and Si, Ci are the sine and cosine
         integrals.
+
+        NOTE: this returns :math:`\tilde\rho(k)`, carrying units of mass
+        [Msun] and going to :math:`M` (not :math:`1`) as :math:`k \to 0` --
+        it is *not* the dimensionless mass-normalized :math:`u(k\mid M)
+        \equiv \tilde\rho(k)/M` that most halo-model formulas mean by "the
+        profile's Fourier transform", including this package's own
+        ``LensingProfile.fourier_profile`` (``clenspy/lensing/profile.py``),
+        which adds this method's output to a 2-halo term already divided by
+        ``m200`` -- a units mismatch, not yet fixed there. This method's
+        convention matches `pyccl`'s ``HaloProfileNFW.fourier`` exactly
+        (verified numerically, both truncated and not); divide by
+        ``self.m200`` at the call site to get :math:`u(k\mid M)`.
 
         Parameters
         ----------
@@ -162,8 +172,9 @@ class NfwProfile:
 
         Returns
         -------
-        uk : np.ndarray
-            Dimensionless Fourier transform. Shape: (n_halo, n_k)
+        rho_tilde : np.ndarray
+            :math:`\tilde\rho(k)` [Msun], *not* mass-normalized.
+            Shape: (n_halo, n_k)
         """
         k_in = k
         k = np.atleast_1d(np.asarray(k, dtype=float))

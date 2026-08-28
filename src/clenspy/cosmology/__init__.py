@@ -10,7 +10,14 @@ the universe.
 """
 
 from .bias import BiasModel
-from .concentration import child18, child18_powerlaw, duffy08, m_star_hinv
+from .concentration import (
+    child18,
+    child18_powerlaw,
+    delta_c,
+    duffy08,
+    m_star_hinv,
+    scatter,
+)
 from .distances import (
     comoving_to_theta,
     comoving_volume_element,

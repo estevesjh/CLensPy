@@ -282,7 +282,6 @@ class ClusterCounts:
 if __name__ == "__main__":
     from ..cosmology.fiducial import fiducial_cosmology
     from ..cosmology.halo_mass_function import TinkerMassFunction
-    from ..cosmology.sigma import LinearPk, SigmaGrid
     from ..selection import EmgParams, LogNormalMor, SelectionFunction
     from ..survey.survey import omega_des_y1
 
@@ -290,21 +289,15 @@ if __name__ == "__main__":
 
     # a scale-free P(k) so the demo needs no CAMB call
     k = np.logspace(-4.0, 3.0, 600)
-    grid = SigmaGrid(LinearPk(k, 2.0e4 * k**-1.5 * np.exp(-((k / 60.0) ** 2))))
-    hmf = TinkerMassFunction(grid)
+    pk = 2.0e4 * k**-1.5 * np.exp(-((k / 60.0) ** 2))
+    # zvec must span the z range this demo queries -- dndlnm_grid only
+    # covers the z it was built on, growth-scaled from the z=0 pk.
+    hmf = TinkerMassFunction(k_h=k, pk_h3=pk, zvec=np.linspace(0.0, 1.0, 21))
 
     def mass_function(ln_mass, z):
-        """dn/dlnM at (lnM, z), via the Tinker grid walk."""
-        lnm = np.broadcast_arrays(ln_mass, z)[0]
-        r = np.cbrt(np.exp(lnm) / ((4 * np.pi / 3) * 2.775e11))
-        ln_s2 = np.array([np.log(grid.sigma2(ri)) for ri in np.ravel(r)])
-        dln = np.array([grid.dlnsigma2_dlnr(ri) for ri in np.ravel(r)])
-        z_flat = np.ravel(np.broadcast_arrays(ln_mass, z)[1])
-        out = np.empty_like(ln_s2)
-        for i in range(ln_s2.size):
-            out[i] = hmf.outputs(np.log(np.ravel(r)[i]), ln_s2[i], dln[i],
-                                 z_flat[i])["dndlnmh"]
-        return out.reshape(np.broadcast(ln_mass, z).shape)
+        """dn/dlnM at (lnM, z), via the cached Tinker (M, z) grid."""
+        m, zz = np.broadcast_arrays(np.exp(ln_mass), z)
+        return hmf.dndlnm(np.ravel(m), z=np.ravel(zz)).reshape(m.shape)
 
     sel = SelectionFunction(
         np.array([20.0, 30.0, 45.0, 60.0, 200.0]),

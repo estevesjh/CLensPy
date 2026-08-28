@@ -35,7 +35,8 @@ CLensPy is not yet published on PyPI; install from source as shown above.
 
 ```python
 import numpy as np
-from clenspy.halo import NfwProfile, EinastoProfile, BiasModel
+from clenspy.halo import NfwProfile, EinastoProfile
+from clenspy.cosmology import BiasModel
 
 # Define halo parameters
 M200 = 1e14  # Halo mass [Msun]
@@ -57,29 +58,28 @@ Pk = 2e4 * (k / 0.05) ** (-1.5)  # replace with a real P(k), e.g. from CAMB/CLAS
 bias = BiasModel(k, Pk).bias(M200)
 ```
 
-See `examples/demo_basic_usage.py` for the full runnable script, including
-plots of density, Sigma(R), and DeltaSigma(R).
+See `examples/getting_started.ipynb` for the full runnable notebook — one
+section per physical effect, from the cosmology through the covariance.
 
 ## Examples
 
 The `examples/` directory contains detailed demonstrations:
 
-- `demo_basic_usage.py`: NFW vs Einasto profiles, halo bias, quick plots
-- `demo_lensing.ipynb`: 1-halo + 2-halo Sigma(R)/DeltaSigma(R) walkthrough
+- `getting_started.ipynb`: one section per physical effect (cosmology,
+  power spectrum, mass function, halo bias, concentration, density and
+  projected profiles, two-halo term, lensing profile, miscentering, boost
+  factor, selection function/bias, survey, lensing kernel, observables,
+  covariance) — the source every docs Theory page's code snippet is pulled
+  from
 - `einasto_convergence_map.py`: 2D convergence map from an Einasto profile
 
 ## Module Structure
 
-- `clenspy.halo`: Halo profiles (`NfwProfile`, `EinastoProfile`), halo bias
-  (`BiasModel`), and the two-halo term (`TwoHaloTerm`)
-- `clenspy.lensing`: `LensingProfile`, a higher-level wrapper combining a halo
-  profile with the two-halo term and boost/miscentering corrections
-  (2-halo support currently requires the `compare` extra for a P(k) backend;
-  only the NFW model is implemented so far)
-- `clenspy.cosmology`: `PkGrid` (linear/nonlinear P(k) grids), critical surface
-  density, angular/comoving coordinate conversions, and `fiducial_cosmology()`
-- `clenspy.utils`: Log-grid interpolation, numerical integration helpers,
-  physical constants, and decorators used across the halo/lensing modules
+`clenspy.cosmology`, `clenspy.halo`, `clenspy.lensing`, `clenspy.selection`,
+`clenspy.kernels`, `clenspy.survey`, `clenspy.observables`,
+`clenspy.covariance`, and `clenspy.utils`. See the
+[docs](https://clenspy.readthedocs.io) for the physics behind each layer
+and the full API reference.
 
 ## Requirements
 

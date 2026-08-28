@@ -55,6 +55,9 @@ docs = [
     "myst-parser>=2.0",
     "sphinx-wagtail-theme>=6.3.0",
     "sphinx-copybutton>=0.5.2",
+    "jupytext>=1.16",
+    "nbconvert>=7.16",
+    "ipykernel>=6.29",
 ]
 # Reference implementations used by tests/test_nfw.py and tests/test_twohalo.py
 # to validate clenspy against independent codes. All skip gracefully if absent.

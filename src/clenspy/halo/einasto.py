@@ -9,23 +9,23 @@ EinastoPertubationTheory/einasto_power_spectrum.tex:
 with the (alpha, b, r_s) translation alpha = 1/n, b = 2n,
 h = r_s / (2n)^n.
 
-Projected quantities use the Catalan series (Theorem 1 of the projected
-density note):
-
-    c_k   = Cat_k / 4^k = C(2k,k) / [(k+1) 4^k],   c_0 = 1,
-    nu_k  = 2 k n - n + 1,
-    x     = (R/h)^(1/n),
-
-    Sigma(R)      = 2 rho_0 n R    sum_{k>=0} (k+1) c_k E_{nu_k}(x),
-    M_2D(R)       = M_3D(R) + 2 pi rho_0 n R^3 sum_{k>=0} c_k E_{nu_k}(x),
-    DeltaSigma(R) = M_3D(R)/(pi R^2) - 2 rho_0 n R sum_{k>=1} k c_k E_{nu_k}(x).
+Projected quantities (Sigma, DeltaSigma, M_2D) have no elementary closed
+form for general n. `EinastoProfile` evaluates them for every non-anchor n
+through `EinastoLowN` (einasto_lown.py): the Retana-Montenegro et al.
+(2012) case-1 residue series with resonance pairing, switching to an
+all-positive E_nu representation only at z = (R/h)^(1/n) far beyond any
+physical radius for n > 3/2. See docs/einasto_math.md for the residue
+series itself. An earlier, plain Catalan c_k E_{nu_k}(x) series (Theorem 1
+of the projected density note) computed the same quantities directly;
+it was removed here because its DeltaSigma truncation error was O(K^-1/2)
+*absolute* (30-200% relative) -- see docs/einasto_proj_density_v4.tex.
 
 The generalized exponential integral E_nu(x) is evaluated by dispatch:
 integer nu>=1 via scipy.special.expn; large nu via the DLMF 8.20 uniform
-asymptotic expansion; otherwise via mpmath.expint.  That dispatch, and the
-Catalan coefficients, live in clenspy.utils.special -- they are not
-Einasto-specific.  The P(k) branch evaluators this class selects between
-live in clenspy.halo.einasto_series; only the selection logic is here.
+asymptotic expansion; otherwise via mpmath.expint. That dispatch lives in
+clenspy.utils.special -- it is not Einasto-specific. The P(k) branch
+evaluators this class selects between live in clenspy.halo.einasto_series;
+only the selection logic is here.
 
 NOTE: throughout this module ``h`` is the Einasto **scale radius**
 (rho_0 exp[-(r/h)^(1/n)], x = R/h), following the .tex notes -- it is *not*
@@ -46,7 +46,7 @@ from scipy.special import gamma, gammainc, gammaln, kv
 from ..utils.decorators import scalar_array_output
 from ..utils.integrate import compute_sigma_quadvec, sigma_to_deltasigma_cumtrapz
 from ..utils.interpolate import make_log_interpolation
-from ..utils.special import EULER_GAMMA, catalan_over_4k, expn_fast
+from ..utils.special import EULER_GAMMA
 from .einasto_series import (
     _PK_TOL,
     _pk_asym_eval,
@@ -117,7 +117,7 @@ def _expdisk_m2d_factor(x):
 
 
 class EinastoProfile:
-    """
+    r"""
     Einasto profile rho(r) = rho_0 exp[-(r/h)^(1/n)].
 
     Parameters
@@ -129,28 +129,42 @@ class EinastoProfile:
     r_s : float
         Scale radius; h = r_s / (2n)^n.
     order : int, optional
-        Number of terms (k = 0..order) in the projected series. Only used
-        when n > 3/2 (see Notes).
+        Term count for :meth:`power_spectrum`'s own ``small_k``/``large_k``
+        P(k) series (only reached by those two explicit, non-default
+        branches, not the default ``"auto"``). Unrelated to and not used by
+        :meth:`sigma`/:meth:`deltasigma`/:meth:`enclosed_mass_2D`.
     tol : float, optional
-        If given, the series order is chosen automatically at construction
-        via :meth:`order_for_tol` (``order`` is then used only as the search
-        ceiling). The Catalan series converges algebraically (~K^{-1/2}), so
-        the required order grows steeply as the shape index n falls below ~2.
-        Only used when n > 3/2 (see Notes).
+        Target relative accuracy passed straight through to the
+        :class:`~clenspy.halo.einasto_lown.EinastoLowN` backend that
+        :meth:`sigma`/:meth:`deltasigma`/:meth:`enclosed_mass_2D` use for
+        every non-anchor n; defaults to ``1e-9``. Has no effect on ``order``.
 
     Notes
     -----
-    For n = 1/alpha > 3/2, :meth:`sigma`, :meth:`deltasigma`, and
-    :meth:`enclosed_mass_2D` use the closed-form Catalan series
-    (docs/einasto_proj_density.tex). For n <= 3/2 (alpha >= 2/3) they use
-    the stable low-n backend (:class:`~clenspy.halo.einasto_lown.EinastoLowN`):
-    the Retana-Montenegro et al. (2012) case-1 residue series with resonance
+    For every non-anchor n, :meth:`sigma`, :meth:`deltasigma`, and
+    :meth:`enclosed_mass_2D` use the stable low-n backend
+    (:class:`~clenspy.halo.einasto_lown.EinastoLowN`): the
+    Retana-Montenegro et al. (2012) case-1 residue series with resonance
     pairing at small/moderate z = (R/h)^(1/n), switching to the all-positive
-    Catalan E_nu representation beyond a per-n calibrated z. Validated to
-    ~4e-9 relative accuracy against mpmath quadrature for n in [0.35, 1.5]
-    and R/h in [0.01, 40]. The purely numerical Abel/cumtrapz fallbacks
+    Catalan E_nu representation beyond a per-n calibrated z -- for n > 3/2
+    this switch point is so compressed that essentially every physical
+    radius stays in the residue-series regime. Validated to ~4e-9 relative
+    accuracy against mpmath quadrature for n in [0.35, 1.5] and R/h in
+    [0.01, 40]. The purely numerical Abel/cumtrapz fallbacks
     (:meth:`_sigma_numerical`, :meth:`_deltasigma_numerical`) are retained
     for cross-checks only.
+
+    An older, plain Catalan :math:`c_k E_{\nu_k}(x)` series
+    (docs/einasto_proj_density.tex) used to also compute Sigma/DeltaSigma
+    for n > 3/2, sized by ``self.order``/``order_for_tol`` -- it has been
+    **removed**: its DeltaSigma truncation error was O(K^-1/2) *absolute*,
+    i.e. 30-200% relative (docs/einasto_proj_density_v4.tex), and nothing
+    in the class read it any more once the low-n backend above took over
+    for every n. :meth:`power_spectrum`'s own n > 3/2 branch never used it
+    either -- it is a completely separate analytic cascade
+    (``clenspy.halo.einasto_series``). The only surviving use of ``order``
+    is :meth:`power_spectrum`'s explicit ``small_k``/``large_k`` branches
+    sizing their own, unrelated :math:`A_m^\pm` series.
 
     :meth:`power_spectrum`/:meth:`fourier` use their own, independent split
     (docs/einasto_power_spectrum.tex): an analytic series for n > 1
@@ -182,21 +196,16 @@ class EinastoProfile:
         # sigma/deltasigma/enclosed_mass_2D: exact closed forms at the
         # anchors n = 1/2 (Gaussian) and n = 1 (exponential); the stable
         # residue-series + E_nu hybrid (einasto_lown) for every other n.
-        # The legacy Catalan machinery is still built for n > 3/2 because
-        # power_spectrum and order_for_tol use it (self.order / _ck / _nu_k),
-        # but sigma/deltasigma/enclosed_mass_2D no longer evaluate through
-        # it (its DeltaSigma truncation error is O(K^{-1/2}) *absolute*,
-        # i.e. 30-200% relative -- see docs/einasto_proj_density_v4.tex).
-        self._series = self.n_index > 1.5
+        # `order` has nothing to do with that backend -- it only sizes
+        # power_spectrum's own, unrelated A_m^+/A_m^- series (small_k/
+        # large_k branches, not the default "auto"). The old projected-
+        # density Catalan series this used to also size (_build/_E_nu/
+        # order_for_tol) was dead code -- removed; see docs/einasto_math.md
+        # "Legacy Catalan series" for why (O(K^-1/2) absolute truncation
+        # error, 30-200% relative, unfixable by raising the order).
+        self.order = order
         self._lown = None
         self._pk_bm = None          # lazy Kummer P(k) build, n < 1 only
-        if self._series:
-            if tol is not None:
-                self._build(order)                       # ceiling for the search
-                order = self.order_for_tol(tol, max_order=order)
-            self._build(order)
-        else:
-            self.order = None
         if not self._is_anchor():
             from .einasto_lown import EinastoLowN
             self._lown = EinastoLowN(
@@ -210,19 +219,10 @@ class EinastoProfile:
         # exactly via resonance pairing, so only true anchors bypass it.
         return abs(self.n_index - 0.5) < 1e-12 or abs(self.n_index - 1.0) < 1e-12
 
-    def _build(self, order):
-        """Precompute the index-dependent series arrays for k = 0..order."""
-        self.order = order
-        n = self.n_index
-        k = np.arange(0, order + 1)
-        self._k = k
-        self._ck = catalan_over_4k(k)                       # Cat_k / 4^k
-        self._nu_k = 2 * k * n - n + 1                        # nu_k
-
     # ------------------------------------------------------------------
-    # Numerical fallback (n <= 3/2): no closed-form Catalan series exists,
-    # so Sigma, DeltaSigma, and P(k) are computed directly from `density`
-    # by Abel projection / FFTLog instead. See the class Notes.
+    # Numerical fallback: Sigma, DeltaSigma, and P(k) computed directly
+    # from `density` by Abel projection / FFTLog. Retained for cross-checks
+    # only -- not on any live dispatch path. See the class Notes.
     # ------------------------------------------------------------------
     def _numerical_r_grid(self, n_grid=400):
         """Log-spaced r grid spanning density() from ~1e-4 h out to where
@@ -302,33 +302,15 @@ class EinastoProfile:
         n, h = self.n_index, self.h
         return 4 * np.pi * self.rho_0 * n * h ** 3 * gamma(3 * n)
 
-    # ------------------------------------------------------------------
-    # Projected series
-    # ------------------------------------------------------------------
-    def _E_nu(self, R):
-        """
-        Evaluate E_{nu_k}((R/h)^(1/n)) for all k = 0..order.
-
-        Returns
-        -------
-        ndarray
-            Shape (R.size, order+1).
-        """
-        x = (np.atleast_1d(np.asarray(R, float)) / self.h) ** (1.0 / self.n_index)
-        x_col = x[:, None]                # (nR, 1)
-        nu_row = self._nu_k[None, :]      # (1, order+1)
-        return expn_fast(nu_row, x_col)   # (nR, order+1)
-
     @scalar_array_output
     def sigma(self, R):
         r"""
         Surface density :math:`\Sigma(R)`.
 
-        For n > 3/2, the Catalan series:
-
-        .. math::
-            \Sigma(R) = 2 \rho_0\, n\, R \sum_{k \ge 0} (k+1)\, c_k\,
-            E_{\nu_k}(x), \qquad x = (R/h)^{1/n}
+        For every non-anchor n, evaluated by the stable low-n backend
+        (:class:`~clenspy.halo.einasto_lown.EinastoLowN`) -- the
+        Retana-Montenegro et al. (2012) case-1 residue series (see the
+        class Notes).
 
         For n = 1 (exponential profile), the exact closed form
 
@@ -350,48 +332,6 @@ class EinastoProfile:
         if abs(self.n_index - 0.5) < 1e-12:
             return SQPI_ * self.rho_0 * self.h * np.exp(-((R / self.h) ** 2))
         return self._lown.sigma(R)
-
-    # Below this scaled radius z = (R/h)^(1/n) the native DeltaSigma series
-    # loses all precision to catastrophic cancellation (M_3D/piR^2 and the
-    # k-sum both ~z^n and nearly cancel; the true result is ~z^{n+1}). The
-    # small-z asymptotic is used instead.
-    _DS_ASYMP_ZMAX = 0.15
-    _DS_ASYMP_NTERMS = 4
-
-    def _deltasigma_asymp(self, R):
-        """
-        Small-z asymptotic of DeltaSigma, z = (R/h)^(1/n) -> 0.
-
-        DeltaSigma(R) = sum_{p>=1} C_p z^{n+p},
-            C_p = -A_p (n+p)/(3n+p),
-            A_p = 2 rho_0 n h (-1)^p / p! * Phi_Sigma(p),
-            Phi_Sigma(p) = sum_k (k+1) c_k / (2 n k - n - p),
-
-        i.e. the regular power-series coefficients of the v2 dual form. The
-        leading z^n pieces of M_3D/piR^2 and the native k-sum cancel exactly;
-        Phi_Sigma(p) carries the surviving z^{n+p} term. With _DS_ASYMP_NTERMS
-        terms the relative error is ~1% out to z ~ _DS_ASYMP_ZMAX; the series is
-        asymptotic, so adding terms beyond ~4 does not help. See
-        docs/einasto_proj_density_v2.tex and einasto_pitfalls.md S6.
-        """
-        n, h = self.n_index, self.h
-        z = (R / h) ** (1.0 / n)
-        # Phi_Sigma(p) = sum_k (k+1) c_k / (2nk - n - p) converges only as
-        # K^{-1/2}, so it needs many more terms than the profile `order`. Use a
-        # dedicated high-K sum (independent of self.order); it is a cheap 1-D
-        # sum evaluated once.
-        K = 200000
-        kk = np.arange(0, K + 1, dtype=float)
-        ck = catalan_over_4k(kk)
-        out = np.zeros_like(R)
-        fact = 1.0
-        for p in range(1, self._DS_ASYMP_NTERMS + 1):
-            fact *= p
-            phi_p = np.sum((kk + 1.0) * ck / (2.0 * n * kk - n - p))
-            A_p = 2.0 * self.rho_0 * n * h * (-1.0) ** p / fact * phi_p
-            C_p = -A_p * (n + p) / (3.0 * n + p)
-            out += C_p * z ** (n + p)
-        return out
 
     @scalar_array_output
     def mean_sigma(self, R):
@@ -416,16 +356,11 @@ class EinastoProfile:
         Excess surface density :math:`\Delta\Sigma(R) \equiv \bar\Sigma(<R) -
         \Sigma(R)`.
 
-        For n > 3/2, the Catalan series:
-
-        .. math::
-            \Delta\Sigma(R) = \frac{M_{\rm 3D}(R)}{\pi R^2}
-            - 2\rho_0\, n\, R \sum_{k \ge 1} k\, c_k\, E_{\nu_k}(x),
-            \qquad x = (R/h)^{1/n}
-
-        For :math:`z = (R/h)^{1/n} <` :attr:`_DS_ASYMP_ZMAX` the native
-        series suffers catastrophic cancellation and the small-z asymptotic
-        (:meth:`_deltasigma_asymp`) is used instead.
+        For every non-anchor n, evaluated by the stable low-n backend
+        (:class:`~clenspy.halo.einasto_lown.EinastoLowN`) -- the
+        Retana-Montenegro et al. (2012) case-1 residue series (see the
+        class Notes); the low-n backend handles the small-:math:`z`
+        cancellation regime itself.
 
         For n = 1 (exponential profile), the exact closed form
 
@@ -455,15 +390,13 @@ class EinastoProfile:
     @scalar_array_output
     def enclosed_mass_2D(self, R):
         r"""
-        Cylindrical (projected) enclosed mass.
+        Cylindrical (projected) enclosed mass, :math:`M_{\rm 2D}(R) = \pi R^2
+        \bar\Sigma(<R)`.
 
-        .. math::
-            M_{\rm 2D}(R) = M_{\rm 3D}(R) + 2\pi \rho_0\, n\, R^3
-            \sum_{k \ge 0} c_k\, E_{\nu_k}(x), \qquad x = (R/h)^{1/n}
-
-        For n <= 3/2: exact closed forms at the anchors (n = 1/2 Gaussian,
-        n = 1 exponential), otherwise ``pi R^2 (Sigma + DeltaSigma)`` from
-        the stable low-n series backend.
+        Exact closed forms at the anchors (n = 1/2 Gaussian, n = 1
+        exponential); for every other n, ``pi R^2 (Sigma + DeltaSigma)``
+        from the stable low-n series backend
+        (:class:`~clenspy.halo.einasto_lown.EinastoLowN`; see the class Notes).
         """
         R = np.atleast_1d(np.asarray(R, float))
         if abs(self.n_index - 1.0) < 1e-12:
@@ -473,87 +406,6 @@ class EinastoProfile:
             x2 = (R / self.h) ** 2
             return np.pi * SQPI_ * self.rho_0 * self.h ** 3 * (-np.expm1(-x2))
         return self._lown.enclosed_mass_2D(R)
-
-    def order_for_tol(self, tol, R=None, max_order=5000, quantity="sigma"):
-        """
-        Smallest series order K whose estimated relative truncation error < tol.
-
-        The Catalan series converge algebraically (terms u_k ~ C k^{-p}), so
-        the tail remainder is NOT the last term: a last-term criterion
-        underestimates the true error by a factor ~K. The asymptotic decay
-        exponent is known per quantity (Sigma and DeltaSigma: p = 3/2; M_2D:
-        p = 5/2), so the tail is estimated by integrating that power law,
-
-            R_K ~ sum_{k>K} u_k ~ u_K * K / (p - 1),
-
-        and the relative error is ``R_K / |S_K|``. This tracks the true error
-        (validated against the Abel-transform ground truth) rather than the
-        optimistic step size; for Sigma it gives R_K ~ 2 K u_K. Because the
-        Sigma weight (k+1) c_k bounds the M_2D (c_k) and DeltaSigma (k c_k)
-        weights for k>=1, the Sigma order is a conservative choice for all
-        three quantities.
-
-        Parameters
-        ----------
-        tol : float
-            Target relative truncation error.
-        R : array_like, optional
-            Probe radii. Defaults to r_s * [0.1, 0.3, 1, 3, 10], spanning the
-            range where convergence is slowest.
-        max_order : int, optional
-            Search ceiling; returned if ``tol`` is not met.
-        quantity : {"sigma", "m2d", "deltasigma"}, optional
-            Series whose convergence is tested.
-
-        Returns
-        -------
-        int
-            Series order K (k = 0..K).
-        """
-        if not self._series:
-            raise NotImplementedError(
-                "order_for_tol tunes the Catalan series order, which is not "
-                "used for n <= 3/2 (alpha >= 2/3); sigma/deltasigma/"
-                "power_spectrum are computed numerically for this n instead."
-            )
-        if R is None:
-            R = self.r_s * np.array([0.1, 0.3, 1.0, 3.0, 10.0])
-        R = np.atleast_1d(np.asarray(R, float))
-
-        n, h = self.n_index, self.h
-        x = (R / h) ** (1.0 / n)
-        x_col = x[:, None]
-
-        k = np.arange(0, max_order + 1)
-        ck = catalan_over_4k(k)
-        nu_k = 2 * k * n - n + 1
-        if quantity == "sigma":
-            weight, p_decay = (k + 1) * ck, 1.5
-        elif quantity == "deltasigma":
-            weight, p_decay = k * ck, 1.5
-        elif quantity == "m2d":
-            weight, p_decay = ck, 2.5
-        else:
-            raise ValueError(f"unknown quantity {quantity!r}")
-
-        terms = weight[None, :] * expn_fast(nu_k[None, :], x_col)  # (nR, K+1)
-        partial = np.cumsum(terms, axis=1)
-        u = np.abs(terms)
-        kk = k.astype(float)
-
-        # Tail estimate from the known power-law decay u_k ~ C k^{-p_decay}:
-        # R_K ~ u_K * K / (p_decay - 1). Require k >= kmin so the asymptotic
-        # regime holds (the k=0->1 step is not power-law).
-        kmin = 2
-        with np.errstate(divide="ignore", invalid="ignore"):
-            tail = u[:, kmin:] * kk[kmin:] / (p_decay - 1.0)
-            rel_err = tail / np.abs(partial[:, kmin:])
-
-        converged = np.all(rel_err < tol, axis=0)
-        idx = np.argmax(converged)
-        if converged[idx]:
-            return int(idx + kmin)
-        return int(max_order)
 
     # ------------------------------------------------------------------
     # Fourier-space form factor / power spectrum

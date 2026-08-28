@@ -55,11 +55,10 @@ class TestSpecialCases:
             EinastoProfile(alpha=-1.0, rho_0=1.0, r_s=1.0)
 
     def test_small_n_uses_lown_backend(self):
-        # n <= 3/2: generic non-integer n uses the EinastoLowN series
-        # backend; the exact anchors (n = 1/2, 1) use closed forms and
-        # build no backend.
+        # every non-anchor n (both above and below 3/2) uses the EinastoLowN
+        # series backend; the exact anchors (n = 1/2, 1) use closed forms
+        # and build no backend.
         e = EinastoProfile(alpha=1.0 / 0.7, rho_0=1.0, r_s=1.0)   # n = 0.7
-        assert not e._series
         assert e._lown is not None
         assert np.isfinite(e.sigma(1.0))
         assert np.isfinite(e.deltasigma(1.0))
@@ -86,19 +85,6 @@ class TestSpiralHalo:
         R = h * np.array([0.5, 1.0, 2.0, 3.0]) ** n
         ref = np.array([sigma_abel(n, h, rho_0, r) for r in R])
         assert np.allclose(e.sigma(R), ref, rtol=1e-2)
-
-    @pytest.mark.parametrize("n,tol", [(4.0, 1e-2), (5.0, 1e-2), (5.0, 1e-3)])
-    def test_order_for_tol_meets_target(self, n, tol):
-        rho_0 = 1.0
-        e = EinastoProfile(alpha=1.0 / n, rho_0=rho_0, r_s=1.0, order=2)
-        h = e.h
-        R = h * np.array([0.3, 0.5, 1.0, 2.0, 3.0]) ** n
-        K = e.order_for_tol(tol, R=R, max_order=20000)
-        ek = EinastoProfile(alpha=1.0 / n, rho_0=rho_0, r_s=1.0, order=K)
-        ref = np.array([sigma_abel(n, h, rho_0, r) for r in R])
-        err = np.max(np.abs(ek.sigma(R) / ref - 1.0))
-        # estimate is calibrated to the true error within a small factor
-        assert err <= 1.5 * tol
 
     def test_power_spectrum_n4_table(self):
         # A_m^- coefficients, einasto_power_spectrum.tex Table I
@@ -153,15 +139,18 @@ class TestExplicitPowerSpectrumBranches:
         auto = e.power_spectrum(k)
         assert np.allclose(small_k, auto, rtol=1e-6)
 
-    def test_small_k_branch_without_explicit_order_raises_on_low_n(self):
-        # documents the latent bug above rather than hiding it: n <= 1.5
-        # has self.order = None, so the undocumented requirement to pass
-        # order= explicitly here surfaces as a raw TypeError.
+    def test_small_k_branch_without_explicit_order_works_on_low_n(self):
+        # self.order now always defaults to the constructor's own default
+        # (previously None for n <= 1.5, which raised a raw TypeError here
+        # -- see git history), so the small_k branch works without an
+        # explicit order= and agrees with "auto".
         n = 0.7
         e = EinastoProfile(alpha=1.0 / n, rho_0=1.0, r_s=1.0)
-        assert e.order is None
-        with pytest.raises(TypeError):
-            e.power_spectrum(np.array([0.0]), branch="small_k")
+        assert e.order == 100
+        k = np.array([0.5, 1.0])
+        assert np.allclose(
+            e.power_spectrum(k, branch="small_k"), e.power_spectrum(k, branch="auto")
+        )
 
     def test_large_k_branch_agrees_with_auto_direct_series_for_n_above_1(self):
         # "large_k" is a legacy Wright psi-function evaluator, independent

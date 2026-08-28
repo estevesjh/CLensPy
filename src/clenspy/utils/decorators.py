@@ -74,6 +74,37 @@ def default_rvals_z(method):
     return wrapper
 
 
+def default_mvals_z(method):
+    """
+    Decorator for methods with signature ``(self, M_vals=None, z=None)``:
+    substitutes ``self.mval``/``self.zvec`` when ``M_vals``/``z`` are None.
+
+    Mass-axis counterpart of `default_rvals_z`, for classes (e.g. a halo
+    mass function) whose natural query variable is mass, not radius.
+
+    Parameters
+    ----------
+    method : callable
+        Method with signature ``(self, M_vals, z, ...)``.
+
+    Returns
+    -------
+    callable
+        Wrapped method accepting ``M_vals=None``/``z=None``.
+    """
+    from functools import wraps
+
+    @wraps(method)
+    def wrapper(self, M_vals=None, z=None, *args, **kwargs):
+        if M_vals is None:
+            M_vals = self.mval
+        if z is None:
+            z = self.zvec
+        return method(self, M_vals, z, *args, **kwargs)
+
+    return wrapper
+
+
 def time_method(func):
     """
     Decorator: record each call's wall-clock time in ``self.timings``

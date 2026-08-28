@@ -204,9 +204,10 @@ The bracketed forms self-cancel as `x -> 0`; below `x = 0.1` verified
 Taylor expansions are used (`_expdisk_deltasigma_factor` /
 `_expdisk_m2d_factor`; coefficients in v4.tex "Exact anchors").
 
-## Legacy Catalan series (internals only)
+## Removed: the plain Catalan series as a direct evaluator
 
-The native `E_nu` representation (`docs/einasto_proj_density.tex`), with
+`EinastoProfile` used to also carry the native `E_nu` representation
+(`docs/einasto_proj_density.tex`) as a direct evaluator, with
 `z = (R/h)^{1/n}`, `c_k = \mathrm{Cat}_k/4^k`, `nu_k = 2kn - n + 1`:
 
 ```{math}
@@ -215,16 +216,32 @@ The native `E_nu` representation (`docs/einasto_proj_density.tex`), with
 - 2\rho_0 n R \sum_{k \ge 1} k\, c_k E_{\nu_k}(z)
 ```
 
-**No longer a user-facing evaluation path**: its terms are all positive
-(good — it is the backend's large-`z` branch, where it has no cancellation),
-but as a direct evaluator its truncation error is *absolute*
-`O(K^{-1/2})` while `DeltaSigma` is small — measured at 30–200% relative
-error at every radius for `n = 3.3`–`10`, unfixable by raising the order.
-The machinery (`self._series`, `order`, `order_for_tol`, `expn_fast`) is
-still built for `n > 3/2` because `power_spectrum` reuses `self.order` and
-research code uses the rest.
+as `self._ck`/`self._nu_k`, built by `_build()` and evaluated by `_E_nu()`,
+sized by `order_for_tol()`. As a direct evaluator its truncation error was
+*absolute* `O(K^{-1/2})` while `DeltaSigma` is small — measured at
+30–200% relative error at every radius for `n = 3.3`–`10`, unfixable by
+raising the order — and nothing called it once `EinastoLowN` took over
+`sigma`/`deltasigma`/`enclosed_mass_2D` for every non-anchor `n`. All four
+(`_build`, `self._ck`, `self._nu_k`, `_E_nu`, `order_for_tol`) have been
+**deleted** from `einasto.py` rather than left as dead code.
+
+The same terms survive as a live, independent implementation, though:
+they are exactly `EinastoLowN`'s own large-`z` branch (its terms are all
+positive there, which is the point — no cancellation), reimplemented
+locally inside `einasto_lown.py` rather than reusing `EinastoProfile`'s
+(now-removed) copy. `power_spectrum`'s own `n > 3/2` branch is unrelated
+to either — a separate analytic cascade in `einasto_series.py` — and only
+reads the bare integer `self.order` (via its explicit `small_k`/`large_k`
+branches, not the default `"auto"`) for its own `A_m^\pm` series.
 
 ## Power spectrum `P(k)`
+
+```{note}
+`P(k)` here is internal Einasto machinery (mass-dimensioned, `fourier(k)
+= (4pi)^2 P(k) -> M_tot` as `k -> 0`) — unrelated to the cosmological
+matter power spectrum of {doc}`power_spectrum`. See {doc}`density_profiles`'s
+Einasto section for the full normalization note and the `u(k|M)` convention.
+```
 
 `power_spectrum(k, branch="auto")` dispatches on `n` independently of the
 projected quantities:
@@ -368,8 +385,8 @@ large-k series. Regenerate with `docs/make_einasto_figures.py`.
   the oscillating `n < 1/2` regime).
 - `n=0.7` `P(k)` vs brute-force Hankel quadrature at `2e-3`; full
   Fourier→ξ→Σ→ΔΣ pipeline consistency at the Gaussian anchor.
-- `TestSpiralHalo`: legacy-series internals (`order_for_tol` calibration,
-  `P(k)` coefficient table).
+- `TestSpiralHalo`: `sigma` vs brute-force Abel at `n = 4, 5`; the `P(k)`
+  `A_m^-` coefficient table.
 
 ## Open issues
 

@@ -5,15 +5,94 @@
  * colors rather than CSS custom properties, so the primary brand color
  * can't be swapped via a variable - it has to be repainted selector by
  * selector. This file overrides every selector the default theme derives
- * from `$primary` with a light-blue, Rubin/LSST-inspired palette instead
- * of the theme's default purple.
+ * from `$primary` with colors from Sanzo Wada combination vol1-267
+ * (https://shikifucodex.com/combination/vol1/267), not arbitrary picks:
+ *   - Blue (#006eb8) -> primary (header)
+ *   - Yellow Orange (#f99d1b) -> accent
+ * Cream Yellow (#fdbf68) and Benzol Green (#00978d), the other two colors
+ * in that combination, aren't used by the theme override itself but are
+ * available for figures/diagrams that want to stay on-palette.
+ * -dark/-darker are the same primary hue at lower HSL lightness, computed,
+ * not separate Wada colors.
  */
 
 :root {
-  --clenspy-primary: #1e88e5;
-  --clenspy-primary-dark: #1565c0;
-  --clenspy-primary-darker: #0d47a1;
-  --clenspy-accent: #4fc3f7;
+  --clenspy-primary: #006eb8;
+  --clenspy-primary-dark: #005085;
+  --clenspy-primary-darker: #003152;
+  --clenspy-accent: #f99d1b;
+  /* Dark-mode surfaces: same hue as --clenspy-primary, desaturated and
+     darkened via HSL - a navy slate, not the theme's default indigo/purple
+     and not flat black either. */
+  --clenspy-dark-page: #111b22;
+  --clenspy-dark-surface: #192934;
+  --clenspy-dark-border: #284153;
+  --clenspy-dark-btn: #2e4c60;
+  --clenspy-dark-btn-border: #35576e;
+  --clenspy-accent-light: #fbb757;
+}
+
+/*
+ * Dark mode: sphinx_wagtail_theme toggles `body.theme-dark` via JS and
+ * hardcodes Bootstrap's stock indigo/purple ($indigo: #2e1f5e) for
+ * .btn-light, the search .form-control, most borders, and the API table
+ * background in dark mode - none of that is covered by the $primary
+ * overrides above, which only repaint the light-mode selector set. Same
+ * fix pattern as sanzo-wada's docs/_static/custom.css.
+ */
+body.theme-dark {
+  background-color: var(--clenspy-dark-page);
+}
+
+body.theme-dark .btn-light {
+  color: #fff;
+  background-color: var(--clenspy-dark-btn);
+  border-color: var(--clenspy-dark-btn-border);
+}
+
+body.theme-dark .btn-light:hover,
+body.theme-dark .btn-light:focus,
+body.theme-dark .btn-light:not(:disabled):not(.disabled):active {
+  background-color: var(--clenspy-dark-btn-border);
+  border-color: var(--clenspy-dark-btn-border);
+}
+
+body.theme-dark .form-control {
+  color: #fff;
+  background-color: var(--clenspy-dark-btn);
+  border-color: var(--clenspy-dark-border);
+}
+
+body.theme-dark .input-group-text,
+body.theme-dark .input-group-text.bg-white {
+  background-color: var(--clenspy-dark-btn) !important;
+  border-color: var(--clenspy-dark-border);
+}
+
+body.theme-dark hr,
+body.theme-dark .border,
+body.theme-dark .with-border,
+body.theme-dark .border-top,
+body.theme-dark .border-right,
+body.theme-dark .border-bottom,
+body.theme-dark .border-left,
+body.theme-dark .sidebar-container,
+body.theme-dark .search li,
+body.theme-dark blockquote {
+  border-color: var(--clenspy-dark-border) !important;
+}
+
+body.theme-dark table.docutils:not(.field-list),
+body.theme-dark table.docutils:not(.field-list) thead th {
+  background-color: transparent;
+  border-color: var(--clenspy-dark-border);
+}
+
+body.theme-dark a:focus,
+body.theme-dark a:hover,
+body.theme-dark .btn-link:focus,
+body.theme-dark .btn-link:hover {
+  color: var(--clenspy-accent-light);
 }
 
 /* Links */
@@ -34,7 +113,7 @@ a:hover {
 
 /* Header / footer bars */
 .bg-primary {
-  background-color: var(--clenspy-primary) !important;
+  background-color: var(--clenspy-primary-darker) !important;
 }
 
 .text-primary {
@@ -96,11 +175,23 @@ pre {
 /* Search box */
 .form-control:focus {
   border-color: var(--clenspy-primary);
-  box-shadow: 0 0 0 0.2rem rgba(30, 136, 229, 0.25);
+  box-shadow: 0 0 0 0.2rem rgba(0, 110, 184, 0.25);
 }
 
 .input-group-text {
   border-color: #dedede;
+}
+
+/*
+ * The sidebar TOC lists full dotted identifiers (e.g.
+ * clenspy.cosmology.TinkerMassFunction) as link text. With no spaces,
+ * long ones have no wrap point, so their min-content width can exceed the
+ * sidebar's flex-basis and push the content column onto its own line
+ * below the sidebar. Always needed once the API page has long names.
+ */
+.site-toc a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /*
@@ -112,4 +203,53 @@ img.align-center {
   display: block;
   margin-left: auto;
   margin-right: auto;
+}
+
+/* Jump-to-top / jump-to-bottom buttons (scroll-buttons.js) */
+.clenspy-scroll-buttons {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 1000;
+}
+
+.clenspy-scroll-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  border: none;
+  color: #fff;
+  background-color: var(--clenspy-primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+
+.clenspy-scroll-btn:hover,
+.clenspy-scroll-btn:focus {
+  opacity: 1;
+  background-color: var(--clenspy-primary-dark);
+  transform: translateY(-1px);
+}
+
+.clenspy-scroll-btn.clenspy-scroll-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+body.theme-dark .clenspy-scroll-btn {
+  background-color: var(--clenspy-dark-btn);
+  border: 1px solid var(--clenspy-dark-btn-border);
+}
+
+body.theme-dark .clenspy-scroll-btn:hover,
+body.theme-dark .clenspy-scroll-btn:focus {
+  background-color: var(--clenspy-dark-btn-border);
 }

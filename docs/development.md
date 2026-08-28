@@ -35,15 +35,11 @@ the same way, driven by `.readthedocs.yaml` at the repository root.
 
 ## Package layout
 
-- `clenspy.halo`: `NfwProfile`, `EinastoProfile`, `TwoHaloTerm`
-- `clenspy.lensing`: `LensingProfile` (a higher-level wrapper; currently only
-  wraps the NFW model, and its two-halo term needs the `compare` extra for a
-  P(k) backend), plus boost-factor and miscentering corrections
-- `clenspy.cosmology`: `PkGrid`, `BiasModel`, `TinkerMassFunction`, critical
-  surface density, angular/comoving conversions
-- `clenspy.utils`: log-grid interpolation, numerical integration helpers,
-  shared decorators
-- `clenspy.config`: default cosmology and physical constants
+For what each subpackage computes and why it is laid out the way it is,
+see the Theory pages starting at {doc}`cosmology` — one page per physical
+effect, prose next to the equation next to a runnable snippet — rather
+than a module list here that would drift out of sync with them. The
+mechanical {doc}`api/index` lists every public class and function.
 
 `clenspy.halo.einasto_lown` is the series backend `EinastoProfile` uses for
 all non-anchor `n` (see `docs/einasto_proj_density_v4.tex` and
@@ -53,3 +49,21 @@ all non-anchor `n` (see `docs/einasto_proj_density_v4.tex` and
 `clenspy.utils.special` the generalised `E_nu` and Catalan pieces, which are
 not Einasto-specific. None of these are part of the public API - use
 `clenspy.halo.EinastoProfile`.
+
+## Regenerating the getting-started notebook
+
+`examples/getting_started.ipynb` is jupytext-paired with
+`examples/getting_started.py` (percent format), which is the file to edit
+— the `.ipynb` is generated. Every docs Theory page's `{literalinclude}`
+snippet is pulled from a tagged section of that `.py` file, so an edit
+must be synced and re-executed before it can be wired into a page:
+
+```bash
+pip install -e ".[docs]"
+uv run jupytext --sync examples/getting_started.py
+uv run jupyter nbconvert --to notebook --execute \
+    --output getting_started.ipynb examples/getting_started.ipynb
+```
+
+The whole notebook must execute top to bottom — it is the single source
+every Theory page's example is transcribed from, never hand-copied.

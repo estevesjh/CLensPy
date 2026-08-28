@@ -354,10 +354,23 @@ class LensingProfile:
 
     def fourier_profile(self, k: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
         r"""
-        Mass-normalized Fourier transform :math:`u(k) \equiv \tilde\rho(k)/M`.
+        Intended: the mass-normalized Fourier transform
+        :math:`u(k) \equiv \tilde\rho(k)/M`,
 
         .. math::
-            u(k) = u_{\rm 1h}(k) + \frac{b(M)}{M}\, P_{\rm 2h}(k)
+            u(k) = u_{\rm 1h}(k) + \frac{b(M)}{M}\, P_{\rm 2h}(k).
+
+        NOTE: **not what this currently returns.**
+        ``self.halo_profile.fourier(k)`` is :math:`\tilde\rho_{\rm 1h}(k)`
+        [Msun], *not* divided by ``m200`` (see `NfwProfile.fourier`'s own
+        NOTE) -- while the 2-halo term here already is. The two terms are
+        off by a factor of order :math:`M_{200}` in scale, so the sum below
+        is :math:`\tilde\rho_{\rm 1h}(k) + b(M)P_{\rm 2h}(k)/M`, not
+        :math:`u(k)`: the 1-halo term dominates at every :math:`k`, and the
+        2-halo term is numerically swamped rather than combined. Divide
+        ``self.halo_profile.fourier(k)`` by ``self.m200`` to get the
+        :math:`u(k)` documented above; not fixed here since it changes this
+        method's public output.
 
         Parameters
         ----------
@@ -367,14 +380,7 @@ class LensingProfile:
         Returns
         -------
         float or np.ndarray
-            :math:`u(k)`, scalar if ``k`` was scalar.
-
-        Notes
-        -----
-        Previously called a nonexistent ``self.two_halo_profile.pk(...)``
-        method (`TwoHaloTerm` has no `pk`) - would raise `AttributeError`
-        whenever ``include_2halo=True`` (the default). Fixed to use
-        `TwoHaloTerm`'s actual P(k, z) interpolator, ``p_kz``.
+            Scalar if ``k`` was scalar -- see the NOTE for what it means.
         """
         k = np.atleast_1d(k)
         result = self.halo_profile.fourier(k)

@@ -3,7 +3,12 @@ Utility functions for coordinate transformations and mathematical operations.
 """
 
 from .binning import BinCollection, RichnessBin
-from .decorators import default_rvals_z, scalar_array_output, time_method
+from .decorators import (
+    default_mvals_z,
+    default_rvals_z,
+    scalar_array_output,
+    time_method,
+)
 from .integrate import (
     compute_sigma_grid,
     compute_sigma_leggauss,
@@ -20,6 +25,7 @@ __all__ = [
     "BinCollection",
     "LogGridInterpolator",
     "default_rvals_z",
+    "default_mvals_z",
     "time_method",
     "scalar_array_output",
     "compute_sigma_grid",

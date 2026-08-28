@@ -12,13 +12,19 @@ import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
+import sanzo_wada as sw
 import seaborn as sns
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 from clenspy.halo.einasto import EinastoProfile  # noqa: E402
 
 OUT = pathlib.Path(__file__).resolve().parent / "_static" / "img"
-C_ANA, C_NUM, C_REF = "firebrick", "black", "grey"
+
+# Sanzo Wada combination vol1-114 for the analytic-vs-numerical pair;
+# C_REF is a plain neutral reference line (the inset's zero line), not a
+# data category, so it stays grey.
+C_ANA, C_NUM = [c.hex for c in sw.get_combination("vol1-114").colors]
+C_REF = "grey"
 
 sns.set_theme(context="talk", style="white")
 

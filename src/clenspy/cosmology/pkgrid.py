@@ -88,8 +88,8 @@ class PkGrid:
     nonlinear : bool, default False
         Use the non-linear (Halofit) spectrum if supported.
     k_range  : Tuple[float, float], default (1e-4, 10.0)   [1/Mpc]
-    z_range  : Tuple[float, float], default (0.0, 2.0)
-    nk, nz   : int, default (200, 41)
+    z_range  : Tuple[float, float], default (0.0, 1.0)
+    nk, nz   : int, default (512, 100)
     cache    : bool, default True
         If True, store / reuse ``*.npz`` files in ``clenspy-data/pk_cache``.
     """

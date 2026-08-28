@@ -96,6 +96,7 @@ html_theme_options = dict(
 
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
+html_js_files = ["scroll-buttons.js"]
 html_favicon = "_static/img/logo.png"
 
 html_show_sphinx = False
