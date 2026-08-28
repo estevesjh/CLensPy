@@ -113,20 +113,6 @@ all-positive $E_{\nu_k}$ representation only at $z=(R/h)^{1/n}$ far beyond
 any physical radius for $n>3/2$. $n=1$ and $n=1/2$ collapse this to
 genuinely elementary closed forms in modified Bessel functions.
 
-```{note}
-An older, plain Catalan $c_k E_{\nu_k}(x)$ series used to compute
-$\Sigma$/$\Delta\Sigma$ directly for $n>3/2$ — it has been **removed**
-(`_build`, `self._ck`, `self._nu_k`, `_E_nu`, `order_for_tol` are all gone)
-rather than left as dead code: its `DeltaSigma` truncation error was
-$O(K^{-1/2})$ *absolute*, i.e. 30-200% relative, and nothing read it any
-more once the residue series above took over for every $n$ — not
-`sigma`/`deltasigma`, and not `power_spectrum` either, whose own $n>3/2$
-branch is a wholly separate analytic cascade (`clenspy.halo.einasto_series`)
-that never touched it. Only the bare integer `self.order` survives,
-sizing `power_spectrum`'s explicit `small_k`/`large_k` branches' own
-unrelated $A_m^\pm$ series — not its default `"auto"` dispatch.
-```
-
 See {doc}`einasto_math` for the full per-regime dispatch and the small-$R$
 asymptotic used where the native
 series cancels catastrophically.

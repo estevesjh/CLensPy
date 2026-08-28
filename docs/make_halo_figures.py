@@ -166,8 +166,8 @@ def fig_lensing_profile():
 
     fig, ax = plt.subplots(figsize=(7.5, 6.0))
     ax.loglog(R, ds_1h, color=C3[0], lw=2.0, ls="--", label="1-halo")
-    ax.loglog(R, ds_2h, color=C3[1], lw=2.0, ls=":", label="2-halo")
-    ax.loglog(R, ds_tot, color=C3[2], lw=2.5, label="1-halo + 2-halo")
+    ax.loglog(R, ds_2h, color=C3[2], lw=2.0, ls=":", label="2-halo")
+    ax.loglog(R, ds_tot, color=C3[1], lw=2.5, label="1-halo + 2-halo")
     ax.set(xlabel=r"$R \; [{\rm Mpc}]$",
            ylabel=r"$\Delta\Sigma(R) \; [M_\odot\,{\rm Mpc}^{-2}]$")
     ax.set_title(rf"$M_{{200}}={m200:.0e}\,M_\odot$, $c_{{200}}={c200:g}$, "
