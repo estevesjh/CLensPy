@@ -23,9 +23,6 @@ CLensPy defines a few `pip` extras for optional functionality:
 * - Extra
   - Installs
   - Use case
-* - `mcmc`
-  - `emcee`, `corner`
-  - MCMC profile fitting
 * - `docs`
   - `sphinx`, `myst-parser`, `sphinx-wagtail-theme`, `sphinx-copybutton`
   - Building this documentation locally

@@ -93,11 +93,6 @@ and the full API reference.
 
 ### Optional Dependencies
 
-For MCMC profile fitting:
-```bash
-pip install -e ".[mcmc]"
-```
-
 For building the documentation locally:
 ```bash
 pip install -e ".[docs]"

@@ -39,8 +39,8 @@ cd clenspy
 pip install -e .
 ```
 
-See {doc}`installation` for optional dependency groups (`mcmc`, `docs`,
-`compare`, `dev`).
+See {doc}`installation` for optional dependency groups (`docs`, `compare`,
+`dev`).
 
 ## Quick Start
 
