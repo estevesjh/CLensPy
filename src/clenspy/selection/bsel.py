@@ -196,16 +196,22 @@ class XiNL:
     r"""Nonlinear matter correlation :math:`\xi_{\rm NL}(r, z^{\rm ob})`
     from a (nonlinear) PkGrid via FFTLog, cached per requested redshift.
 
-    ``r`` in comoving Mpc; negative BAO-trough values are clipped at zero
-    (the engine's convention — the effect is O(1e-4) in a w_z-suppressed
-    region).
+    ``r`` in comoving Mpc. With ``clip=True`` (the engine's convention)
+    negative BAO-trough values are clipped at zero — the effect is O(1e-4)
+    in a w_z-suppressed region, and it keeps the closure's :math:`I_1, I_2`
+    positive. `clenspy.lensing.projection.SigmaPrj` wants the signed
+    :math:`\xi` instead (``clip=False``): the trough at
+    :math:`r \simeq 100\!-\!150` comoving Mpc sits inside its
+    line-of-sight window.
     """
 
-    def __init__(self, pkgrid, r_range=(1e-2, 800.0), n_r: int = 600) -> None:
+    def __init__(self, pkgrid, r_range=(1e-2, 800.0), n_r: int = 600,
+                 clip: bool = True) -> None:
         self.pkgrid = pkgrid
         self.rvals = np.logspace(
             np.log10(r_range[0]), np.log10(r_range[1]), n_r
         )
+        self.clip = bool(clip)
         self._cache: dict[float, np.ndarray] = {}
 
     def __call__(self, r, zob: float):
@@ -218,7 +224,7 @@ class XiNL:
         xi_tab = self._cache[key]
         r = np.asarray(r, dtype=float)
         out = np.interp(r, self.rvals, xi_tab, left=xi_tab[0], right=0.0)
-        return np.maximum(out, 0.0)
+        return np.maximum(out, 0.0) if self.clip else out
 
 
 class PhysicalMassMor:
@@ -458,6 +464,100 @@ class SelBiasEngine:
         self._cache[key] = out
         return out
 
+    def operators_var(self, lob: float, zob: float) -> tuple[float, float, float]:
+        r"""The **variance** operators: (P1, I1, I2) with the squared
+        weights :math:`\lambda^2`, :math:`w_z^2`, :math:`f_A^2` — the
+        second moment of the projected-richness boost
+        :math:`{\rm Var}[\Delta^{\rm prj}]_{\rm RND} \approx P_1^{(2)} +
+        b_{\rm eff} I_2^{(2)}` (Costanzi notebook
+        ``var_delta_prj_Beff``). Everything else mirrors `operators`."""
+        key = ("ops_var", float(lob), float(zob))
+        if key in self._cache:
+            return self._cache[key]
+
+        theta_lob = self._theta_lob(lob, zob)
+        theta_max = 2.0 * theta_lob
+        eps_theta = 1e-6
+        chi_o = float(self.chi(zob))
+        R_excl = r_lambda(lob, self.h) * (1.0 + zob)
+
+        z_fg_lo, z_bg_hi = photoz_projection_support(
+            zob, self._window, n_sigma=1.0
+        )
+        zs, wzs = self._z_grid(lob, zob, z_fg_lo, z_bg_hi)
+        chi_z = self.chi(zs)
+        dV = self._dv(zs)
+        wz_kern = photoz_projection(zs, zob, self._window, n_sigma=1.0) ** 2
+
+        Ms, M_weight = self._mass_nodes()
+        lam_grid, wlam = gl_nodes(1e-6, float(lob), self.n_ltr)
+
+        cos_excl = np.clip(
+            (chi_z**2 + chi_o**2 - R_excl**2) / (2.0 * chi_z * chi_o + 1e-30),
+            -1.0, 1.0,
+        )
+        theta_excl_z = np.where(
+            cos_excl >= 1.0 - 1e-12, eps_theta, np.arccos(cos_excl)
+        )
+
+        b_mz = self.bias(Ms[:, None], zs[None, :])
+        n_mz = self.hmf(Ms[:, None], zs[None, :])
+        p_lmz = self.mor.pdf(
+            lam_grid[:, None, None], Ms[None, :, None], zs[None, None, :]
+        )
+
+        P1_z = np.zeros(zs.size)
+        I1_z = np.zeros(zs.size)
+        I2_z = np.zeros(zs.size)
+        for iz in range(zs.size):
+            th_lo = max(theta_excl_z[iz], eps_theta)
+            if th_lo >= theta_max or wz_kern[iz] == 0.0:
+                continue
+            ths, wth = gl_nodes(th_lo, theta_max, self.n_theta)
+            th_weight = wth * 2.0 * np.pi * np.sin(ths)
+            sig = sigmoid_theta(ths, theta_lob, self.damping, self.theta0_frac)
+            dchi = np.sqrt(np.maximum(
+                chi_z[iz] ** 2 + chi_o**2
+                - 2.0 * chi_z[iz] * chi_o * np.cos(ths), 0.0,
+            ))
+            xi = np.maximum(self.xi_nl(dchi, zob), 0.0)
+            theta_lam = (
+                r_lambda(lam_grid, self.h) * (1.0 + zs[iz]) / chi_z[iz]
+            )
+            fA = area_overlap(ths, theta_lob, theta_lam) ** 2  # squared
+
+            ang_P1 = np.einsum("t,tL->L", th_weight, fA)
+            ang_I2 = np.einsum("t,tL,t->L", th_weight, fA, xi)
+            ang_I1 = np.einsum("t,t,tL,t->L", th_weight, sig, fA, xi)
+
+            rho_pref = wz_kern[iz] * lam_grid**2               # lambda^2
+            p_lm = p_lmz[:, :, iz]
+            lam_P1 = np.einsum("L,LM,L->M", wlam, p_lm, rho_pref * ang_P1)
+            lam_I2 = np.einsum("L,LM,L->M", wlam, p_lm, rho_pref * ang_I2)
+            lam_I1 = np.einsum("L,LM,L->M", wlam, p_lm, rho_pref * ang_I1)
+
+            P1_z[iz] = np.sum(M_weight * n_mz[:, iz] * lam_P1)
+            I2_z[iz] = np.sum(M_weight * n_mz[:, iz] * b_mz[:, iz] * lam_I2)
+            I1_z[iz] = np.sum(M_weight * n_mz[:, iz] * b_mz[:, iz] * lam_I1)
+
+        out = (
+            float(np.sum(wzs * dV * P1_z)),
+            float(np.sum(wzs * dV * I1_z)),
+            float(np.sum(wzs * dV * I2_z)),
+        )
+        self._cache[key] = out
+        return out
+
+    def delta_stats(self, lob: float, zob: float,
+                    b_eff: float | None = None) -> tuple[float, float]:
+        r"""(mean, variance) of the random-line-of-sight richness boost:
+        :math:`\bar\Delta = P_1 + b_{\rm eff} I_2` and its second-moment
+        analog from `operators_var`."""
+        beff = self.b_eff(lob, zob) if b_eff is None else float(b_eff)
+        P1, _, I2 = self.operators(lob, zob)
+        P1v, _, I2v = self.operators_var(lob, zob)
+        return P1 + beff * I2, P1v + beff * I2v
+
     # -- b_eff ------------------------------------------------------------
     def b_eff(self, lob: float, zob: float) -> float:
         r""":math:`b_{\rm eff} = \langle b(M, z^{\rm ob})\rangle_{P(M \mid
@@ -495,40 +595,95 @@ class SelBiasEngine:
             b_small = ((lob - ltr_vec) - P1 - b_large * I1) / denom
         return delta, b_small, b_large
 
-    def _ltr_weights(self, lob, zob, use_plob_ltr: bool = True):
-        """(ltr nodes, normalised GL x P(ltr | lob, zob)) weights."""
+    def _ltr_weights(self, lob, zob, use_plob_ltr: bool = True,
+                     plob_mode: str = "y3", b_eff: float | None = None):
+        r"""(ltr nodes, normalised GL x P(ltr | lob, zob)) weights.
+
+        ``plob_mode``:
+
+        - ``"y3"`` — the vendored DES Y3 EMG kernel (`richness_pdf`).
+        - ``"self"`` — the **self-consistent** exponential kernel of the
+          Costanzi notebook (``plob_ltr``): the model's own boost
+          statistics from `delta_stats` set
+          :math:`\tau = 2\bar\Delta/(\bar\Delta^2 + {\rm Var}\Delta)`,
+          :math:`f^{\rm prj} = \min(1, 2\bar\Delta^2/(\bar\Delta^2 +
+          {\rm Var}\Delta))`, and
+          :math:`P(\lambda^{\rm ob}\mid\lambda^{\rm tr}) = f^{\rm prj}
+          \tau e^{-\tau(\lambda^{\rm ob}-\lambda^{\rm tr})}
+          \Theta(\lambda^{\rm ob}-\lambda^{\rm tr}) +
+          (1-f^{\rm prj})\,\delta_D(\lambda^{\rm ob}-\lambda^{\rm tr})`.
+          Marginalising the closure under a kernel whose mean boost IS
+          the closure's own :math:`\bar\Delta` keeps
+          :math:`b_{\rm small}` stable; the Y3 kernel's longer tail
+          (calibrated on SDSS injections, not on this halo model)
+          overstates :math:`\langle\lambda^{\rm ob}-\lambda^{\rm tr}
+          \rangle` against a mock and inflates the inner plateau.
+        """
         t_nodes, t_wts = gl_nodes(1.0, 3.0 * float(lob), self.ltr_grid_size * 2)
         m_grid = np.logspace(np.log10(self.min_mass), self.log10_M_max, 50)
         hmf_m = self.hmf(m_grid, zob)
-        p_ltr_M = self.mor.pdf(t_nodes[:, None], m_grid[None, :], zob)
-        prior = np.trapezoid(
-            p_ltr_M * (hmf_m * m_grid)[None, :], np.log(m_grid), axis=1
-        )
-        if use_plob_ltr:
+
+        def _prior(nodes):
+            p_ltr_M = self.mor.pdf(nodes[:, None], m_grid[None, :], zob)
+            return np.trapezoid(
+                p_ltr_M * (hmf_m * m_grid)[None, :], np.log(m_grid), axis=1
+            )
+
+        prior = _prior(t_nodes)
+        if not use_plob_ltr:
+            weight = t_wts * prior
+        elif plob_mode == "y3":
             p_lob_ltr = richness_pdf(float(lob), t_nodes, zob, self.plob)
-            p_ltr = np.asarray(p_lob_ltr, dtype=float) * prior
+            weight = t_wts * np.asarray(p_lob_ltr, dtype=float) * prior
+        elif plob_mode == "self":
+            mean_d, var_d = self.delta_stats(lob, zob, b_eff)
+            tau = 2.0 * mean_d / (mean_d**2 + var_d)
+            f_prj = min(1.0, 2.0 * mean_d**2 / (mean_d**2 + var_d))
+            gap = float(lob) - t_nodes
+            pdf = np.where(gap >= 0.0,
+                           f_prj * tau * np.exp(-tau * gap), 0.0)
+            weight = t_wts * pdf * prior
+            # the (1 - f_prj) delta at lambda_tr = lambda_ob: one extra
+            # node carrying that probability mass times the prior there
+            t_nodes = np.append(t_nodes, float(lob))
+            weight = np.append(
+                weight, (1.0 - f_prj) * float(_prior(np.array([float(lob)]))[0])
+            )
         else:
-            p_ltr = prior
-        weight = t_wts * p_ltr
+            raise ValueError(f"plob_mode must be 'y3' or 'self', got {plob_mode!r}")
         den = float(np.sum(weight))
         return t_nodes, (weight / den if den > 0 else np.full_like(weight, np.nan))
 
     def plateaus(
-        self, lob: float, zob: float, use_plob_ltr: bool = True
+        self, lob: float, zob: float, use_plob_ltr: bool = True,
+        b_eff: float | None = None, plob_mode: str = "y3",
     ) -> tuple[float, float]:
-        """lambda_tr-marginalised (b_small, b_large) at one (lob, zob)."""
+        """lambda_tr-marginalised (b_small, b_large) at one (lob, zob).
+
+        ``b_eff=None`` uses the engine's own fixed-lambda_ob average
+        (`b_eff`); pass a float to use an externally computed value, e.g.
+        the bin-averaged N[b]/N[1] from
+        `clenspy.observables.ClusterCounts.average`. ``plob_mode`` as in
+        `_ltr_weights`: ``"y3"`` (EMG table) or ``"self"`` (the model's
+        own boost statistics — the mock-consistent choice).
+        """
         P1, I1, I2 = self.operators(lob, zob)
-        beff = self.b_eff(lob, zob)
-        ltr, w_ltr = self._ltr_weights(lob, zob, use_plob_ltr)
+        beff = self.b_eff(lob, zob) if b_eff is None else float(b_eff)
+        ltr, w_ltr = self._ltr_weights(lob, zob, use_plob_ltr,
+                                       plob_mode=plob_mode, b_eff=beff)
         _, b_small_vec, b_large_vec = self._closure(lob, P1, I1, I2, beff, ltr)
         return float(np.sum(w_ltr * b_small_vec)), float(
             np.sum(w_ltr * b_large_vec)
         )
 
     def marginalised_bias(self, lob: float, zob: float,
-                          use_plob_ltr: bool = True) -> SigmoidBias:
-        """The theta-callable b_sel(theta | lob, zob)."""
-        b_small, b_large = self.plateaus(lob, zob, use_plob_ltr)
+                          use_plob_ltr: bool = True,
+                          b_eff: float | None = None,
+                          plob_mode: str = "y3") -> SigmoidBias:
+        """The theta-callable b_sel(theta | lob, zob); ``b_eff`` and
+        ``plob_mode`` as in `plateaus`."""
+        b_small, b_large = self.plateaus(lob, zob, use_plob_ltr, b_eff,
+                                         plob_mode)
         return SigmoidBias(
             lob=float(lob),
             zob=float(zob),

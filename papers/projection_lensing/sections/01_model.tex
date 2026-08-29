@@ -1,0 +1,169 @@
+\section{The model}
+\label{sec:model}
+
+A cluster selected at observed richness $\lob$ preferentially sits behind
+extra line-of-sight structure --- the same projections that boosted its
+richness lens the sources behind it. The stacked surface density around a
+$\lob$-selected sample therefore carries, beyond the cluster's own halo, a
+projected two-halo term. The two-halo term is the correlated excess
+\emph{above} the mean matter column --- it carries no background; this is
+the \modname{cluster\_toolkit} $\Sigma_{2h}$ convention, and it is what a
+random-point-subtracted measurement contains. Around a cluster observed
+at $(\lob, \zob)$, with $\theta$ the angular offset of a line-of-sight
+neighbour and $\chi_o = \chi(\zob)$ the comoving distance,
+
+\begin{equation}
+\Sprj(R) \;=\; \int d\theta\, 2\pi\sin\theta\;
+  \bsel(\theta) \sum_M \wcl(\theta, M)\,
+  \Smis\!\big(R,\, \theta\chi_o \mid M\big),
+\label{eq:master}
+\end{equation}
+where $\Smis$ is the azimuth-averaged surface density of an NFW halo
+offset by $R_\theta = \theta\chi_o$, and the redshift weight is
+\begin{equation}
+\wcl(\theta, M) = \int dz\;{\rm common}(z)\;
+    \xinl\!\big(|d\chi|(z,\theta),\, \zob\big)\;
+    n(M, z)\, b(M, z)\; m_{\rm cl}(\theta, z),
+\qquad
+{\rm common}(z) = \frac{dV}{d\Omega\,dz}\; w_{\rm los}(z; \zob),
+\label{eq:wcl}
+\end{equation}
+with $n(M,z)$ the Tinker (2008) mass function, $b(M,z)$ the Tinker (2010)
+bias, $\xinl$ the halofit correlation function, and $|d\chi|$ the exact
+chord $d\chi^2 = \chi_z^2 + \chi_o^2 - 2\chi_z\chi_o\cos\theta$. The
+measure $2\pi\sin\theta\,d\theta$ is an exact angular integral on the
+sphere; there is no Limber approximation and no Bessel transform in this
+observable. $\bsel(\theta)$ multiplies this correlated integrand alone.
+
+A raw projected \emph{mass map} --- the mock's per-halo columns, or any
+stack that has not been random-point subtracted --- additionally contains
+the mean background column, the ``1'' of the halo-model bracket
+$[1 + b\,\bsel\,\xinl]$. That piece is kept as the separate \blk{rnd}
+channel,
+\begin{equation}
+\Sigma_{\rm bkg}(R) = \int d\theta\, 2\pi\sin\theta
+  \sum_M \wrnd(\theta, M)\, \Smis\!\big(R,\, \theta\chi_o \mid M\big),
+\qquad
+\wrnd = \int dz\;{\rm common}(z)\, n(M, z)\, m_{\rm rnd},
+\label{eq:wrnd}
+\end{equation}
+uniform in $R$ and blind to the selection; a raw mass map is the sum
+$\Stot = \Sbkg + \Sprj$ (Section~\ref{sec:mock}).
+
+Halo exclusion is applied as a \emph{counter term} (the Costanzi
+convention): the cluster occupies its own volume, so inside the chord
+ball $|d\chi| < \Rexcl = \Rlam(\lob)(1+\zob)$ the correlated integrand
+is set to $-1$, cancelling the background's $+1$ exactly. The total
+vanishes in the ball --- the same total as deleting the neighbours, as
+the mock does --- but the bookkeeping matters: $\Sbkg$ stays strictly
+uniform, and the exclusion hole (a $0.6\%$ suppression at $R \to 0$,
+gone by $R \approx 2$~cMpc) is carried by $\Sprj$, where a
+random-point-subtracted measurement keeps it. Placing the
+``1'' inside the master equation --- as the spec this implementation
+transcribed originally does --- invites exactly the bookkeeping error
+this validation chased: a background-carrying model against a
+background-free theory quantity.
+
+The exclusion masks $m_{\rm rnd}, m_{\rm cl}$ implement halo exclusion at
+$\Rexcl = \Rlam(\lob)(1+\zob)$ comoving, in two named semantics: the
+production form masks the correlated channel only
+($m_{\rm cl} = \mathbb 1[|d\chi| > \Rexcl]$, $m_{\rm rnd} = 1$), while the
+\emph{ball} form removes both channels inside the chord ball --- which is
+what a halo catalogue with the target's neighbours deleted actually does,
+and is the convention of the mock in Section~\ref{sec:mock}.
+
+\subsection{The excess $\DSprj$ is its own integral}
+
+The excess functional acts only on the radial argument and commutes with
+the outer $(\theta, z, M)$ integrals, so
+\begin{equation}
+\DSprj(R) \;\propto\; \int dz \int dM \int d\theta\;\ldots\;
+\DSmis\!\big(R,\, \theta\chi_o \mid M\big):
+\label{eq:kernelswap}
+\end{equation}
+the same operator with the kernel swap $\Smis \to \DSmis$, never a
+numerical reconstruction from a tabulated $\Sprj$. The signed negative
+lobe of $\DSmis$ at $R_\theta > R$ is load-bearing: mass conservation of
+the azimuthal average gives $\int d^2s\, \DSmis(R, s) = 0$ exactly, so
+the excess annihilates the uniform \blk{rnd} channel --- the model form
+of the random-point subtraction --- and only the correlated channel
+survives.
+
+\subsection{The effective and the selection-affected bias}
+
+The population bias of the bin enters twice. First as the bin average
+\begin{equation}
+\beff \;=\; \frac{N[b]}{N[1]}
+\;=\; \frac{\int dM\,dz\; W_{ij}(M, z)\; b(M, z)}{\int dM\,dz\; W_{ij}},
+\label{eq:beff}
+\end{equation}
+computed by the number-counts operator \modname{ClusterCounts.average}
+with the full selection weight $W_{ij}$ (mass function, volume, richness
+and redshift selection). Second through the selection-affected bias
+$\bsel(\theta)$ of the \modname{SelBiasEngine} closure: a sigmoid between
+an inner plateau $b_{\rm small}$ (the linear inversion of the observed
+richness excess) and an outer plateau
+$b_{\rm large} = \beff[1 + 0.13\,\delta^{\rm prj}]$, with the bin-averaged
+$\beff$ of Eq.~\eqref{eq:beff} threaded into the closure in place of the
+engine's internal fixed-$\lob$ average.
+
+\subsection{Numerics}
+
+The $\theta$ integral of Eq.~\eqref{eq:master} cannot be done pointwise:
+as a function of the offset $s = \theta\chi_o$ at fixed $R$, the kernel
+$\Smis(R, s)$ is a ring of width $\sim r_s$ at $s \approx R$ --- the
+azimuthal average passes through the halo's cusp --- and resolving it on
+a log grid would take $\sim\!10^4$ nodes. Each $\theta$ cell
+$[s_1, s_2]$ is instead integrated \emph{exactly}, in three steps. The
+azimuthal average
+\begin{equation}
+\Smis(R, s) = \frac{1}{2\pi}\oint d\varphi\;
+  \Sigma\big(\sqrt{R^2 + s^2 - 2Rs\cos\varphi}\big)
+\label{eq:smisdef}
+\end{equation}
+is symmetric under $R \leftrightarrow s$, so the cell integral
+$\int_{s_1}^{s_2} 2\pi s\, \Smis(R, s)\, ds = \int_{s_1}^{s_2} 2\pi s\,
+\Smis(s, R)\, ds$ is the mass of the halo, \emph{offset by} $R$,
+enclosed in the annulus --- a difference of two enclosed masses,
+$M_{\rm mis}(<\!s_2 \mid R) - M_{\rm mis}(<\!s_1 \mid R)$. Each enclosed
+mass is $\pi s^2$ times the offset aperture mean
+$\bar\Sigma_{\rm mis}(<\!s \mid R)$, and the aperture mean is by
+definition the sum $\Smis + \DSmis$, both already tabulated:
+\begin{equation}
+\int_{s_1}^{s_2} 2\pi s\,\Smis(R, s)\, ds
+= \Big[\pi s^2\, \bar\Sigma_{\rm mis}(<\!s \mid R)\Big]_{s_1}^{s_2},
+\qquad
+\bar\Sigma_{\rm mis} = \Sigma_0\big(\hat\Sigma_{\rm mis}
++ \widehat{\DSmis}\big)\big(s/r_s,\, R/r_s\big),
+\label{eq:cellmass}
+\end{equation}
+with $\Sigma_0 = 2 r_s \rho_s$ the NFW surface-density scale and the
+hatted functions the dimensionless miscentered-NFW table entries at
+aperture $s/r_s$ and offset $R/r_s$. No quadrature crosses the ring at
+all. The $\DSmis$ kernel splits into a smooth aperture-mean term
+(trapezoidal on the cell edges) minus the same exact ring. When a halo-centric truncation $r_{\rm trunc}$ is
+requested (the mock samples its particles only to $30\,h^{-1}$cMpc of
+each halo), the truncated tail $\Sigma(u > r_{\rm trunc})$ --- smooth,
+since $r_{\rm trunc} \gg r_s$ --- is subtracted by direct quadrature;
+masking the cell mass by the ring's arc-length fraction instead discards
+the cusp-concentrated mass and over-truncates by tens of percent at the
+outermost radii.
+
+The redshift integrals of Eqs.~\eqref{eq:wcl} and \eqref{eq:wrnd} are,
+at fixed $\theta$, the line-of-sight parametrization of a two-sided
+truncated \emph{Abel transform} of $\xinl$: with
+$u = |\Delta\chi_\parallel|$, the flat-sky chord gives
+$\int du\, \xinl(\sqrt{u^2 + R_\theta^2}) =
+2\int_{R_\theta}^{r_{\max}} \xinl(r)\, r\, dr / \sqrt{r^2 - R_\theta^2}$
+--- the $r = R\cosh u$ substitution that removes the Abel edge
+singularity is already built into the parametrization, and the same
+substitution underlies every $\xi \to \Sigma$ routine in
+\modname{clenspy.utils.integrate}. The exclusion ball is an exact inner
+truncation of that transform. A dedicated numerical audit (flat-sky
+chord error $\le 1.4\%$ at the grid's outer corner; thin-window weight
+variations quantified; convergence scans against an $8\times$ finer
+reference) found no singularity to protect against; the one genuine
+non-smoothness is the exclusion indicator's crossing, pinned by
+splitting each Gauss--Legendre side at $|\Delta\chi| = \Rexcl$, which
+bounds the channel quadrature error at $2.6\times10^{-3}$ at the worst
+radius.

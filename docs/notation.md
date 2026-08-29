@@ -100,9 +100,10 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 | Source density | $n_{\rm src}$ | Effective sources per unit sky area. **The one non-Mpc unit in the package** | ${\rm arcmin}^{-2}$ | `n_src_arcmin` | `survey` | ✅ |
 | Lens / cluster redshift | $z_l$, $z_{\rm cls}$ | | — | `z_cluster` | `lensing.profile` | ✅ |
 
-> 🔶 `TwoHaloTerm` implements the linear-bias $b(M)\rho_m\xi(r)$ form, **not** the
-> full $\Sigma^{\rm prj}$ of E26 eq. `Sprj` (no $\bar b_{\rm sel}$, no exclusion,
-> no $\theta$ integral). See §5 and `refactor-plan.md` errata E.3.
+> 🔶 `TwoHaloTerm` implements the linear-bias $b(M)\rho_m\xi(r)$ form; the
+> full $\Sigma^{\rm prj}$ of E26 eq. `Sprj` (with $\bar b_{\rm sel}$, exclusion,
+> and the exact $\theta$ integral) is `lensing.projection.SigmaPrj` — see §5,
+> {doc}`projection_lensing`, and `refactor-plan.md` errata E.3.
 >
 > 🔶 `selection.miscentering` computes the azimuthal average at **one fixed
 > offset** $R_{\rm mis}$. The Gamma-distributed offset population and the
@@ -146,21 +147,29 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 | Miscentering scale | $\tau_{\rm mis}$ | $0.17\pm0.04$; $p(R_{\rm mis})=\frac{R_{\rm mis}}{(\tau R_\lambda)^2}e^{-R_{\rm mis}/(\tau R_\lambda)}$. **Not the EMG $\tau$** | — | ⬜ | `selection` | ⬜ |
 | Boost factor | $\mathcal B(R)$ | Member dilution of the source sample (McC19) | — | `boost_factor_nfw` | `selection.boost` | ✅ |
 
-## 5. Projection two-halo (E26 §4.1) — not yet implemented
+## 5. Projection two-halo (E26 §4.1) — `lensing.projection.SigmaPrj`
 
-| Quantity | Symbol | Meaning | Units | |
-|---|---|---|---|---|
-| Angular separation | $\theta$ | LOS neighbour angular offset. Measure is $2\pi\sin\theta\,d\theta$ — spherical, **no Limber** | rad | ⬜ |
-| Projected offset | $R_\theta=\theta D_A(z^{\rm ob})$ | Neighbour transverse separation | Mpc | ⬜ |
-| Selection bias | $\bar b_{\rm sel}(\lambda^{\rm ob},z^{\rm ob},\theta)$ | $\bar b_{\rm small}[1-\sigma(\theta)]+\bar b_{\rm large}\sigma(\theta)$; multiplies the **correlated channel only** | — | ⬜ |
-| LOS separation | $d\chi$ | $\sqrt{\chi_z^2+\chi_o^2-2\chi_z\chi_o\cos\theta}$ — law of cosines | Mpc | ⬜ |
-| Exclusion angle | $\theta_{\rm excl}(z)$ | Law of cosines from $R_\lambda$; masks $\theta\le\theta_{\rm excl}$ | rad | ⬜ |
-| Random channel | $w_{\rm rnd}(M)$ | $\int dz\,{\rm common}(z)\,n(M,z)$ | | ⬜ |
-| Correlated channel | $w_{\rm cl}(\theta,M)$ | $\int dz\,{\rm common}(z)\,\xi_{\rm NL}\,n\,b\,\mathbb 1[\theta>\theta_{\rm excl}]$ | | ⬜ |
-| Common weight | ${\rm common}(z)$ | $\frac{dV}{d\Omega dz}w_{pz}(z;z^{\rm ob})w_z^{\rm GL}$ — **no $\Omega(z)$** | | ⬜ |
+| Quantity | Symbol | Meaning | Units | Code | |
+|---|---|---|---|---|---|
+| Projected surface density | $\Sigma_{\rm prj}(R)$ | E26 eq. 13, comoving, h-free | $M_\odot\,{\rm Mpc}^{-2}$ | `SigmaPrj.sigma_prj` | ✅ |
+| Excess surface density | $\Delta\Sigma_{\rm prj}(R)$ | The **kernel swap** $\Sigma_{\rm mis}\to\Delta\Sigma_{\rm mis}$ inside the same operator — never reconstructed from $\Sigma_{\rm prj}$ | $M_\odot\,{\rm Mpc}^{-2}$ | `SigmaPrj.deltasigma_prj` | ✅ |
+| Angular separation | $\theta$ | LOS neighbour angular offset. Measure is $2\pi\sin\theta\,d\theta$ — spherical, **no Limber**; integrated as **exact per-cell annulus masses** (the $\Sigma_{\rm mis}$ ring at $\theta\chi_o\approx R$ defeats pointwise rules) | rad | `theta_grid`, `theta_edges` | ✅ |
+| Projected offset | $R_\theta=\theta \chi(z^{\rm ob})$ | Neighbour transverse comoving separation ($=\theta D_A$ physical) | Mpc | `kernel` | ✅ |
+| Selection bias | $\bar b_{\rm sel}(\lambda^{\rm ob},z^{\rm ob},\theta)$ | $\bar b_{\rm small}[1-\sigma(\theta)]+\bar b_{\rm large}\sigma(\theta)$; multiplies the **correlated channel only** | — | `SigmoidBias`, per-bin argument | ✅ |
+| LOS separation | $d\chi$ | $\sqrt{\chi_z^2+\chi_o^2-2\chi_z\chi_o\cos\theta}$ — law of cosines | Mpc | `dchi` | ✅ |
+| Exclusion radius | $R_{\rm excl}$ | $R_\lambda(\lambda^{\rm ob})(1+z^{\rm ob})$ comoving; `"counter"` (default: $-1$ counter term in the ball, background uniform), `"cl"` slab (E.3), `"ball"` | Mpc | `r_excl`, `exclusion=` | ✅ |
+| Random channel | $w_{\rm rnd}(\theta,M)$ | $\int dz\,{\rm common}(z)\,n(M,z)\,m_{\rm rnd}$ | | `_channel_weights` | ✅ |
+| Correlated channel | $w_{\rm cl}(\theta,M)$ | $\int dz\,{\rm common}(z)\,\xi_{\rm NL}\,n\,b\,m_{\rm cl}$ | | `_channel_weights` | ✅ |
+| Common weight | ${\rm common}(z)$ | $\frac{dV}{d\Omega dz}w_{pz}(z;z^{\rm ob})$ — **no $\Omega(z)$**; `los_window="hard"` replaces $w_{pz}$ by a top-hat in $\chi$ (the Costanzi mock) | | `common`, `los_window=` | ✅ |
 
-Keep `rnd` and `cl` stored separately and sum at the end; the scientific
-argument is about which dominates where.
+**The two-halo term carries no background**: $\Sigma_{\rm prj}$ is the
+correlated excess $b\,\bar b_{\rm sel}\,\xi_{\rm NL}$ integral alone
+(cluster_toolkit $\Sigma_{2h}$ convention; `channel="cl"`, the default).
+The mean background column (the `1` of the halo-model bracket) is the
+separate `rnd` channel, added via `channel="sum"` only against raw mass
+maps. Both stored on `self.rnd`/`self.cl`, served by `components()`.
+Validated against the Costanzi mock in
+`validation/validate_sigma_prj_mock.py`.
 
 ---
 

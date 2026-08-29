@@ -113,6 +113,7 @@ two_halo_term
 
 lensing_profile
 miscentering
+projection_lensing
 boost_factor
 ```
 

@@ -1,0 +1,105 @@
+\documentclass[a4paper, 11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[left=18mm, right=18mm, top=22mm, bottom=22mm]{geometry}
+
+\usepackage{amsmath,amsfonts,amssymb,bm}
+\usepackage[english]{babel}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{multirow}
+
+% Preferred style -----------------------------------------------------
+\definecolor{harvardcrimson}{HTML}{8C1D40}
+\definecolor{softgrey}{HTML}{F3F3F3}
+\definecolor{kwcol}{HTML}{1F4E79}
+\definecolor{datablockcol}{HTML}{4B644A}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=harvardcrimson,
+  citecolor=harvardcrimson,
+  urlcolor=harvardcrimson,
+  hypertexnames=false,
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textcolor{harvardcrimson}{\textbf{Projection lensing in CLensPy}}}
+\lhead{\textcolor{harvardcrimson}{\textbf{J.\,H.\,Esteves}}}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+\setlength{\headheight}{14pt}
+\renewcommand{\baselinestretch}{1.12}
+
+% Pretty-printers -------------------------------------------------------
+\newcommand{\modname}[1]{\textcolor{kwcol}{\texttt{#1}}}
+\newcommand{\blk}[1]{\textcolor{datablockcol}{\texttt{#1}}}
+\newcommand{\pyfile}[1]{{\small\texttt{#1}}}
+
+% Math macros ------------------------------------------------------------
+\newcommand{\lob}{\lambda^{\rm ob}}
+\newcommand{\ltr}{\lambda^{\rm tr}}
+\newcommand{\zob}{z^{\rm ob}}
+\newcommand{\hMpc}{h^{-1}\,\mathrm{Mpc}}
+\newcommand{\hMsun}{h^{-1}\,M_{\odot}}
+\newcommand{\Sprj}{\Sigma^{\rm prj}}
+\newcommand{\Stot}{\Sigma_{\rm tot}}
+\newcommand{\Sbkg}{\Sigma_{\rm bkg}}
+\newcommand{\DSprj}{\Delta\Sigma^{\rm prj}}
+\newcommand{\Smis}{\Sigma_{\rm mis}}
+\newcommand{\DSmis}{\Delta\Sigma_{\rm mis}}
+\newcommand{\bsel}{b_{\rm sel}}
+\newcommand{\beff}{b_{\rm eff}}
+\newcommand{\xinl}{\xi_{\rm NL}}
+\newcommand{\Rexcl}{R_{\rm excl}}
+\newcommand{\Rlam}{R_\lambda}
+\newcommand{\wrnd}{w_{\rm rnd}}
+\newcommand{\wcl}{w_{\rm cl}}
+
+% generated values --------------------------------------------------------
+\input{build/values.tex}
+
+\title{\vspace{-4ex}\huge \textbf{Projection Lensing in CLensPy}\\[0.5ex]
+       \Large \textbf{$\Sprj$ and $\DSprj$: implementation and validation
+       against the Costanzi mock}}
+\author{J.\,H.\,Esteves\thanks{ORCID:
+  \href{https://orcid.org/0000-0003-4373-2386}{0000-0003-4373-2386}}}
+\date{2026-08-28}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We implement the projected two-halo surface density around
+richness-selected clusters, $\Sprj(R\,|\,\lob,\zob)$ and its excess
+$\DSprj$ (Costanzi et al.\ 2026, Eq.~13), in \modname{CLensPy} as the
+exact angular integral of the offset-NFW kernel against the correlated
+excess $b\,\bsel(\theta)\,\xinl$ --- the two-halo term carries no
+background; the mean matter column is a separate, near-uniform channel
+added only when the comparison target is a raw mass map. The effective bias enters as the bin average
+$\beff = N[b]/N[1]$ from the number-counts operator, threaded into the
+$\bsel$ closure. Validated against the Costanzi mock catalogue
+(\NHalosProfiled{} profiled halos), the model reproduces the
+selected-to-random stacked ratio in the two-halo regime
+($R > 3\,h^{-1}$cMpc) to a maximum absolute deviation of
+\MaxTwoHaloResid{} across all \NBins{} $(\lob, z)$ bins, and the absolute
+mass-map column $\langle\Stot\rangle$ at $(\lob = 20, \zob = 0.5)$ to
+\LegCMaxDev{}. The
+closure's parameter-free prediction of the mean projected richness
+boost, $\Delta^{\rm prj}_{\rm RND} = P_1 + \beff I_2$, matches the
+mock's measured $\langle\lob - \ltr\rangle$ to \DeltaPrjAgreeMin{}--%
+\DeltaPrjAgreeMax{} in every bin.
+\end{abstract}
+
+\tableofcontents
+
+\input{sections/01_model}
+\input{sections/02_mock}
+\input{sections/03_results}
+
+\end{document}

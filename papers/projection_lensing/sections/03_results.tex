@@ -1,0 +1,133 @@
+\section{Results}
+\label{sec:results}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig_ratio_grid.pdf}
+  \caption{The selection-bias observable
+  $\langle\Stot\rangle_{\lambda}/\langle\Stot\rangle_{\rm RND}$ in the
+  \NBins{} $(\lob, z)$ bins: mock ($1\sigma$ band) against the
+  \modname{SigmaPrj} model. The dotted line marks the
+  $R = 3\,h^{-1}$cMpc boundary of the scored two-halo regime.}
+  \label{fig:ratio}
+\end{figure}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{fig_one2one.pdf}
+  \caption{One-to-one comparison of the absolute mass-map column
+  $\langle\Stot\rangle$ in all \NBins{} bins: mock ($1\sigma$ band)
+  against the \modname{SigmaPrj} model, with the ratio below each panel.
+  Unlike Fig.~\ref{fig:ratio}, no random stack is divided out, so the
+  amplitude of the model is tested rather than only its shape. The dotted
+  line marks $R = 3\,h^{-1}$cMpc.}
+  \label{fig:one2one}
+\end{figure*}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.62\textwidth]{fig_absolute.pdf}
+  \caption{Absolute mass-map column $\langle\Stot\rangle$ at
+  $\lob = 20 \pm 2.5\%$, $\zob = 0.5 \pm 5\%$, mock against model, with
+  the fractional residual below.}
+  \label{fig:absolute}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.62\textwidth]{fig_decomposition.pdf}
+  \caption{Channel decomposition of the model at the
+  $\lob \in [20,30)$, $z \in [0.35, 0.50)$ bin: the observable
+  $\Sprj$ (correlated, Eq.~\ref{eq:master}), the near-uniform background
+  $\Sbkg$ (Eq.~\ref{eq:wrnd}), and their sum $\Stot$, the mass-map
+  quantity the mock columns record.}
+  \label{fig:decomposition}
+\end{figure}
+
+\begin{table}[t]
+  \centering\small
+  \input{table_bins.tex}
+  \caption{Per-bin summary. $\beff = N[b]/N[1]$ from
+  \modname{ClusterCounts.average}; $(b_{\rm small}, b_{\rm large})$ the
+  closure plateaus at that $\beff$; $\Delta^{\rm prj}_{\rm mock} =
+  \langle\lob - \ltr\rangle$ measured in the mock against the closure's
+  parameter-free prediction $\Delta^{\rm prj}_{\rm RND} = P_1 + \beff
+  I_2$; and the maximum absolute residual of the ratio in the scored
+  two-halo regime.}
+  \label{tab:bins}
+\end{table}
+
+In the two-halo regime, $R > 3\,h^{-1}$cMpc, the model reproduces the
+mock's selected-to-random ratio in every bin
+(Fig.~\ref{fig:ratio}, Table~\ref{tab:bins}): the per-bin maximum
+absolute deviation ranges from \MinTwoHaloResid{} to \MaxTwoHaloResid{},
+with a median across bins of \MedTwoHaloResid{}. This is the regime the
+observable is designed for --- the ratio cancels the common halo budget,
+and what remains tests the $b\,\bsel\,\xinl$ weighting of the correlated
+channel. The absolute mass-map column $\langle\Stot\rangle$ (Fig.~\ref{fig:absolute})
+agrees to \LegCMaxDev{} there; the residual offset is the
+Tinker-versus-simulation halo budget entering both channels alike, which
+is exactly what the ratio removes.
+
+The closure's prediction of the mean projected richness boost deserves
+separate mention. $\Delta^{\rm prj}_{\rm RND} = P_1 + \beff I_2$ is
+built entirely from the projection-kernel operators and the bin
+$\beff$ --- no fit to the mock --- and it matches the measured
+$\langle\lob - \ltr\rangle$ to \DeltaPrjAgreeMin--\DeltaPrjAgreeMax{}
+across all \NBins{} bins (Table~\ref{tab:bins}). The operator machinery
+of the selection model is therefore validated independently of the
+$b_{\rm small}$ calibration.
+
+\subsection{The inner region: closure equivalence and the
+marginalisation bracket}
+\label{sec:inner}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.66\textwidth]{fig_inner_study.pdf}
+  \caption{The $b_{\rm small}$ marginalisation bracket at the reference
+  bin ($\lob \in [20,30)$, $z \in [0.35,0.50)$): the mock ratio against
+  the same closure fed four different $\ltr$ marginalisations. The
+  fitted inner plateau is $b_{\rm small} = \BsmallFit{}$.}
+  \label{fig:inner}
+\end{figure}
+
+Inside $\sim 2\Rlam$ the comparison is reported unscored: the model
+ratio overshoots the mock by up to \MaxInnerResid{} there. Transcribing
+the Costanzi notebook's closure term by term shows its background and
+normalisation are \emph{algebraically identical} to ours ---
+$\bar\Delta_{\rm bkg} = P_1 + b_{\rm large} I_1$ and the two-halo
+normalisation $I_2 - I_1$ --- so the entire inner plateau hinges on the
+$\ltr$ marginalisation of $b_{\rm small}(\ltr)$, and the notebook does
+not define the marginalisation it feeds its $\theta$-grid interpolator
+(the function is used but absent). Four defensible choices bracket the
+mock (Fig.~\ref{fig:inner}): the DES~Y3 EMG kernel gives
+$b_{\rm small} = \BsmallYthree{}$ (too high --- its tail, calibrated on
+SDSS injections, overstates $\langle\lob - \ltr\rangle$ against this
+unpercolated mock); the self-consistent exponential kernel weighted by
+the $n(\ltr)$ prior gives \BsmallSelf{} (far too high --- the steep
+prior under the flat exponential tail drives the marginal boost to
+three times the kernel's own mean); the closure evaluated at its own
+mean boost $\Delta_{\rm RND}$ returns exactly $b_{\rm small} = \beff =
+\BsmallPoint{}$ (too low --- an algebraic identity of the closure,
+$\Delta_{\rm RND} = P_1 + \beff I_2$, and a useful internal
+consistency check). The mock-implied plateau, fitted on
+$R < 1\,h^{-1}$cMpc, is $b_{\rm small} = \BsmallFit{}$: about
+$2.5\,\beff$, between the point evaluation and the EMG
+marginalisation. With that single calibrated scalar, the model tracks
+the mock ratio to within \FitMaxPull{}$\sigma$ at \emph{every}
+radius (mean pull \FitMeanPull{}$\sigma$, Fig.~\ref{fig:inner}) ---
+plateau, sigmoid transition, and two-halo tail all at once, so the
+closure's shape needs no retuning, only its $\ltr$ marginalisation.
+Matching that from first principles requires the boost-weighted
+$P(\ltr \mid \lob)$ of the mock itself --- a calibration of the
+richness kernel, not a bug fix; the fitted value is recorded here as
+the target any such calibration must hit.
+
+All numbers, tables and figures in this report are generated by
+\pyfile{scripts/make\_results.py} $\to$
+\pyfile{scripts/make\_figures.py} / \pyfile{scripts/make\_values.py}
+from the mock catalogue and the \modname{CLensPy} model; the
+configuration is stamped in the header of every CSV under
+\pyfile{data/processed/}. The same comparison runs, with frozen gates,
+as \pyfile{validation/validate\_sigma\_prj\_mock.py}.

@@ -23,6 +23,16 @@ serves every halo (docs/miscentering_math.md section 9.1).
 NOTE: units follow `NfwProfile` -- lengths in Mpc, densities in
 Msun/Mpc^3, and the returned surface densities in Msun/Mpc^2.
 
+NOTE: **comoving vs physical is decided by the profile's** ``rho_ref``,
+not by this table: the grid is dimensionless and the scale is
+:math:`\Sigma_0 = 2 r_s \rho_s \propto \rho_{\rm def}^{1/3}\cdot\rho_{\rm
+def}` through :math:`(r_s, \rho_s)`. A comoving
+:math:`\bar\rho_m = \Omega_m \rho_{c,0}` gives comoving
+:math:`\Sigma`; the physical :math:`\rho_{\rm crit}(z)` (the
+``y3_cluster_cpp`` ``nfw_off_center`` convention) gives physical
+:math:`\Sigma = (1+z)^2 \Sigma_{\rm com}`. That :math:`(1+z)^2` is the
+classic silent factor when comparing the two pipelines.
+
 NOTE: :math:`\widehat{\Delta\Sigma}_{\rm mis}` is **signed** and negative
 for :math:`x_{\rm mis} \gtrsim x`. That lobe is physical and is what makes
 the mean-field term cancel -- do not clamp it (section 7).
@@ -161,7 +171,16 @@ class NfwMiscenteringTable:
         return NfwProfile._gbarNfw(x) - NfwProfile._fNfw(x)
 
     def _query(self, interp, centred, x, x_mis):
-        r"""Lookup at (x, x_mis), with the two bounds handled differently.
+        r"""Lookup at (x, x_mis), with the three bounds handled differently.
+
+        Below the table's smallest **x_mis**, evaluate the centred closed
+        form: an offset :math:`\ll r_s` is indistinguishable from no
+        offset. Clamping the axis instead while building
+        :math:`q = x/x_{\rm mis}` from the *raw* offset shears the lookup
+        off the grid diagonal -- for :math:`x_{\rm mis} \sim 10^{-4}` the
+        interpolant lands :math:`\sim\!20\times` low. (Found by
+        `clenspy.lensing.projection.SigmaPrj`, whose smallest
+        :math:`\theta` nodes are exactly this limit.)
 
         Below the table's smallest x, clamp: the query sits deep inside the
         offset ring, where the miscentered profile is flat, so the edge
@@ -176,9 +195,26 @@ class NfwMiscenteringTable:
         return a constant while the true profile keeps falling, which is
         unbounded error.
 
-        ``x_mis`` outside its own range is clamped either way.
+        Above the table's largest **x_mis**, use the far-field limit
+        (valid for :math:`x \lesssim x_{\rm mis}`, which is the only way
+        such a query arises: an aperture or ring much smaller than the
+        offset): the ring average of the distant halo's surface density
+        is its local value, :math:`\hat\Sigma_{\rm mis} \to
+        \hat\Sigma_{\rm cen}(x_{\rm mis})`, and the aperture mean equals
+        the local value to :math:`O((x/x_{\rm mis})^2)`, so
+        :math:`\widehat{\Delta\Sigma}_{\rm mis} \to 0`. Clamping the axis
+        instead evaluates the halo :math:`x_{\rm mis}^{\max}/x_{\rm mis}`
+        times closer than it is.
         """
         x = np.atleast_1d(np.asarray(x, dtype=float))
+        if np.log(x_mis) < self._ln_x_mis[0]:
+            return centred(x)
+        if np.log(x_mis) > self._ln_x_mis[-1]:
+            if interp is self._sigma:
+                far = float(self._centred_sigma(
+                    np.atleast_1d(float(x_mis)))[0])
+                return np.full(x.shape, far)
+            return np.zeros(x.shape)
         x_lo, x_hi = self._x_range
         out = np.empty(x.shape, dtype=float)
 
@@ -186,8 +222,7 @@ class NfwMiscenteringTable:
         tabled = ~above
         if np.any(tabled):
             xt = np.maximum(x[tabled], x_lo)          # clamp the left bound
-            ln_xm = np.clip(
-                np.log(x_mis), self._ln_x_mis[0], self._ln_x_mis[-1])
+            ln_xm = min(np.log(x_mis), self._ln_x_mis[-1])
             ln_q = np.clip(np.log(xt / x_mis), self._ln_q[0], self._ln_q[-1])
             pts = np.stack([np.full_like(ln_q, ln_xm), ln_q], axis=-1)
             out[tabled] = interp(pts)

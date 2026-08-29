@@ -296,6 +296,33 @@ def test_the_marginalisation_commutes_with_the_sigmoid():
                                               rel=1e-12), fraction
 
 
+def test_plateaus_accept_an_external_b_eff():
+    r"""The ``b_eff=`` override: `ClusterCounts.average` computes the
+    bin-averaged :math:`N[b]/N[1]` and feeds it here in place of the
+    engine's own fixed-:math:`\lambda^{\rm ob}` average. ``None``
+    reproduces the internal value exactly; a passed value threads into
+    both plateaus (:math:`b_{\rm large} = b_{\rm eff}(1 +
+    0.13\delta^{\rm prj})` directly, :math:`b_{\rm small}` through the
+    closure)."""
+    engine = _engine()
+    internal = engine.plateaus(LOB, ZOB)
+    explicit = engine.plateaus(LOB, ZOB, b_eff=engine.b_eff(LOB, ZOB))
+    assert explicit == pytest.approx(internal, rel=1e-14)
+
+    b_small_2, b_large_2 = engine.plateaus(LOB, ZOB, b_eff=2.0)
+    b_small_3, b_large_3 = engine.plateaus(LOB, ZOB, b_eff=3.0)
+    assert b_small_2 != b_small_3 and b_large_2 != b_large_3
+    # b_large follows the closure formula at the passed b_eff exactly
+    # (delta_prj itself depends on b_eff through Delta_RND = P1 + b_eff I2)
+    p1, i1, i2 = engine.operators(LOB, ZOB)
+    ltr, w = engine._ltr_weights(LOB, ZOB)
+    delta = (LOB - ltr) / (p1 + 2.0 * i2) - 1.0
+    expected = float(np.sum(w * 2.0 * (1.0 + engine.boost_slope * delta)))
+    assert b_large_2 == pytest.approx(expected, rel=1e-12)
+    profile = engine.marginalised_bias(LOB, ZOB, b_eff=2.0)
+    assert profile.b_large == pytest.approx(b_large_2, rel=1e-14)
+
+
 def test_the_ltr_weights_are_normalised():
     _, weights = _engine()._ltr_weights(LOB, ZOB)
     assert np.sum(weights) == pytest.approx(1.0)

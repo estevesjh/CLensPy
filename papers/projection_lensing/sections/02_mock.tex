@@ -1,0 +1,63 @@
+\section{The mock and the estimators}
+\label{sec:mock}
+
+The reference is the Costanzi mock catalogue
+\pyfile{mock\_lob\_sigma\_catalog.fits}: \NHalosTotal{} halos of an
+octant light-cone (Buzzard v1.1 cosmology, $\Omega_m = 0.286$,
+$h = 0.7$), of which \NHalosProfiled{} carry surface-density profiles.
+Each halo is dressed with an analytic NFW profile (Duffy et al.\ 2008
+$c_{200m}$, $M_{200m}$ from the $z{=}0$ comoving mean density,
+untruncated Baltz $\tau \to \infty$ form) that is Monte-Carlo sampled
+into equal-mass particles out to $30\,h^{-1}$cMpc of its centre. A true
+richness is drawn from the DES~Y1 HOD
+($\log_{10} M_{\rm min} = 11.385$, $\log_{10} M_1 = 12.696$,
+$\alpha = 0.859$, $\sigma_\lambda = 0.181$, $\epsilon = 0.284$,
+$z_\star = 0.4544$ --- the exact set \modname{HodMor.buzzard()}
+carries), and an observed richness by counting photo-z--weighted mock
+galaxies through the redMaPPer aperture and radial filter, without
+percolation. Per halo, the catalogue's \pyfile{SIGMA\_PRJ} column is the target-removed
+mass-map profile $\Stot(R) = \Sbkg + \Sprj$ --- mass per comoving annulus on 20
+log bins spanning $0.01$--$30\,h^{-1}$cMpc from all \emph{other} halos
+within a sharp comoving top-hat of half-depth $50\,h^{-1}$cMpc,
+excluding neighbours inside the 3-D chord ball
+$\Rexcl = \Rlam(1+z)$. The full recipe, including the reverse-engineered
+differences between the delivered file and the tutorial notebook, is
+documented in \pyfile{MOCK\_RECIPE.md} alongside the catalogue.
+
+The model is evaluated in the mock-matched configuration: hard
+line-of-sight window of half-depth $50\,h^{-1}$cMpc, ball exclusion,
+halo-centric truncation at $30\,h^{-1}$cMpc, transverse aperture
+$60\,h^{-1}$cMpc, \modname{HodMor.buzzard()}, and Buzzard~v1.1
+cosmology with a CAMB halofit $\xinl$. Model profiles are
+annulus-averaged on the mock's radial grid --- the mock's $\Sigma$ is a
+mass per annulus, not a midpoint sample --- and the first four
+(Poisson-starved) annuli are dropped. The mock is $h$-scaled and the
+package $h$-free; radii, masses and surface densities convert once each
+at the script boundary.
+
+\paragraph{Estimators.} Two statistics are compared per
+$(\lob, z)$ bin, on the grid
+$\lob \in [20, 30, 45, 60, 500)$, $z \in [0.20, 0.35, 0.50, 0.65)$:
+the \emph{absolute} stacked $\langle\Stot\rangle$, and the
+selected-to-random \emph{ratio}
+$\langle\Stot\rangle_{\lambda}/\langle\Stot\rangle_{\rm RND}$, where the
+random stack reweights the full profiled population to the selected
+sample's $(\ln M, z)$ histogram (Hao-Yi Wu's estimator; cells of
+$d\ln M = 0.1$, $dz = 0.05$). The model ratio divides the
+$\bsel(\theta)$ evaluation by the same model with the constant $\beff$
+in its place --- the same masses and redshifts, unbiased clustering
+weight. Each bin is evaluated at the number-counts operator's own first
+moments, $\langle\lob\rangle_{ij} = N[\lambda]/N[1]$ and
+$\langle z\rangle_{ij} = N[z]/N[1]$ --- the model never reads the mock
+for its evaluation points. Those predictions agree with the mock's
+selected-sample means to better than $1.4\%$ in $\lob$ and $0.005$ in
+$z$ in every bin, a further independent check of the counts operator.
+
+One caveat of the catalogue matters for interpretation: the stored
+richness columns are a statistically identical but \emph{independent}
+re-draw relative to the draw that decided which halos received profiles,
+so object-level joint conditioning is not self-consistent; the ensemble
+averages used here are unaffected. The mock's observed-richness kernel
+is its own (unpercolated) galaxy counting, while the model's closure
+uses the DES~Y3 EMG calibration --- a genuine model--mock difference
+that surfaces in the inner region (Section~\ref{sec:results}).

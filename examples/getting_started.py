@@ -329,6 +329,59 @@ for frac in (0.0, 0.5, 1.0, 2.0, 5.0):
     print(f"theta/theta_lambda={frac:4.2f}  b_sel={profile(theta):.4f}")
 
 # %% [markdown]
+# ## Projection lensing Sigma_prj
+
+# %% tags=["projection-lensing"]
+from clenspy.cosmology import BiasModel as _BiasModel, TinkerMassFunction as _Tmf
+from clenspy.cosmology.pkgrid import PkGrid as _PkGrid
+from clenspy.lensing import SigmaPrj
+from clenspy.selection import XiNL
+
+# the projected two-halo surface density around a richness-selected
+# cluster (Costanzi 2026 eq. 13): an exact 2 pi sin(theta) d theta
+# angular integral -- no Limber, no Bessel -- of the offset-NFW kernel
+# against two channels, rnd (the uniform mean, no b_sel) and cl (the
+# correlated excess, carrying b_sel(theta) from the engine above).
+# Real halo model this time: PkGrid disk-caches CAMB, so it costs seconds
+# once and nothing after.
+_tmf = _Tmf(cosmo=cosmo, zvec=np.linspace(0.0, 1.0, 21))
+_bm = _BiasModel(cosmo=cosmo)
+_h, _om = cosmo.h, cosmo.Om0
+
+def hmf_real(mass, z):
+    """dn/dM [Msun^-1 Mpc^-3] at physical Msun (one visible unit boundary:
+    physical Msun -> the Tinker grid's Omega_m h^-1 Msun)."""
+    m, zz = np.broadcast_arrays(np.asarray(mass, float), np.asarray(z, float))
+    return _tmf.dndlnm(m.ravel() * _h / _om, zz.ravel()).reshape(m.shape) * _h**3 / m
+
+def bias_real(mass, z):
+    m, zz = np.broadcast_arrays(np.asarray(mass, float), np.asarray(z, float))
+    return np.asarray(_bm.bias(m.ravel(), zz.ravel())).reshape(m.shape)
+
+xi_real = XiNL(_PkGrid(cosmo=cosmo, nonlinear=True), clip=False)  # signed BAO trough
+
+prj = SigmaPrj(cosmology=cosmo, xi_nl=xi_real, hmf=hmf_real, bias=bias_real,
+               los_window="hard", los_depth=71.4,  # the Costanzi-mock window
+               exclusion="ball")
+R_prj = np.array([0.5, 2.0, 8.0, 25.0])  # comoving Mpc
+# b_sel from the toy engine above: its SHAPE is right, its amplitude is
+# not (see docs/selection_bias.md); the mutually calibrated pipeline is
+# validation/validate_sigma_prj_mock.py
+sigma_tot = prj.sigma_prj(R_prj, 20.0, 0.5, profile, channel="sum")
+parts = prj.components()
+print("Sigma_prj(R | lob=20, zob=0.5) [Msun/Mpc^2 comoving]:")
+for k, r in enumerate(R_prj):
+    print(f"  R={r:5.1f}  rnd={parts['rnd'][k]:.3e}  cl={parts['cl'][k]:.3e}"
+          f"  sum={sigma_tot[k]:.3e}")
+
+# DeltaSigma_prj is its OWN integral (the DeltaSigma_mis kernel inside the
+# same operator) -- never a reconstruction from Sigma_prj. Its rnd channel
+# cancels to a boundary term: the excess functional annihilates constants.
+ds = prj.deltasigma_prj(R_prj, 20.0, 0.5, profile)
+print("DeltaSigma_prj:", np.array2string(ds, precision=3),
+      f"\n  rnd/cl at R=8: {prj.rnd[2] / prj.cl[2]:+.4f} (boundary term only)")
+
+# %% [markdown]
 # ## Survey
 
 # %% tags=["survey"]

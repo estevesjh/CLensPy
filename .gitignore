@@ -227,7 +227,13 @@ docs/*.pdf
 # Reference material kept locally, not part of the package
 *.djvu
 docs/Slice_*.md
-/papers/
+# papers/ holds untracked reference PDFs -- except the projection-lensing
+# report SOURCES (tex/scripts/Makefile); its build/ and data/ stay generated
+/papers/*
+!/papers/projection_lensing/
+/papers/projection_lensing/build/
+/papers/projection_lensing/data/
+
 
 # Example script output
 examples/*.png

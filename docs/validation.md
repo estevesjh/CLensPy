@@ -261,3 +261,45 @@ against the generator it was built from and against y3's own tables. Skips
 itself when `Y3_CLUSTER_CPP_DIR` is unset. The table design, the accuracy
 budget, and why `cluster_toolkit` is used above $x_{\rm mis} = 0.1$ and the
 by-parts reduction below it are in {doc}`miscentering_math` section 9.
+
+---
+
+## Projection lensing against the Costanzi mock
+
+**Script:** `validation/validate_sigma_prj_mock.py`
+**Reference:** `mock_lob_sigma_catalog.fits` under `$SELECTION_BIAS_DIR` —
+3,009,025 halos of an octant light-cone dressed with untruncated NFW
+profiles and a synthetic redMaPPer richness; per halo, the target-removed
+$\Sigma^{\rm prj}(R)$ on 20 log annuli (recipe: `MOCK_RECIPE.md` in the
+same directory). Skips itself when the FITS is absent.
+
+The full chain under test: `ClusterCounts.average` supplies the bin
+$b_{\rm eff} = N[b]/N[1]$; `SelBiasEngine.marginalised_bias(...,
+b_eff=...)` supplies $b_{\rm sel}(\theta)$; `SigmaPrj` — in the
+mock-matched configuration (hard $\pm 50\,h^{-1}$cMpc window, counter-term
+exclusion (the $-1$ in the chord ball), halo-centric truncation at 30 $h^{-1}$cMpc, `HodMor.buzzard()`,
+Buzzard v1.1 cosmology) — is annulus-averaged on the mock grid.
+
+```{figure} _static/validation/sigma_prj_ratio_grid.png
+:alt: Selected-to-random Sigma_prj ratio, model vs mock, 12 bins
+:width: 100%
+
+The selection-bias observable
+$\langle\Sigma^{\rm prj}\rangle_{\lambda}/\langle\Sigma^{\rm prj}
+\rangle_{\rm RND}$ in the 12 $(\lambda^{\rm ob}, z)$ bins. The random
+stack is Hao-Yi Wu's mass-and-redshift weighted estimator.
+```
+
+Scored: the two-halo regime, $R > 3\,h^{-1}$cMpc, where the per-bin
+maximum residual of the ratio is 0.009–0.039 (all 12 bins pass at
+$\max(2\sigma_{\rm mock}, 0.02)$); the absolute
+$\langle\Sigma^{\rm prj}\rangle$ at $(\lambda^{\rm ob}=20, z=0.5)$ agrees
+to better than 10% there, the remainder being the Tinker-vs-simulation
+halo budget that the ratio cancels. Unscored and reported: inside
+$\sim 2R_\lambda$ the ratio is set by the closure's $b_{\rm small}$ — a
+linear inversion whose $\langle\lambda^{\rm ob}-\lambda^{\rm tr}\rangle$
+input uses the Y3 EMG kernel while the mock draws its own (unpercolated)
+boosts. The closure's random-line-of-sight prediction
+$\Delta_{\rm RND} = P_1 + b_{\rm eff} I_2$ matches the mock's measured
+mean boost to 3–13% in every bin — the operator machinery, validated
+independently of that calibration.
