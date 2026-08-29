@@ -190,12 +190,12 @@ unscored. See {doc}`validation`.
 
 ```
 Sigma_prj(R | lob=20, zob=0.5) [Msun/Mpc^2 comoving]:
-  R=  0.5  rnd=3.566e+12  cl=4.130e+13  sum=4.486e+13
-  R=  2.0  rnd=3.576e+12  cl=2.413e+13  sum=2.770e+13
-  R=  8.0  rnd=3.575e+12  cl=2.980e+12  sum=6.555e+12
-  R= 25.0  rnd=3.538e+12  cl=8.777e+11  sum=4.415e+12
-DeltaSigma_prj: [9.427e+11 8.597e+12 4.784e+12 1.146e+12]
-  rnd/cl at R=8: +0.0044 (boundary term only)
+  R=  0.5  rnd=3.582e+12  cl=4.091e+13  sum=4.449e+13
+  R=  2.0  rnd=3.579e+12  cl=2.398e+13  sum=2.756e+13
+  R=  8.0  rnd=3.575e+12  cl=2.959e+12  sum=6.534e+12
+  R= 25.0  rnd=3.538e+12  cl=8.586e+11  sum=4.396e+12
+DeltaSigma_prj: [9.972e+11 8.488e+12 4.718e+12 1.169e+12]
+  rnd/cl at R=8: +0.0001 (boundary term only)
 ```
 
 See also: {doc}`api/index` for the full `clenspy.lensing` reference,

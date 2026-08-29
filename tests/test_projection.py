@@ -171,7 +171,9 @@ def test_kernel_cell_mass_matches_brute_force(model):
     the thing the trick replaces."""
     prj = _prj(model)
     chi_o = float(prj.chi(ZOB))
-    s_edges = prj.theta_edges(ZOB) * chi_o
+    # the edges the kernel actually uses: aligned with the per-z exclusion
+    # crossings when exclusion is active
+    s_edges = prj.theta_edges(ZOB, LOB) * chi_o
     rs, sigma0 = prj._profiles(ZOB)
     im = rs.size // 2
     R0 = 5.0  # comoving Mpc
@@ -335,3 +337,28 @@ def test_counter_term_exclusion(model):
     # merely-zeroed slab cl at small R
     assert cl_c[0] < prj_slab.cl[0]
     assert cl_c[0] < prj_b.cl[0]
+    # cl is the global excess: sum minus the uniform background, exactly
+    assert np.allclose(cl_c, tot_c - rnd_c, rtol=1e-12)
+    # and the counter cl equals slab cl minus the ball's background hole
+    hole = prj_slab.rnd - prj_b.rnd
+    assert np.allclose(cl_c, prj_slab.cl - hole, rtol=1e-10)
+
+
+def test_deltasigma_matches_direct_excess(model):
+    r"""Review check: the ``ds`` kernel must agree with the direct
+    operation :math:`\bar\Sigma(<R) - \Sigma(R)` applied to the model's
+    own :math:`\Sigma_{\rm prj}(R)` — computed here by fine-grid
+    quadrature purely as a *cross-check* (the production path never
+    reconstructs :math:`\Delta\Sigma` from :math:`\Sigma`)."""
+    prj = _prj(model, exclusion="counter")
+    b = _bsel(prj)
+    R0 = 8.0
+    ds = prj.deltasigma_prj(np.array([R0]), LOB, ZOB, b, channel="cl")[0]
+    # fine grid from well inside the aperture floor to R0
+    s = np.geomspace(2.0e-3, R0, 160)
+    sig = prj.sigma_prj(s, LOB, ZOB, b, channel="cl")
+    sig_R0 = sig[-1]
+    sigbar = 2.0 / R0**2 * np.trapezoid(s * sig, s)
+    # the (0, s_min) sliver: Sigma_prj is flat at the centre
+    sigbar += sig[0] * (s[0] / R0) ** 2
+    assert ds == pytest.approx(sigbar - sig_R0, rel=0.02)

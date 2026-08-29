@@ -91,7 +91,27 @@ Halo exclusion comes in three named semantics (plus ``"none"``):
   total as ``"counter"``, but the hole is booked in the background.
 
 with :math:`R_{\rm excl} = R_\lambda(\lambda^{\rm ob})(1 + z^{\rm ob})`
-comoving.
+comoving. Two named approximations in the exclusion kernel, both the
+Costanzi effective prescription: :math:`R_{\rm excl}` is the richness
+aperture, **independent of the neighbour's mass** (physical hard-sphere
+exclusion would use :math:`R_\Delta(M_{\rm cls}) + R_\Delta(M)`, García
+et al. 2021), and it is evaluated at the single :math:`(\lambda^{\rm
+ob}, z^{\rm ob})` point rather than averaged over
+:math:`p(M_{\rm cls} \mid \lambda^{\rm ob})` (excess-equations note
+eq. 24). The exclusion boundary itself is a curve in the
+:math:`(\theta, z)` plane; `theta_edges` aligns the cell edges with
+every z node's exact crossing angle, so no kernel cell straddles the
+indicator (see its docstring).
+
+NOTE: **the rnd channel is the selected-halo background column, not the
+cosmological mean-matter column.** It is the mean column of the modelled
+halo population — mass-restricted to ``min_mass``..``log10_M_max`` and
+dressed with *untruncated* NFW wings unless ``r_trunc`` is set — so it
+depends on the transverse aperture and carries only the halo-budget
+share of :math:`\bar\rho_m\times 2\,{\rm depth}` (≈ 0.2–0.4 for the
+default mass cut). That is exactly the mock's background (mock matter
+*is* those halos); it is **not** :math:`\bar\rho_m` — a full-matter
+closure is a separate, not-yet-implemented mode.
 
 NOTE: **units.** Physical :math:`M_\odot`, comoving Mpc, h-free — the
 `clenspy.selection.bsel.SelBiasEngine` convention. ``hmf`` is
@@ -175,10 +195,18 @@ class SigmaPrj:
     mis_table : NfwMiscenteringTable, optional
         Default: the packaged table.
     n_theta, n_z_side, n_M : int
-        Quadrature sizes. theta is trapezoid on a log grid (the kernel is
-        smooth but spans decades); z is Gauss-Legendre in log |dchi| on
-        each side of the cluster (nodes cluster at the exclusion ring
-        where the indicator switches); mass is Gauss-Legendre in ln M.
+        Quadrature sizes. theta: log cells integrated exactly by the
+        kernel (plus edges aligned to every z node's exclusion crossing,
+        see `theta_edges`); z: Gauss-Legendre in log |dchi| per side,
+        split at R_excl; mass: Gauss-Legendre in ln M. Defaults measured
+        on the Buzzard configuration (2026-08-29 convergence scan,
+        doubling each axis at lob=20, zob=0.5): n_M=40 converged to
+        <0.1%; n_theta=96 puts Sigma within 0.3% (1.4% at R=25 for 64);
+        n_z_side=160 is set by DeltaSigma near R_excl — the exclusion
+        step in the z direction converges only ~first order (R=2 cMpc:
+        +9% at 40, +0.14% at 160 against the n=640 reference) while
+        Sigma is already <0.2% at 40. z cost is weights-only (linear,
+        no kernel evaluations), so the high default is nearly free.
     theta_perp_range : tuple of float
         Transverse comoving span (Mpc) of the theta grid at z_ob;
         theta = span / chi(z_ob). Lower edge 1e-3: the 2 pi sin(theta)
@@ -228,8 +256,8 @@ class SigmaPrj:
         bias: Callable,
         concentration: Callable | None = None,
         mis_table=None,
-        n_theta: int = 64,
-        n_z_side: int = 40,
+        n_theta: int = 96,
+        n_z_side: int = 160,
         n_M: int = 40,
         theta_perp_range: tuple[float, float] = (1e-3, 90.0),
         min_mass: float | None = None,
@@ -293,21 +321,55 @@ class SigmaPrj:
         return np.interp(np.asarray(chi_val, dtype=float),
                          self._chi_ref, self._zs_ref)
 
-    def theta_grid(self, zob: float):
-        r"""Cell centres of the log-spaced :math:`\theta` grid, and the
+    def theta_grid(self, zob: float, lob: float | None = None):
+        r"""Cell centres of the :math:`\theta` grid, and the
         spherical-measure correction :math:`\sin\bar\theta/\bar\theta` per
         cell. The measure itself lives in the **exact per-cell kernel
         masses** of `kernel` — a pointwise :math:`2\pi\sin\theta\,d\theta`
         rule cannot resolve the :math:`\Sigma_{\rm mis}` ring of width
         :math:`\sim r_s` at :math:`\theta\chi_o \approx R`."""
-        edges = self.theta_edges(zob)
+        edges = self.theta_edges(zob, lob)
         centres = np.sqrt(edges[:-1] * edges[1:])
         return centres, np.sin(centres) / centres
 
-    def theta_edges(self, zob: float):
-        r"""Log-spaced :math:`\theta` cell edges [rad], n_theta + 1."""
+    def theta_edges(self, zob: float, lob: float | None = None):
+        r""":math:`\theta` cell edges [rad] — log-spaced, n_theta + 1
+        without exclusion.
+
+        With ``lob`` given and exclusion active, the exact per-node
+        crossing angles of the chord ball,
+        :math:`\cos\theta_{\rm ex}(z_k) = [\chi_k^2 + \chi_o^2 -
+        R_{\rm excl}^2]/[2\chi_k\chi_o]`, are inserted as extra edges.
+        The exclusion boundary is a *curve* in the :math:`(\theta, z)`
+        plane — :math:`\theta` and :math:`z` are coupled through the
+        chord — so classifying whole log cells by their centre against a
+        single radius misclassifies every boundary-straddling cell.
+        Aligning the edges with every z node's own crossing makes the
+        indicator exact at cell resolution for **each** node: no kernel
+        cell ever straddles the boundary of any quadrature node. The
+        cell count grows by up to one per in-ball z node; all downstream
+        shapes are dynamic."""
+        key = ("tedges", round(zob, 8),
+               None if lob is None else round(lob, 8), self.exclusion)
+        if key in self._cache:
+            return self._cache[key]
         chi_o = float(self.chi(zob))
-        return np.geomspace(*self.theta_perp_range, self.n_theta + 1) / chi_o
+        edges = np.geomspace(*self.theta_perp_range, self.n_theta + 1) / chi_o
+        if lob is not None and self.exclusion != "none":
+            r_ex = self.r_excl(lob, zob)
+            zs, _ = self._z_grid(zob, split_at=r_ex)
+            chi_z = self.chi(zs)
+            in_ball = np.abs(chi_z - chi_o) < r_ex
+            cos_t = ((chi_z[in_ball] ** 2 + chi_o**2 - r_ex**2)
+                     / (2.0 * chi_z[in_ball] * chi_o))
+            th_ex = np.arccos(np.clip(cos_t, -1.0, 1.0))
+            th_ex = th_ex[(th_ex > edges[0]) & (th_ex < edges[-1])]
+            edges = np.unique(np.concatenate([edges, th_ex]))
+            # merge near-degenerate edges (GL nodes cluster near the pole)
+            keep = np.concatenate([[True], np.diff(edges) / edges[1:] > 1e-9])
+            edges = edges[keep]
+        self._cache[key] = edges
+        return edges
 
     def _z_grid(self, zob: float, split_at: float | None = None):
         r"""Gauss-Legendre in :math:`\ln|\Delta\chi|` on each side of the
@@ -406,7 +468,7 @@ class SigmaPrj:
 
         With ``floor_one_plus_bxi`` the floored bracket is integrated as a
         whole and the excess over the rnd channel is reported as cl."""
-        thetas, _ = self.theta_grid(zob)
+        thetas, _ = self.theta_grid(zob, lob)
         zs, wzs = self._z_grid(
             zob,
             split_at=(self.r_excl(lob, zob)
@@ -512,10 +574,10 @@ class SigmaPrj:
         ob})` — the other thin-window approximation."""
         R = np.atleast_1d(np.asarray(R, dtype=float))
         chi_o = float(self.chi(zob))
-        s_edges = self.theta_edges(zob) * chi_o
-        _, sin_corr = self.theta_grid(zob)
+        s_edges = self.theta_edges(zob, lob) * chi_o
+        _, sin_corr = self.theta_grid(zob, lob)
         rs, sigma0 = self._profiles(zob)
-        n_t, n_m = self.n_theta, rs.size
+        n_t, n_m = s_edges.size - 1, rs.size
 
         K = np.empty((n_t, n_m, R.size))
         for im in range(n_m):
@@ -529,13 +591,22 @@ class SigmaPrj:
             if which == "sigma":
                 K[:, im, :] = ring
             else:
-                # smooth term: 2 pi s SigmaBar_mis(<R | s), trapezoid on
-                # the cell edges (x_mis = s/r_s is the scalar per call)
-                g = np.empty((n_t + 1, R.size))
-                for ie in range(n_t + 1):
-                    g[ie] = (2.0 * np.pi * s_edges[ie] * sigma0[im]
-                             * self._mhat(R / rs[im], s_edges[ie] / rs[im]))
-                smooth = 0.5 * (g[1:] + g[:-1]) * np.diff(s_edges)[:, None]
+                # smooth term: 2 pi s SigmaBar_mis(<R | s). Smooth in s,
+                # but curved on the r_s scale near s ~ R (the halo cusp
+                # crossing the aperture edge), which an edge trapezoid
+                # under-resolves at default cell widths (-5% in
+                # DeltaSigma at R = 8, test resolution). Per-cell
+                # Gauss-Legendre nodes resolve it at fixed cell count.
+                x_gl, w_gl = gl_nodes(0.0, 1.0, 4)
+                width = np.diff(s_edges)
+                smooth = np.zeros((n_t, R.size))
+                for j in range(x_gl.size):
+                    s_j = s_edges[:-1] + width * x_gl[j]
+                    for it in range(n_t):
+                        smooth[it] += (w_gl[j] * width[it]
+                                       * 2.0 * np.pi * s_j[it] * sigma0[im]
+                                       * self._mhat(R / rs[im],
+                                                    s_j[it] / rs[im]))
                 K[:, im, :] = smooth - ring
         if self.r_trunc is not None:
             if which != "sigma":
@@ -577,7 +648,7 @@ class SigmaPrj:
             - 2.0 * R[None, :, None] * s_edges[:, None, None]
             * np.cos(phi), 0.0,
         ))
-        tail = np.zeros((self.n_theta, rs.size, R.size))
+        tail = np.zeros((s_edges.size - 1, rs.size, R.size))
         for im in range(rs.size):
             fhat = NfwProfile._fNfw(u / rs[im])
             # sigma of the tail, azimuth-averaged: (1/pi) int_{phi_t}^pi
@@ -666,8 +737,12 @@ if __name__ == "__main__":
             bias_model.bias(m.ravel(), zz.ravel())
         ).reshape(m.shape)
 
+    # default exclusion="counter": the K_exc pair weight -- the one mode
+    # whose cl channel is the mode-invariant random-subtracted excess
+    # (under "ball" the exclusion hole is booked in rnd instead, and the
+    # default channel="cl" of deltasigma_prj would silently omit it)
     prj = SigmaPrj(cosmology=cosmo, xi_nl=xi_nl, hmf=hmf, bias=bias,
-                   los_window="hard", los_depth=71.4, exclusion="ball")
+                   los_window="hard", los_depth=71.4)
     lob, zob = 20.0, 0.5
     bsel = SigmoidBias(lob=lob, zob=zob,
                        theta_lambda=prj.r_excl(lob, zob) / prj.chi(zob),

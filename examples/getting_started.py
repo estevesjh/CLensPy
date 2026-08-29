@@ -360,9 +360,12 @@ def bias_real(mass, z):
 
 xi_real = XiNL(_PkGrid(cosmo=cosmo, nonlinear=True), clip=False)  # signed BAO trough
 
+# default exclusion="counter" (the K_exc pair weight): the one mode whose
+# cl channel is the mode-invariant random-subtracted excess. Under "ball"
+# the exclusion hole would be booked in rnd -- and the default
+# channel="cl" of deltasigma_prj below would silently omit it.
 prj = SigmaPrj(cosmology=cosmo, xi_nl=xi_real, hmf=hmf_real, bias=bias_real,
-               los_window="hard", los_depth=71.4,  # the Costanzi-mock window
-               exclusion="ball")
+               los_window="hard", los_depth=71.4)  # the Costanzi-mock window
 R_prj = np.array([0.5, 2.0, 8.0, 25.0])  # comoving Mpc
 # b_sel from the toy engine above: its SHAPE is right, its amplitude is
 # not (see docs/selection_bias.md); the mutually calibrated pipeline is
