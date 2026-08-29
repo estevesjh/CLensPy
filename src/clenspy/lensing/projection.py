@@ -1,29 +1,42 @@
 r"""Projection lensing: :math:`\Sigma_{\rm prj}` and :math:`\Delta\Sigma_{\rm prj}`.
 
 The two-halo projected surface density around a richness-selected cluster
-(Costanzi 2026 eq. 13; ``docs/refactor-plan.md`` errata E.3, and
-``docs/notation.md`` section 5). **The two-halo term is the correlated
-excess above the mean matter column — there is no background in it**
-(cluster_toolkit's :math:`\Sigma_{2h}` convention, and what a
-random-point-subtracted measurement contains):
+(Costanzi 2026 eq. 13; the excess-density formulation of
+``y3_cluster_cpp/review/08282026/sigma_prj_excess_equations.md``, whose
+equation numbers are cited below; ``docs/refactor-plan.md`` errata E.3,
+and ``docs/notation.md`` section 5). **The two-halo term is the
+correlated excess above the mean matter column — there is no background
+in it** (cluster_toolkit's :math:`\Sigma_{2h}` convention, and what a
+random-point-subtracted measurement contains). Halo exclusion acts on
+the **complete pair distribution**: with the ball indicator
+:math:`E = \mathbb 1[|d\chi| > R_{\rm excl}]` on the exact chord, the
+pair weight of the excess observable is (note eqs. 7–8)
 
 .. math::
-    \Sigma_{\rm prj}(R) = \int d\theta\, 2\pi\sin\theta\;
-        b_{\rm sel}(\theta) \sum_M w_{\rm cl}(\theta, M)\,
-        \Sigma_{\rm mis}(R, \theta\chi_o \mid M)
+    \mathcal K_{\rm exc} = \big(1 + b\,b_{\rm sel}\,\xi_{\rm NL}\big)E - 1
+    = \begin{cases}
+        b\,b_{\rm sel}\,\xi_{\rm NL} & \text{outside the ball,}\\
+        -1 & \text{inside,}
+      \end{cases}
 
-with the per-slice redshift weight
+and the master equation (note eq. 14) is
 
 .. math::
-    w_{\rm cl}(\theta, M) &= \int dz\;{\rm common}(z)\,
-        \xi_{\rm NL}\big(|d\chi|(z,\theta), z^{\rm ob}\big)\,
-        n(M, z)\, b(M, z)\, m_{\rm cl}(\theta, z) \\
-    {\rm common}(z) &= \frac{dV}{d\Omega\,dz}(z)\; w_{pz}(z; z^{\rm ob})
+    \Sigma_{\rm prj}(R) = \int d\theta\, 2\pi\sin\theta
+        \int dz\;{\rm common}(z) \int dM\; n(M, z)\,
+        \mathcal K_{\rm exc}\,
+        \Sigma_{\rm mis}(R, \theta\chi_o \mid M),
+    \qquad
+    {\rm common}(z) = \frac{dV}{d\Omega\,dz}(z)\; w_{pz}(z; z^{\rm ob}).
 
-and :math:`\Delta\Sigma_{\rm prj}` is the same assembly with the kernel
-swap :math:`\Sigma_{\rm mis} \to \Delta\Sigma_{\rm mis}` — the excess
-functional acts only on the radial argument and commutes with the outer
-:math:`(\theta, z, M)` integrals.
+In channel-weight language: **outside the ball the correlated weight is
+w_cl; inside the ball it is −w_rnd** — minus the background integrand,
+carrying no bias, no b_sel, no xi (certainty of absence, not
+clustering). :math:`\Delta\Sigma_{\rm prj}` is the same assembly — same
+:math:`\mathcal K_{\rm exc}`, counterterm included — with the kernel
+swap :math:`\Sigma_{\rm mis} \to \Delta\Sigma_{\rm mis}` (note eq. 22):
+the excess functional acts only on the radial argument and commutes with
+the outer :math:`(\theta, z, M)` integrals.
 
 A raw projected *mass map* (e.g. the Costanzi mock's per-halo columns)
 additionally contains the mean background column — the ``1`` of the
@@ -60,15 +73,20 @@ The traps, all named in E.3 and all honoured here:
 
 Halo exclusion comes in three named semantics (plus ``"none"``):
 
-- ``"counter"`` (default — the Costanzi notebook convention,
+- ``"counter"`` (default — the :math:`\mathcal K_{\rm exc}` pair weight
+  above; the Costanzi notebook convention
   ``bM_bsel_xi[dis < R_excl] = -1``): inside the 3-D chord ball the
-  correlated integrand is set to :math:`-1`, cancelling the background's
-  :math:`+1` exactly. The total vanishes in the ball, the background
-  stays **strictly uniform**, and the exclusion hole lives in the cl
-  channel — where a random-point-subtracted measurement keeps it.
-- ``"cl"`` (E.3 / production slab): :math:`m_{\rm cl} =
+  correlated weight is :math:`-w_{\rm rnd}` — minus the background
+  integrand — cancelling the background's :math:`+1` exactly. The total
+  vanishes in the ball, the background stays **strictly uniform**, and
+  the exclusion hole lives in the cl channel — where a
+  random-point-subtracted measurement keeps it.
+- ``"cl"`` (E.3 / legacy slab): :math:`m_{\rm cl} =
   \mathbb 1[|d\chi| > R_{\rm excl}]`, :math:`m_{\rm rnd} = 1` — the
-  correlated term is zeroed (no counter term).
+  correlated term is zeroed. **No counterterm: not halo exclusion in
+  the pair distribution** (note eq. 16 with the eq. 17 term dropped);
+  differs from ``"counter"`` by :math:`\lesssim 0.6\%` of the summed
+  profile at :math:`R \to 0`, gone by :math:`R \approx 2` cMpc.
 - ``"ball"``: both channels removed inside the chord ball — the same
   total as ``"counter"``, but the hole is booked in the background.
 
@@ -418,11 +436,14 @@ class SigmaPrj:
             W_cl = np.einsum("z,tz,mz->tm", cmn, xi * m_cl, n_mz * b_mz)
             W_cl *= bsel_t[:, None]
             if self.exclusion == "counter":
-                # the Costanzi counter term: inside the chord ball the
-                # correlated integrand is set to -1 (not merely zeroed),
-                # cancelling the background's +1 there. The background
-                # stays strictly uniform and the exclusion hole lives in
-                # the cl channel -- where a random-point-subtracted
+                # K_exc = (1 + b b_sel xi) E - 1 (excess-equations note
+                # eq. 7): exclusion acts on the complete pair
+                # distribution. Outside the ball the weight is w_cl
+                # (built above); inside it is -w_rnd -- minus the
+                # background integrand, no bias, no b_sel, no xi. The
+                # total vanishes in the ball, the background stays
+                # strictly uniform, and the exclusion hole lives in the
+                # cl channel -- where a random-point-subtracted
                 # measurement keeps it.
                 W_cl -= np.einsum("z,tz,mz->tm", cmn, 1.0 - m_cl, n_mz)
         else:

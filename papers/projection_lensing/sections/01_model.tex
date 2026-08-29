@@ -10,30 +10,58 @@ projected two-halo term. The two-halo term is the correlated excess
 the \modname{cluster\_toolkit} $\Sigma_{2h}$ convention, and it is what a
 random-point-subtracted measurement contains. Around a cluster observed
 at $(\lob, \zob)$, with $\theta$ the angular offset of a line-of-sight
-neighbour and $\chi_o = \chi(\zob)$ the comoving distance,
-
+neighbour and $\chi_o = \chi(\zob)$ the comoving distance, the adopted
+cluster--neighbour correlation is
+$\ximod = b(M, z)\,\bsel(\theta)\,\xinl(|d\chi|, \zob)$, with $|d\chi|$
+the exact chord
+$d\chi^2 = \chi_z^2 + \chi_o^2 - 2\chi_z\chi_o\cos\theta$. Halo exclusion
+acts on the \emph{complete pair distribution} --- the probability of
+finding a distinct halo centre --- not on the correlated piece alone:
+with the ball indicator $E = \mathbb 1[|d\chi| > \Rexcl]$ at
+$\Rexcl = \Rlam(\lob)(1+\zob)$ comoving, the pair weight of the excess
+observable is
 \begin{equation}
-\Sprj(R) \;=\; \int d\theta\, 2\pi\sin\theta\;
-  \bsel(\theta) \sum_M \wcl(\theta, M)\,
+\Kexc \;=\; \bigl(1 + \ximod\bigr)\,E - 1
+\;=\;
+\begin{cases}
+\ximod, & |d\chi| \ge \Rexcl,\\[2pt]
+-1, & |d\chi| < \Rexcl,
+\end{cases}
+\label{eq:kexc}
+\end{equation}
+and the master equation (Costanzi 2026 Eq.~13) is
+\begin{equation}
+\Sprj(R) \;=\; \int d\theta\, 2\pi\sin\theta
+  \int dz\;{\rm common}(z) \int dM\; n(M, z)\;
+  \Kexc\;
   \Smis\!\big(R,\, \theta\chi_o \mid M\big),
+\qquad
+{\rm common}(z) = \frac{dV}{d\Omega\,dz}\; w_{\rm los}(z; \zob),
 \label{eq:master}
 \end{equation}
-where $\Smis$ is the azimuth-averaged surface density of an NFW halo
-offset by $R_\theta = \theta\chi_o$, and the redshift weight is
+with $n(M,z)$ the Tinker (2008) mass function, $b(M,z)$ the Tinker (2010)
+bias, $\xinl$ the halofit correlation function, and $\Smis$ the
+azimuth-averaged (normalized by $1/2\pi$; the outer measure already
+carries the neighbour's azimuthal factor) surface density of an NFW halo
+offset by $R_\theta = \theta\chi_o$. The measure
+$2\pi\sin\theta\,d\theta$ is an exact angular integral on the sphere;
+there is no Limber approximation and no Bessel transform in this
+observable. $\bsel(\theta)$ multiplies the correlated $\xi$ term alone;
+the $-1$ counterterm carries no bias and no $\bsel$ --- certainty of
+absence, not clustering. Splitting $\Kexc$ by its two limits gives the
+channel-weight form actually assembled by the code: outside the ball
+the correlated redshift weight is $\bsel(\theta)\,\wcl$, and inside the
+ball the weight is $-\wrnd$ restricted to the ball --- minus the
+background integrand,
 \begin{equation}
 \wcl(\theta, M) = \int dz\;{\rm common}(z)\;
     \xinl\!\big(|d\chi|(z,\theta),\, \zob\big)\;
-    n(M, z)\, b(M, z)\; m_{\rm cl}(\theta, z),
+    n(M, z)\, b(M, z)\; E(\theta, z),
 \qquad
-{\rm common}(z) = \frac{dV}{d\Omega\,dz}\; w_{\rm los}(z; \zob),
+w_{\rm ct}(\theta, M) = -\int dz\;{\rm common}(z)\; n(M, z)\,
+    \bigl[1 - E(\theta, z)\bigr].
 \label{eq:wcl}
 \end{equation}
-with $n(M,z)$ the Tinker (2008) mass function, $b(M,z)$ the Tinker (2010)
-bias, $\xinl$ the halofit correlation function, and $|d\chi|$ the exact
-chord $d\chi^2 = \chi_z^2 + \chi_o^2 - 2\chi_z\chi_o\cos\theta$. The
-measure $2\pi\sin\theta\,d\theta$ is an exact angular integral on the
-sphere; there is no Limber approximation and no Bessel transform in this
-observable. $\bsel(\theta)$ multiplies this correlated integrand alone.
 
 A raw projected \emph{mass map} --- the mock's per-halo columns, or any
 stack that has not been random-point subtracted --- additionally contains
@@ -50,39 +78,45 @@ channel,
 uniform in $R$ and blind to the selection; a raw mass map is the sum
 $\Stot = \Sbkg + \Sprj$ (Section~\ref{sec:mock}).
 
-Halo exclusion is applied as a \emph{counter term} (the Costanzi
-convention): the cluster occupies its own volume, so inside the chord
-ball $|d\chi| < \Rexcl = \Rlam(\lob)(1+\zob)$ the correlated integrand
-is set to $-1$, cancelling the background's $+1$ exactly. The total
-vanishes in the ball --- the same total as deleting the neighbours, as
-the mock does --- but the bookkeeping matters: $\Sbkg$ stays strictly
-uniform, and the exclusion hole (a $0.6\%$ suppression at $R \to 0$,
-gone by $R \approx 2$~cMpc) is carried by $\Sprj$, where a
-random-point-subtracted measurement keeps it. Placing the
-``1'' inside the master equation --- as the spec this implementation
+The counterterm $w_{\rm ct}$ of Eq.~\eqref{eq:wcl} is not optional:
+dropping it (keeping only the $\ximod$ integrand with $E$ zeroing
+$\xi$) is a model without halo exclusion in the pair distribution ---
+the total density of distinct neighbours must vanish inside the
+forbidden region, and relative to random points that region contributes
+$-1$, not $0$. The total does vanish in the ball --- the same total as
+deleting the neighbours, as the mock does --- but the bookkeeping
+matters: $\Sbkg$ stays strictly uniform, and the exclusion hole (a
+$0.6\%$ suppression at $R \to 0$, gone by $R \approx 2$~cMpc) is
+carried by $\Sprj$, where a random-point-subtracted measurement keeps
+it. The counterterm is dressed by the same $\Smis$ kernel as everything
+else: an excluded centre removes its entire profile, wings included ---
+exactly what deleting a halo from the mock catalogue does. At fixed
+$z$, the ball indicator is an angular cap,
+$\cos\theta_{\rm excl}(z) = [\chi_z^2 + \chi_o^2 -
+\Rexcl^2]/[2\chi_z\chi_o]$ --- the angular slicing of the 3-D exclusion
+ball, not a separate line-of-sight prescription. Placing the ``1''
+inside the master equation --- as the spec this implementation
 transcribed originally does --- invites exactly the bookkeeping error
 this validation chased: a background-carrying model against a
-background-free theory quantity.
-
-The exclusion masks $m_{\rm rnd}, m_{\rm cl}$ implement halo exclusion at
-$\Rexcl = \Rlam(\lob)(1+\zob)$ comoving, in two named semantics: the
-production form masks the correlated channel only
-($m_{\rm cl} = \mathbb 1[|d\chi| > \Rexcl]$, $m_{\rm rnd} = 1$), while the
-\emph{ball} form removes both channels inside the chord ball --- which is
-what a halo catalogue with the target's neighbours deleted actually does,
-and is the convention of the mock in Section~\ref{sec:mock}.
+background-free theory quantity. Two legacy semantics remain as config
+switches: the E.3 \emph{slab} drops $w_{\rm ct}$, and the \emph{ball}
+form books the identical hole in the background instead of $\Sprj$.
 
 \subsection{The excess $\DSprj$ is its own integral}
 
-The excess functional acts only on the radial argument and commutes with
-the outer $(\theta, z, M)$ integrals, so
+The excess functional acts only on the radial argument, and the pair
+weight $\Kexc$ is independent of the evaluation radius, so the operator
+commutes with the outer $(\theta, z, M)$ integrals:
 \begin{equation}
-\DSprj(R) \;\propto\; \int dz \int dM \int d\theta\;\ldots\;
-\DSmis\!\big(R,\, \theta\chi_o \mid M\big):
+\DSprj(R) \;=\; \int d\theta\, 2\pi\sin\theta
+  \int dz\;{\rm common}(z) \int dM\; n(M, z)\;
+  \Kexc\;
+  \DSmis\!\big(R,\, \theta\chi_o \mid M\big),
 \label{eq:kernelswap}
 \end{equation}
-the same operator with the kernel swap $\Smis \to \DSmis$, never a
-numerical reconstruction from a tabulated $\Sprj$. The signed negative
+the same operator with the same weight --- counterterm included --- and
+the kernel swap $\Smis \to \DSmis$, never a numerical reconstruction
+from a tabulated $\Sprj$. The signed negative
 lobe of $\DSmis$ at $R_\theta > R$ is load-bearing: mass conservation of
 the azimuthal average gives $\int d^2s\, \DSmis(R, s) = 0$ exactly, so
 the excess annihilates the uniform \blk{rnd} channel --- the model form

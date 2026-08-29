@@ -30,31 +30,44 @@ The two-halo term is the correlated excess *above* the mean matter column
 convention, and it is what a random-point-subtracted measurement contains.
 Around a cluster observed at $(\lambda^{\rm ob}, z^{\rm ob})$, with
 $\theta$ the neighbour's angular offset and $\chi_o = \chi(z^{\rm ob})$,
-
-$$
-\Sigma_{\rm prj}(R) = \int d\theta\, 2\pi\sin\theta\;
-  b_{\rm sel}(\theta) \sum_M w_{\rm cl}(\theta, M)\;
-  \Sigma_{\rm mis}(R,\, \theta\chi_o \mid M),
-$$
-
-where $\Sigma_{\rm mis}$ is the azimuth-averaged surface density of a halo
-offset by $R_\theta = \theta\chi_o$ — the same single-offset kernel as
-{doc}`miscentering`, with the offset now a real transverse separation
-rather than a centring error — and the per-slice redshift weight is
-
-$$
-w_{\rm cl}(\theta, M) = \int dz\;{\rm common}(z)\,
-    \xi_{\rm NL}\big(|d\chi|(z,\theta),\, z^{\rm ob}\big)\,
-    n(M, z)\, b(M, z)\, m_{\rm cl}(\theta, z), \qquad
-{\rm common}(z) = \frac{dV}{d\Omega\,dz}\, w_{pz}(z; z^{\rm ob}),
-$$
-
-with $n$ the mass function, $b$ the halo bias, and $|d\chi|$ the exact
+the adopted cluster–neighbour correlation is
+$\xi_{hh}^{\rm model} = b(M, z)\, b_{\rm sel}(\theta)\,
+\xi_{\rm NL}(|d\chi|, z^{\rm ob})$, with $|d\chi|$ the exact
 law-of-cosines chord $d\chi^2 = \chi_z^2 + \chi_o^2 -
 2\chi_z\chi_o\cos\theta$ — near the exclusion ring the transverse leg
 dominates and the $|\chi_z - \chi_o|$ shortcut is wrong by orders of
-magnitude. $b_{\rm sel}(\theta)$ multiplies this correlated integrand
-*alone*.
+magnitude. Halo exclusion acts on the *complete pair distribution* — the
+probability of finding a distinct halo centre — not on the correlated
+piece alone: with the ball indicator
+$E = \mathbb 1[|d\chi| > R_{\rm excl}]$, the pair weight of the excess
+observable is
+
+$$
+\mathcal K_{\rm exc} = \bigl(1 + \xi_{hh}^{\rm model}\bigr)E - 1
+= \begin{cases}
+    \xi_{hh}^{\rm model} & \text{outside the ball},\\
+    -1 & \text{inside},
+  \end{cases}
+$$
+
+and the master equation is
+
+$$
+\Sigma_{\rm prj}(R) = \int d\theta\, 2\pi\sin\theta
+  \int dz\;{\rm common}(z) \int dM\; n(M, z)\;
+  \mathcal K_{\rm exc}\;
+  \Sigma_{\rm mis}(R,\, \theta\chi_o \mid M), \qquad
+{\rm common}(z) = \frac{dV}{d\Omega\,dz}\, w_{pz}(z; z^{\rm ob}),
+$$
+
+where $\Sigma_{\rm mis}$ is the azimuth-*averaged* (normalized by
+$1/2\pi$ — the outer measure already carries the neighbour's azimuthal
+factor) surface density of a halo offset by $R_\theta = \theta\chi_o$ —
+the same single-offset kernel as {doc}`miscentering`, with the offset now
+a real transverse separation rather than a centring error — $n$ the mass
+function and $b$ the halo bias. $b_{\rm sel}(\theta)$ multiplies the
+correlated $\xi$ term *alone*; the $-1$ counterterm carries no bias and
+no $b_{\rm sel}$ — certainty of absence, not clustering.
 
 A raw projected *mass map* — the Costanzi mock's per-halo columns, or any
 stack that has not been random-point subtracted — additionally contains
@@ -112,16 +125,24 @@ cancellation and leave a spurious mean-field term.
 A halo closer to the cluster than its own aperture *is* the cluster, so
 its volume is excised at $R_{\rm excl} =
 R_\lambda(\lambda^{\rm ob})(1 + z^{\rm ob})$ comoving. The default,
-`exclusion="counter"`, is the Costanzi convention: inside the chord ball
-the correlated integrand is set to $-1$, a **counter term** cancelling
-the background's $+1$ exactly. The total vanishes in the ball — the same
+`exclusion="counter"`, is the $\mathcal K_{\rm exc}$ pair weight of the
+master equation (the Costanzi convention): in channel-weight language,
+**outside the ball the correlated weight is $w_{\rm cl}$; inside it is
+$-w_{\rm rnd}$** — minus the background integrand — cancelling the
+background's $+1$ exactly. The total vanishes in the ball — the same
 total as deleting the neighbours, as the mock does — but the bookkeeping
 matters: $\Sigma_{\rm bkg}$ stays strictly uniform and the exclusion
 hole is carried by $\Sigma^{\rm prj}$, where a random-point-subtracted
-measurement keeps it. `exclusion="ball"` books the same hole in the
-background instead (identical sum); `exclusion="cl"` is the E.3
-production slab, which merely zeroes the correlated term. Switching is a
-config change, not a code change.
+measurement keeps it. The ball indicator is evaluated per redshift as an
+angular cap, $\cos\theta_{\rm excl}(z) = [\chi_z^2 + \chi_o^2 -
+R_{\rm excl}^2]/[2\chi_z\chi_o]$ — the angular slicing of the 3-D
+exclusion ball, not a separate line-of-sight prescription.
+`exclusion="ball"` books the same hole in the background instead
+(identical sum); `exclusion="cl"` is the E.3 legacy slab, which merely
+zeroes the correlated term — dropping the counterterm, i.e. no halo
+exclusion in the pair distribution ($\lesssim 0.6\%$ of the summed
+profile at $R \to 0$, gone by $R \approx 2$ cMpc). Switching is a config
+change, not a code change.
 
 ## Numerics: the ring is integrated exactly
 
