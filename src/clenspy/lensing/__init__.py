@@ -4,9 +4,9 @@ Core weak lensing algorithms and observables.
 
 from .miscentering import MiscenteringProfile
 from .profile import LensingProfile
-from .projection import SigmaPrj
+from .projection import SigmaPrj, SigmaPrjConfig
 
-__all__ = ["LensingProfile", "MiscenteringProfile", "SigmaPrj"]
+__all__ = ["LensingProfile", "MiscenteringProfile", "SigmaPrj", "SigmaPrjConfig"]
 
 
 # -- deprecated alias, one release --------------------------------------

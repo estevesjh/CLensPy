@@ -257,7 +257,7 @@ class LensingProfile:
         r"""Linear halo bias :math:`b(M_{200m})`, as supplied or computed."""
         if self._bias is not None:
             return self._bias
-        return self.bias_model.bias(self.m200)
+        return self.bias_model.bias(self.m200, z=self.z_cluster)
 
     @cached_property
     def sigma_crit(self) -> float:

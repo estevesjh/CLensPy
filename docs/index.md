@@ -137,7 +137,9 @@ lensing_kernel
 :maxdepth: 1
 :caption: Cluster observables
 
-observables
+number_counts
+stacked_shear
+shear_proj
 ```
 
 ```{toctree}
@@ -168,4 +170,5 @@ Miscentering math <miscentering_math>
 Covariance FFTLog math <covariance_fftlog_math>
 Refactor plan <refactor-plan>
 P3 cleanup plan <plan-p3-cleanup>
+Projection rewrite plan <plan-projection-rewrite>
 ```

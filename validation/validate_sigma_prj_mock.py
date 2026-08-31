@@ -9,8 +9,9 @@ Per halo it stores :math:`\Sigma(R)` and the target-removed
 Legs:
 
 A. **b_eff per bin** — :math:`N[b]/N[1]` from `ClusterCounts.average`
-   with `HodMor.buzzard()` (the mock's exact HOD) and the Y3 EMG
-   projection kernel. Reported, and fed to leg B.
+   with `HodMor.from_lognormal()` (the Costanzi et al. 2021 log-normal
+   MOR, fitted to HOD form) and the Y3 EMG projection kernel. Reported,
+   and fed to leg B.
 B. **b_sel per bin** — `SelBiasEngine.plateaus(..., b_eff=...)` with the
    bin-averaged b_eff from leg A.
 C. **absolute stacked** :math:`\langle\Sigma^{\rm prj}\rangle` at
@@ -31,9 +32,10 @@ Mock-matched model configuration (from MOCK_RECIPE.md):
 ``los_window="hard"`` with half-depth 50 cMpc/h, ``exclusion="counter"``
 (the -1 counter term in the 3-D chord ball, :math:`R_\lambda(1+z)`;
 identical total to removing the neighbours, background kept uniform), untruncated NFW with Duffy-08 200m
-concentration, transverse aperture 60 cMpc/h, Buzzard v1.1 cosmology,
-`HodMor.buzzard()`. The model is annulus-averaged on the mock's radial
-grid; the first 4 annuli are dropped (Poisson-starved in the mock).
+concentration, transverse aperture 60 cMpc/h, Planck 2018 cosmology
+(assumed — the mock is built on DES Y3 data), `HodMor.from_lognormal()`.
+The model is annulus-averaged on the mock's radial grid; the first 4
+annuli are dropped (Poisson-starved in the mock).
 
 Unit boundary (the ONLY h in this script, each applied once):
 mock is h-scaled comoving — R[cMpc/h] -> R/h [cMpc]; M200[Msun/h] ->
@@ -64,6 +66,7 @@ from pathlib import Path
 
 import numpy as np
 from astropy.cosmology import FlatLambdaCDM
+from scipy.interpolate import RegularGridInterpolator
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -71,7 +74,7 @@ from clenspy.cosmology import TinkerMassFunction  # noqa: E402
 from clenspy.cosmology.bias import BiasModel  # noqa: E402
 from clenspy.cosmology.pkgrid import PkGrid  # noqa: E402
 from clenspy.halo.twohalo import TwoHaloTerm  # noqa: E402
-from clenspy.lensing import SigmaPrj  # noqa: E402
+from clenspy.lensing import SigmaPrj, SigmaPrjConfig  # noqa: E402
 from clenspy.observables import ClusterCounts  # noqa: E402
 from clenspy.selection import (  # noqa: E402
     EmgParams,
@@ -81,23 +84,27 @@ from clenspy.selection import (  # noqa: E402
     XiNL,
 )
 from clenspy.selection.scaling_relation import HodMor  # noqa: E402
+from clenspy.cosmology.growth import growth_factor  # noqa: E402
 from clenspy.utils.integrate import gl_nodes  # noqa: E402
 
 FIG_DIR = Path(__file__).resolve().parents[1] / "docs" / "_static" / "validation"
 
 # ---------------------------------------------------------------- mock spec
-H = 0.7
-OMEGA_M = 0.286
+# The mock is built on actual DES Y3 data, so its cosmology is unknown;
+# assume Planck 2018 (TT,TE,EE+lowE+lensing). The catalog's h-scaled
+# columns convert with this h.
+H = 0.6736
+OMEGA_M = 0.3153
 
 
-class BuzzardCosmology(FlatLambdaCDM):
-    """Buzzard v1.1; the class attrs are what PkGrid reads via getattr."""
+class PlanckCosmology(FlatLambdaCDM):
+    """Planck 2018; the class attrs are what PkGrid reads via getattr."""
 
-    sigma8 = 0.82
-    n_s = 0.96
+    sigma8 = 0.8111
+    n_s = 0.9649
 
 
-COSMO = BuzzardCosmology(H0=100.0 * H, Om0=OMEGA_M, Ob0=0.046)
+COSMO = PlanckCosmology(H0=100.0 * H, Om0=OMEGA_M, Ob0=0.0493)
 
 LAMBDA_EDGES = np.array([20.0, 30.0, 45.0, 60.0, 500.0])
 Z_EDGES = np.array([0.20, 0.35, 0.50, 0.65])
@@ -174,26 +181,78 @@ def build_halo_model():
     tmf = TinkerMassFunction(cosmo=COSMO, zvec=np.linspace(0.0, 1.0, 21))
     bm = BiasModel(cosmo=COSMO)
 
+    # The projection only needs smooth lookups on this finite support. Build
+    # both Tinker fields once; calling the raw evaluators for every Abel
+    # node defeats batching (and repeats their internal interpolation work).
+    field_m_grid = np.geomspace(1.0e13 / H, 10.0**15.5 / H, 256)
+    field_z_grid = np.linspace(0.0, 1.0, 513)
+    hmf_grid = tmf.dndlnm(field_m_grid, field_z_grid) / field_m_grid[:, None]
+    hmf_interp = RegularGridInterpolator(
+        (np.log(field_m_grid), field_z_grid), hmf_grid,
+        bounds_error=False, fill_value=None,
+    )
+
+    # BiasModel.bias is physically a smooth two-dimensional grid function,
+    # but its direct implementation evaluates growth_factor once per
+    # broadcast element.  Abel batches repeat every z across all masses;
+    # tabulate Tinker b(M,z) once and interpolate thereafter.
+    bias_m_grid = field_m_grid
+    bias_z_grid = field_z_grid
+    sigma0 = np.asarray(bm.sigma_tophat(bias_m_grid, z=0.0), float)
+    growth = np.asarray(growth_factor(bias_z_grid, COSMO), float)
+    nu_grid = 1.686 / (sigma0[:, None] * growth[None, :])
+    bias_grid = np.asarray(bm.bias_at_nu(nu_grid), float)
+    bias_interp = RegularGridInterpolator(
+        (np.log(bias_m_grid), bias_z_grid), bias_grid,
+        bounds_error=False, fill_value=None,
+    )
+
     def hmf(mass, z):
         """dn/dM [Msun^-1 Mpc^-3] at physical Msun."""
         m, zz = np.broadcast_arrays(np.asarray(mass, float),
                                     np.asarray(z, float))
-        # physical Msun -> the Tinker grid's Omega_m h^-1 Msun
-        vals = tmf.dndlnm(m.ravel() * H / OMEGA_M, zz.ravel())
-        return vals.reshape(m.shape) * H**3 / m
+        points = np.column_stack((np.log(m.ravel()), zz.ravel()))
+        return np.asarray(hmf_interp(points)).reshape(m.shape)
 
     def bias(mass, z):
         m, zz = np.broadcast_arrays(np.asarray(mass, float),
                                     np.asarray(z, float))
-        return np.asarray(bm.bias(m.ravel(), zz.ravel())).reshape(m.shape)
+        points = np.column_stack((np.log(m.ravel()), zz.ravel()))
+        return np.asarray(bias_interp(points)).reshape(m.shape)
 
     return xi_nl, hmf, bias, tmf
+
+
+def build_projection_products():
+    """Prebuild the physical grids consumed by ``SigmaPrj`` once."""
+    pk = PkGrid(cosmo=COSMO, nonlinear=True)
+    pk_linear = PkGrid(cosmo=COSMO, nonlinear=False)
+    mass = np.geomspace(1.0e13 / H, 10.0**15.5 / H, 256)
+    z = np.linspace(0.0, 1.0, 513)
+    hmf = TinkerMassFunction(
+        cosmo=COSMO,
+        k=pk_linear.k,
+        pk=pk_linear(pk_linear.k, z=0.0),
+        zvec=z,
+        mvec=mass,
+    ).build_all()
+    bias = BiasModel(
+        cosmo=COSMO,
+        k=pk_linear.k,
+        P=pk_linear(pk_linear.k, z=0.0),
+    ).build_all(mass, z)
+    two_halo = TwoHaloTerm(
+        pk.k, pk.pk, zvec=pk.z,
+        n_grid=600, r_min=1.0e-2, r_max=800.0,
+    )
+    two_halo.xi()
+    return pk, hmf, two_halo, bias
 
 
 def b_eff_table():
     """Leg A: N[b]/N[1] per (lambda, z) bin from ClusterCounts.average."""
     sel = SelectionFunction(
-        LAMBDA_EDGES, Z_EDGES, HodMor.buzzard(), EmgParams.from_y3_table(),
+        LAMBDA_EDGES, Z_EDGES, HodMor.from_lognormal(), EmgParams.from_y3_table(),
         sigma_z=5e-3,   # the mock bins in TRUE z; a near-top-hat S_j
     )
     ln_mass = np.log(np.logspace(13.0, 15.7, 64))  # h^-1 Msun
@@ -201,12 +260,18 @@ def b_eff_table():
     tmf_counts = TinkerMassFunction(cosmo=COSMO,
                                     zvec=np.linspace(0.0, 1.0, 21))
 
+    counts_m_grid, counts_z_grid = np.meshgrid(ln_mass, z_grid, indexing="ij")
+    counts_grid = tmf_counts.dndlnm(np.exp(ln_mass) / H, z_grid)
+    counts_interp = RegularGridInterpolator(
+        (ln_mass, z_grid), counts_grid, bounds_error=False, fill_value=None
+    )
+
     def mass_function(lnm, z):
         """dn/dlnM [h^3 Mpc^-3] at ln(M [h^-1 Msun])."""
         m_h, zz = np.broadcast_arrays(np.exp(np.asarray(lnm, float)),
                                       np.asarray(z, float))
-        vals = tmf_counts.dndlnm(m_h.ravel() / OMEGA_M, zz.ravel())
-        return vals.reshape(m_h.shape)
+        points = np.column_stack((np.log(m_h.ravel()), zz.ravel()))
+        return np.asarray(counts_interp(points)).reshape(m_h.shape)
 
     counts = ClusterCounts(ln_mass, z_grid, mass_function, sel, COSMO,
                            omega=lambda z: np.full_like(
@@ -214,9 +279,10 @@ def b_eff_table():
     bm = BiasModel(cosmo=COSMO)
     # ClusterCounts masses are h^-1 Msun; BiasModel wants physical Msun
     m_phys = np.exp(ln_mass) / H
-    bias_grid = np.asarray([
-        bm.bias(m_phys, zi) for zi in z_grid
-    ]).T                                             # (n_m, n_z)
+    sigma0_counts = np.asarray(bm.sigma_tophat(m_phys, z=0.0), float)
+    growth_counts = np.asarray(growth_factor(z_grid, COSMO), float)
+    nu_counts = 1.686 / (sigma0_counts[:, None] * growth_counts[None, :])
+    bias_grid = np.asarray(bm.bias_at_nu(nu_counts), float)  # (n_m, n_z)
     # the bin representatives are the SAME operator's first moments --
     # N[lambda]/N[1] and N[z]/N[1] -- so the model never reads the mock
     # for its own evaluation points (they agree with the mock's selected
@@ -299,21 +365,28 @@ def main(argv=None):
 
     # ---------------------------------------------------------- model setup
     xi_nl, hmf, bias, tmf = build_halo_model()
+    pk_prj, hmf_prj, two_halo_prj, bias_prj = build_projection_products()
     if args.xi_clip:
         xi_nl.clip = True
     engine = SelBiasEngine(
         cosmology=COSMO, xi_nl=xi_nl, hmf=hmf, bias=bias,
-        mor=PhysicalMassMor(HodMor.buzzard(), H),
+        mor=PhysicalMassMor(HodMor.from_lognormal(), H),
     )
     prj = SigmaPrj(
-        cosmology=COSMO, xi_nl=xi_nl, hmf=hmf, bias=bias,
-        n_theta=args.n_theta,
-        theta_perp_range=(1e-3, 2.0 * APERTURE_HINV / H),
-        los_window=args.los_window,
-        los_depth=(LOS_HALF_DEPTH_HINV / H
-                   if args.los_window == "hard" else None),
-        exclusion=args.exclusion,
-        r_trunc=(args.r_trunc / H if args.r_trunc > 0 else None),
+        cosmology=COSMO,
+        pk=pk_prj,
+        hmf=hmf_prj,
+        two_halo=two_halo_prj,
+        bias=bias_prj,
+        config=SigmaPrjConfig(
+            n_theta=args.n_theta,
+            theta_perp_range=(1e-3, 2.0 * APERTURE_HINV / H),
+            los_window=args.los_window,
+            los_depth=(LOS_HALF_DEPTH_HINV / H
+                       if args.los_window == "hard" else None),
+            exclusion=args.exclusion,
+            r_trunc=(args.r_trunc / H if args.r_trunc > 0 else None),
+        ),
     )
 
     print("\n[leg A] b_eff = N[b]/N[1] per bin (ClusterCounts.average):")
@@ -469,6 +542,7 @@ def main(argv=None):
         fig.tight_layout()
         out = FIG_DIR / "sigma_prj_ratio_grid.png"
         fig.savefig(out, dpi=120)
+        plt.close(fig)
         print(f"\nwrote {out}")
 
         if mock_c is not None:
@@ -484,6 +558,7 @@ def main(argv=None):
             fig2.tight_layout()
             out2 = FIG_DIR / "sigma_prj_absolute.png"
             fig2.savefig(out2, dpi=120)
+            plt.close(fig2)
             print(f"wrote {out2}")
 
     n_fail = len(failures)

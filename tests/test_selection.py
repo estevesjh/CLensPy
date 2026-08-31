@@ -294,33 +294,34 @@ def test_lognormal_mean_is_its_own_densitys_first_moment():
                                        rel=1e-10), m
 
 
-def test_the_hod_density_first_moment_sits_exactly_one_above_mean():
-    r"""A pinned artifact of the continuous interpolation, not a bug.
+def test_the_hod_density_first_moment_matches_mean():
+    r"""``HodMor.mean`` (:math:`\lambda^{\rm cen} +
+    \langle\lambda^{\rm sat}\rangle`) must equal `pdf`'s own first moment,
+    the same contract `LogNormalMor` satisfies.
 
-    ``HodMor.mean`` returns the *model's* occupation,
-    :math:`\lambda^{\rm cen} + \langle\lambda^{\rm sat}\rangle`. The
-    continuous shifted-Poisson density's own first moment is exactly
-    **1.0 higher** at :math:`\sigma_{\rm intr} = 0` -- the density
-    interpolates a discrete law and its continuous moment is not obliged to
-    match the discrete one.
-
-    Pinned here so the offset cannot drift silently, and so nobody
-    "corrects" ``mean`` into disagreeing with the calibrated relation.
+    Regression for issue #5: an earlier version of `pdf` used
+    ``x = lambda_true - lambda_central + delta``, double-counting the
+    central galaxy against the shifted-Poisson family's own built-in +1
+    (module docstring) and inflating this moment by exactly 1.0 richness
+    unit at every mass -- silently biasing every lambda-weighted integral
+    that consumes `pdf` directly (`SelBiasEngine.operators`'s P1/I1/I2).
+    See ``validation/validate_mor_notebook.py``.
     """
     mor = HodMor(sigma_intr=0.0)
     lam = np.linspace(1e-8, 900.0, 600001)
-    # the offset tightens onto 1 as the occupancy grows: at mu_sat ~ 3 it
-    # is 0.995, by mu_sat ~ 37 it is 1.000. Low occupancy is where a
-    # continuous interpolation of a discrete law is least faithful.
-    for m, tol in ((1e13, 1e-2), (1e14, 2e-3), (3e14, 1e-3)):
+    # exact at moderate-to-high occupancy; the residual continuous-vs-
+    # discrete gap only reopens at mu_sat ~ 3 (M=1e13), and even there it
+    # is 1.4% of the mean, not the old bug's flat +1 absolute unit.
+    for m, tol in ((1e13, 6e-2), (1e14, 1e-3), (3e14, 1e-3)):
         p = mor.pdf(lam, np.log(m), 0.3)
         moment = np.trapezoid(lam * p, x=lam) / np.trapezoid(p, x=lam)
         offset = moment - mor.mean(np.log(m), 0.3).item()
-        assert offset == pytest.approx(1.0, abs=tol), m
+        assert offset == pytest.approx(0.0, abs=tol), m
 
 
-def test_the_hod_offset_grows_with_intrinsic_scatter():
-    """And it is not confined to 1 once sigma_intr is on."""
+def test_the_hod_moment_match_holds_with_intrinsic_scatter():
+    """Offset stays small and grows gently with sigma_intr, unlike the old
+    bug's flat +1 unit regardless of scatter."""
     lam = np.linspace(1e-8, 1500.0, 900001)
     lm = np.log(1e15)
     offsets = []
@@ -328,23 +329,10 @@ def test_the_hod_offset_grows_with_intrinsic_scatter():
         mor = HodMor(sigma_intr=s)
         p = mor.pdf(lam, lm, 0.3)
         moment = np.trapezoid(lam * p, x=lam) / np.trapezoid(p, x=lam)
-        offsets.append(moment - mor.mean(lm, 0.3).item())
-    assert offsets[0] == pytest.approx(1.0, abs=1e-2)
-    assert offsets[1] > offsets[0]
-    assert offsets[2] > offsets[1]
-
-
-def test_the_hod_offset_is_negligible_for_bracket_placement():
-    r"""Which is the only thing ``mean`` is used for.
-
-    An offset of ~1 against a half-width of :math:`L\sigma_{\rm eff}` with
-    :math:`L = 8` shifts the bracket by well under a percent of its width.
-    """
-    mor = HodMor()
-    for m in (1e14, 1e15):
-        lm = np.log(m)
-        half_width = 8.0 * mor.std(lm, 0.3).item()
-        assert 1.0 / half_width < 0.03, m
+        mean = mor.mean(lm, 0.3).item()
+        offsets.append((moment - mean) / mean)
+    assert offsets[0] == pytest.approx(0.0, abs=1e-4)
+    assert 0.0 <= offsets[1] < offsets[2] < 0.05
 
 
 @pytest.mark.parametrize("mor", [LogNormalMor(), HodMor()],

@@ -62,17 +62,12 @@ Pk_camb = pk_grid(k_camb, z=0.0)
 print(f"P(k) from CAMB: k in [{k_camb[0]:.1e}, {k_camb[-1]:.1e}] 1/Mpc, "
       f"P in [{Pk_camb.min():.2e}, {Pk_camb.max():.2e}] Mpc^3")
 
-# clenspy.cosmology.sigma (SigmaGrid, TinkerMassFunction) inherits the
-# h-scaled convention of its Fortran reference: k in h/Mpc, P in
-# (Mpc/h)^3. Convert once, visibly, at this boundary.
-h = cosmo.h
-k_h, pk_h3 = k_camb / h, Pk_camb * h**3
+# physical units end to end: k in 1/Mpc, P in Mpc^3, R in Mpc
+from clenspy.cosmology import SigmaGrid
 
-from clenspy.cosmology import LinearPk, SigmaGrid
-
-sigma_grid = SigmaGrid(LinearPk(k_h, pk_h3))
-for r in (1.0, 8.0, 20.0):  # Mpc/h
-    print(f"sigma(R={r:5.1f} Mpc/h) = {sigma_grid.sigma(r):.4f}")
+sigma_grid = SigmaGrid(k_camb, Pk_camb)
+for r in (1.0, 8.0, 20.0):  # Mpc
+    print(f"sigma(R={r:5.1f} Mpc) = {sigma_grid.sigma(r):.4f}")
 
 # %% [markdown]
 # ## Halo mass function
@@ -81,13 +76,12 @@ for r in (1.0, 8.0, 20.0):  # Mpc/h
 from clenspy.cosmology import TinkerMassFunction
 
 # cosmo -> PkGrid -> SigmaGrid -> dndlnm_grid, all lazily, on first use:
-# the shortcut for the (k_h, pk_h3) chain built by hand above.
+# the shortcut for the (k, pk) chain built by hand above.
 hmf = TinkerMassFunction(cosmo=cosmo)  # Delta = 200 (mean matter) by default
 
-r_hinv = np.array([1.0, 8.0, 20.0])  # Mpc/h
-m_h = hmf.mass_of_radius(r_hinv)
-print("M_h [Omega_m h^-1 Msun] =", m_h)
-print("dn/dlnM [h^3 Mpc^-3]    =", hmf.dndlnm(m_h, z=0.0))
+M = np.array([1e13, 1e14, 5e14, 1e15])  # Msun
+print("M [Msun]           =", M)
+print("dn/dlnM [Mpc^-3]   =", hmf.dndlnm(M, z=0.0))
 
 # %% [markdown]
 # ## Halo bias
@@ -95,13 +89,11 @@ print("dn/dlnM [h^3 Mpc^-3]    =", hmf.dndlnm(m_h, z=0.0))
 # %% tags=["halo-bias"]
 from clenspy.cosmology import BiasModel
 
-# h-free (no k_h/pk_h3 conversion needed): cosmo -> PkGrid -> SigmaGrid,
-# same lazy chain as TinkerMassFunction, sharing sigma_grid's shape.
+# same physical chain and the same (M, z) grid idea as the mass function
 bias_model = BiasModel(cosmo=cosmo)
 
-M = np.array([1e13, 1e14, 5e14, 1e15])  # Msun
 print("nu(M)   =", bias_model.nu_at_mass(M))
-print("b(M)    =", bias_model.bias(M))
+print("b(M)    =", bias_model.bias(M, z=0.0))
 
 # sigma(M,z) = D(z) sigma(M,0): b(M) rises with z at fixed mass, since a
 # fixed mass is a rarer peak against a smaller, less-grown sigma.
@@ -334,7 +326,7 @@ for frac in (0.0, 0.5, 1.0, 2.0, 5.0):
 # %% tags=["projection-lensing"]
 from clenspy.cosmology import BiasModel as _BiasModel, TinkerMassFunction as _Tmf
 from clenspy.cosmology.pkgrid import PkGrid as _PkGrid
-from clenspy.lensing import SigmaPrj
+from clenspy.lensing import SigmaPrj, SigmaPrjConfig
 from clenspy.selection import XiNL
 
 # the projected two-halo surface density around a richness-selected
@@ -345,27 +337,18 @@ from clenspy.selection import XiNL
 # Real halo model this time: PkGrid disk-caches CAMB, so it costs seconds
 # once and nothing after.
 _tmf = _Tmf(cosmo=cosmo, zvec=np.linspace(0.0, 1.0, 21))
-_bm = _BiasModel(cosmo=cosmo)
-_h, _om = cosmo.h, cosmo.Om0
-
-def hmf_real(mass, z):
-    """dn/dM [Msun^-1 Mpc^-3] at physical Msun (one visible unit boundary:
-    physical Msun -> the Tinker grid's Omega_m h^-1 Msun)."""
-    m, zz = np.broadcast_arrays(np.asarray(mass, float), np.asarray(z, float))
-    return _tmf.dndlnm(m.ravel() * _h / _om, zz.ravel()).reshape(m.shape) * _h**3 / m
-
-def bias_real(mass, z):
-    m, zz = np.broadcast_arrays(np.asarray(mass, float), np.asarray(z, float))
-    return np.asarray(_bm.bias(m.ravel(), zz.ravel())).reshape(m.shape)
+_bm = _BiasModel(cosmo=cosmo, zvec=np.linspace(0.0, 1.0, 21))
 
 xi_real = XiNL(_PkGrid(cosmo=cosmo, nonlinear=True), clip=False)  # signed BAO trough
 
-# default exclusion="counter" (the K_exc pair weight): the one mode whose
-# cl channel is the mode-invariant random-subtracted excess. Under "ball"
-# the exclusion hole would be booked in rnd -- and the default
-# channel="cl" of deltasigma_prj below would silently omit it.
-prj = SigmaPrj(cosmology=cosmo, xi_nl=xi_real, hmf=hmf_real, bias=bias_real,
-               los_window="hard", los_depth=71.4)  # the Costanzi-mock window
+# default exclusion="counter" (zeroes the neighbour count inside the
+# ball): the one mode whose cl channel is the mode-invariant
+# random-subtracted excess. Under "ball" the exclusion hole would be
+# booked in rnd -- and the default channel="cl" of deltasigma_prj below
+# would silently omit it.
+prj = SigmaPrj(cosmology=cosmo, xi_nl=xi_real, hmf=_tmf, bias=_bm,
+               config=SigmaPrjConfig(los_window="hard",
+                                     los_depth=71.4))  # Costanzi-mock window
 R_prj = np.array([0.5, 2.0, 8.0, 25.0])  # comoving Mpc
 # b_sel from the toy engine above: its SHAPE is right, its amplitude is
 # not (see docs/selection_bias.md); the mutually calibrated pipeline is
@@ -431,17 +414,16 @@ print("ratio (!= 1)      =", inv * mean)
 print("f_src_behind(z_l) =", lk.f_src_behind(z_l))
 
 # %% [markdown]
-# ## Observables: counts and stacked DeltaSigma
+# ## Number counts
 
-# %% tags=["observables"]
-from clenspy.halo import NfwProfile
-from clenspy.observables import ClusterCounts, StackedDeltaSigma
+# %% tags=["number-counts"]
+from clenspy.observables import ClusterCounts
 from clenspy.selection import EmgParams, LogNormalMor, SelectionFunction
 from clenspy.survey import omega_des_y1
 
-# both the counts and the stacked profile are contractions of the SAME
-# weight W_ij = Omega(z) dV/dz n(M,z) S_ij(M,z) -- a smooth analytic dn/dlnM
-# stand-in avoids needing CAMB/sigma-grid just to demo the two contractions.
+# the counts are one contraction of the weight W_ij = Omega(z) dV/dz
+# n(M,z) S_ij(M,z) -- a smooth analytic dn/dlnM stand-in avoids needing
+# CAMB/sigma-grid just to demo the contraction.
 def toy_mass_function(ln_mass, z):
     lnm, zz = np.broadcast_arrays(np.asarray(ln_mass, float), np.asarray(z, float))
     m = np.exp(lnm)
@@ -460,7 +442,18 @@ abundance = ClusterCounts(ln_mass_grid, z_grid, toy_mass_function, sel, cosmo,
 print("<N_ij> (richness x redshift bins):")
 print(abundance.counts())
 
-# the second contraction: the same weight, against DeltaSigma(R|M,z)
+# %% [markdown]
+# ## Stacked shear
+
+# %% tags=["stacked-shear"]
+from clenspy.halo import NfwProfile
+from clenspy.observables import StackedDeltaSigma
+
+# the second contraction of the SAME weight `abundance` above, now against
+# DeltaSigma(R|M,z) instead of 1 -- this is the halo's own (one-halo) profile;
+# a real stacked measurement also carries the projected two-halo excess
+# Sigma_prj computed in "Projection lensing" above, evaluated at the bin's
+# representative (lambda_ob, z_ob) rather than contracted through W_ij.
 radii = np.logspace(-1.0, 1.0, 6)  # Mpc
 
 def nfw_deltasigma(r, mass, z_cluster):
@@ -469,13 +462,32 @@ def nfw_deltasigma(r, mass, z_cluster):
 
 stack = StackedDeltaSigma.from_profile(abundance, nfw_deltasigma, radii)
 ds = stack.profile()
-print("\nDeltaSigma_ij(R) [Msun/Mpc^2], lowest redshift bin, rises with richness:")
+print("DeltaSigma_ij^1h(R) [Msun/Mpc^2], lowest redshift bin, rises with richness:")
 print(ds[:, 0])
 
 # the identity that proves the stack IS the counts' own weight
 ones = np.ones_like(stack.profile_grid)
 print("\nstacking DeltaSigma=1, max|result - 1| ="
       f" {np.max(np.abs(abundance.average(ones) - 1.0)):.2e}")
+
+# %% [markdown]
+# ## Shear projection
+
+# %% tags=["shear-proj"]
+# the total stacked shear a driver actually fits: the one-halo term (a
+# representative M_200m for a lambda_ob=20 cluster, same illustrative
+# mass/concentration as "The Lensing Profile" above) plus the projected
+# two-halo excess from "Projection lensing" above -- two separate models,
+# summed by hand, since no single class owns both pieces at the binned level.
+ds_prj = prj.deltasigma_prj(R_prj, 20.0, 0.5, profile)
+rho_m_z0 = cosmo.critical_density0.to_value("Msun/Mpc^3") * cosmo.Om0
+ds_1h = NfwProfile(m200=1.0e14, c200=4.0, rho_ref=rho_m_z0).deltasigma(R_prj)
+ds_tot = ds_1h + ds_prj
+print("DeltaSigma(R) [Msun/Mpc^2] at (lambda_ob=20, z_ob=0.5):")
+print(f"{'R [Mpc]':>9s} {'1h':>12s} {'prj':>12s} {'total':>12s} {'prj frac':>10s}")
+for k, r in enumerate(R_prj):
+    print(f"{r:9.2f} {ds_1h[k]:12.4e} {ds_prj[k]:12.4e} {ds_tot[k]:12.4e} "
+          f"{ds_prj[k] / ds_tot[k]:10.4f}")
 
 # %% [markdown]
 # ## Covariance

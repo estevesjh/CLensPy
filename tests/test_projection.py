@@ -17,8 +17,11 @@ from astropy.cosmology import FlatLambdaCDM
 from clenspy.cosmology import TinkerMassFunction
 from clenspy.cosmology.bias import BiasModel
 from clenspy.cosmology.pkgrid import PkGrid
-from clenspy.lensing import SigmaPrj
+from clenspy.lensing import SigmaPrj, SigmaPrjConfig
 from clenspy.selection import SigmoidBias, XiNL
+from clenspy.selection.geometry import r_excl
+from clenspy.utils.integrate import mass_nodes
+from clenspy.utils.los_integrals import theta_edges, theta_grid
 
 
 class BuzzardCosmology(FlatLambdaCDM):
@@ -37,44 +40,32 @@ R = np.array([0.5, 2.0, 8.0, 25.0])  # comoving Mpc
 
 @pytest.fixture(scope="module")
 def model():
-    """The real halo-model trio in SelBiasEngine's physical-Msun,
-    broadcast-callable convention (`clenspy.utils.decorators` classes are
-    grid/pairwise; the ravel makes every broadcast query pairwise)."""
+    """The real halo-model trio as grid objects on one shared (M, z) grid,
+    plus the CAMB halofit xi_NL callable (physical Msun, h-free)."""
     pk = PkGrid(cosmo=COSMO, nonlinear=True)
     xi_nl = XiNL(pk, clip=False)
-    tmf = TinkerMassFunction(cosmo=COSMO, zvec=np.linspace(0.0, 1.0, 21))
-    bm = BiasModel(cosmo=COSMO)
-
-    def hmf(mass, z):
-        """dn/dM [Msun^-1 Mpc^-3] at physical Msun. The one unit boundary:
-        physical Msun -> the Tinker grid's Omega_m h^-1 Msun."""
-        m, zz = np.broadcast_arrays(np.asarray(mass, float),
-                                    np.asarray(z, float))
-        m_tilde = m.ravel() * H / OMEGA_M
-        vals = tmf.dndlnm(m_tilde, zz.ravel())        # pairwise, h^3 Mpc^-3
-        return vals.reshape(m.shape) * H**3 / m       # -> per dM, h-free
-
-    def bias(mass, z):
-        m, zz = np.broadcast_arrays(np.asarray(mass, float),
-                                    np.asarray(z, float))
-        return np.asarray(
-            bm.bias(m.ravel(), zz.ravel())
-        ).reshape(m.shape)
-
+    mgrid = np.geomspace(1.0e12, 1.0e16, 128)
+    zgrid = np.linspace(0.0, 1.0, 21)
+    hmf = TinkerMassFunction(cosmo=COSMO, mvec=mgrid, zvec=zgrid)
+    bias = BiasModel(cosmo=COSMO, mvec=mgrid, zvec=zgrid)
     return SimpleNamespace(xi_nl=xi_nl, hmf=hmf, bias=bias)
 
 
 def _prj(model, **kw):
-    kwargs = dict(cosmology=COSMO, xi_nl=model.xi_nl, hmf=model.hmf,
-                  bias=model.bias, n_theta=48, n_z_side=24, n_M=16,
-                  los_window="hard", los_depth=50.0 / H, exclusion="cl")
-    kwargs.update(kw)
-    return SigmaPrj(**kwargs)
+    """SigmaPrj on the shared fixture models; kwargs are SigmaPrjConfig
+    fields, except ``xi_nl`` which overrides the injected callable."""
+    xi_nl = kw.pop("xi_nl", model.xi_nl)
+    cfg = dict(n_theta=48, n_M=16,
+               los_window="hard", los_depth=50.0 / H, exclusion="cl")
+    cfg.update(kw)
+    return SigmaPrj(cosmology=COSMO, hmf=model.hmf, bias=model.bias,
+                    xi_nl=xi_nl, config=SigmaPrjConfig(**cfg))
 
 
 def _bsel(prj):
     return SigmoidBias(lob=LOB, zob=ZOB,
-                       theta_lambda=prj.r_excl(LOB, ZOB) / prj.chi(ZOB),
+                       theta_lambda=(r_excl(LOB, ZOB, H)
+                                     / prj.distance.chi(ZOB)),
                        b_small=4.0, b_large=3.0)
 
 
@@ -150,17 +141,21 @@ def test_floor_matches_unfloored_when_bracket_positive(model):
 
 # -- geometry -----------------------------------------------------------------
 
-def test_dchi_is_law_of_cosines_not_delta_chi(model):
+def test_chord_is_law_of_cosines_not_delta_chi(model):
+    r"""The cosh-Abel chord :math:`r = R_\perp\cosh u` reproduces the
+    law of cosines, never :math:`|\chi_z - \chi_o|`: near the exclusion
+    ring the transverse leg dominates."""
     prj = _prj(model)
-    thetas, _ = prj.theta_grid(ZOB)
-    zs, _ = prj._z_grid(ZOB)
-    d = prj.dchi(thetas, zs, ZOB)
-    naive = np.abs(prj.chi(zs) - prj.chi(ZOB))[None, :]
-    iz = int(np.argmin(naive[0]))
-    # at the largest theta the transverse leg dominates near the ring
-    assert d[-1, iz] > 10.0 * max(naive[0, iz], 1e-3)
-    # the chord is never smaller than the line-of-sight separation
-    assert np.all(d >= naive - 1e-9)
+    prj.sigma_prj(R, LOB, ZOB, lambda th: 0.0)  # force build
+    chi_o = float(prj.distance.chi(ZOB))
+    thetas, _ = theta_grid(theta_edges(
+        chi_o, prj.config.theta_perp_range, prj.config.n_theta))
+    geom = prj._geometry(thetas, LOB, ZOB)
+    # at u = 0 the chord is the transverse leg R_perp, not zero
+    r_at_u0 = geom.R_perp * np.cosh(0.0)
+    np.testing.assert_allclose(r_at_u0[: thetas.size],
+                               chi_o * np.sin(thetas), rtol=1e-12)
+    assert r_at_u0[thetas.size - 1] > 1.0  # transverse leg, comoving Mpc
 
 
 def test_kernel_cell_mass_matches_brute_force(model):
@@ -170,15 +165,17 @@ def test_kernel_cell_mass_matches_brute_force(model):
     against a dense pointwise quadrature of :math:`\Sigma_{\rm mis}` —
     the thing the trick replaces."""
     prj = _prj(model)
-    chi_o = float(prj.chi(ZOB))
-    # the edges the kernel actually uses: aligned with the per-z exclusion
+    chi_o = float(prj.distance.chi(ZOB))
+    # the edges mass_shells actually uses: aligned with the per-z exclusion
     # crossings when exclusion is active
-    s_edges = prj.theta_edges(ZOB, LOB) * chi_o
-    rs, sigma0 = prj._profiles(ZOB)
+    s_edges = theta_edges(chi_o, prj.config.theta_perp_range,
+                          prj.config.n_theta,
+                          r_excl=r_excl(LOB, ZOB, H)) * chi_o
+    rs, sigma0 = prj.shells.profiles(ZOB)
     im = rs.size // 2
     R0 = 5.0  # comoving Mpc
     it = int(np.searchsorted(s_edges, R0)) - 1  # the ring-crossing cell
-    K = prj.kernel(np.array([R0]), LOB, ZOB, "sigma")
+    K = prj.shells(np.array([R0]), LOB, ZOB, "sigma")
     # brute force on the same cell: 3000 nodes across the ring
     s = np.linspace(s_edges[it], s_edges[it + 1], 3000)
     sig_mis = sigma0[im] * prj.mis_table.sigma_hat(R0 / rs[im], 0.0) * 0.0
@@ -220,11 +217,11 @@ def test_deltasigma_annihilates_a_uniform_sheet(model):
     assert np.allclose(ds, 0.0, atol=1e-10 * sig.max())
 
 
-def test_deltasigma_kernel_is_signed(model):
+def test_deltasigma_shells_are_signed(model):
     # the ds_hat lobe at R_theta > R is negative and must never be
     # clamped -- it is what makes DeltaSigma annihilate a uniform sheet
     prj = _prj(model)
-    K = prj.kernel(np.array([0.3, 1.0]), LOB, ZOB, "ds")
+    K = prj.shells(np.array([0.3, 1.0]), LOB, ZOB, "ds")
     assert K.min() < 0.0
 
 
@@ -276,7 +273,7 @@ def test_two_halo_limit_wiring_with_flat_xi(model):
     against the independent closed form :math:`M_{2D} = \pi s_{\max}^2
     \bar\Sigma_{\rm NFW}(<s_{\max})`."""
     xi_c = 0.37
-    prj = _prj(model, exclusion="none", n_theta=96, n_z_side=32,
+    prj = _prj(model, exclusion="none", n_theta=96,
                theta_perp_range=(1e-3, 200.0),
                xi_nl=lambda r, zob: np.full_like(
                    np.asarray(r, float), xi_c))
@@ -285,19 +282,26 @@ def test_two_halo_limit_wiring_with_flat_xi(model):
     prj.sigma_prj(R_any, LOB, ZOB, lambda th: b_const)
     cl = prj.cl.copy()
 
-    chi_o = float(prj.chi(ZOB))
-    zs, wzs = prj._z_grid(ZOB)
-    cmn = prj.common(zs, ZOB) * wzs
-    Ms, Mw = prj._mass_nodes()
+    chi_o = float(prj.distance.chi(ZOB))
+    # independent z quadrature over the projection support (hard window)
+    from clenspy.utils.integrate import gl_nodes
+    chi_lo = chi_o - prj.config.los_depth
+    chi_hi = chi_o + prj.config.los_depth
+    chi_n, w_chi = gl_nodes(chi_lo, chi_hi, 64)
+    zs = prj.distance.z_of_chi(chi_n)
+    dchidz = prj.distance.dchi_dz(zs)
+    cmn = prj.common(zs, ZOB) * w_chi / dchidz
+    Ms, Mw = mass_nodes(prj.min_mass, 10.0**prj.log10_M_max,
+                        prj.config.n_M)
     from clenspy.halo.nfw import NfwProfile
     prof = NfwProfile(m200=Ms, c200=prj.concentration(Ms, ZOB),
                       rho_ref=prj.rho_m)
-    s_max = prj.theta_perp_range[1]
+    s_max = prj.config.theta_perp_range[1]
     # closed form, independent of the miscentering table: for s_max >> R
     # the offset aperture mass is the centred one to O((R/s_max)^2)
     M2D = np.pi * s_max**2 * np.asarray(prof.mean_sigma(s_max)).ravel()
-    n_mz = prj.hmf(Ms[:, None], zs[None, :])
-    b_mz = prj.bias(Ms[:, None], zs[None, :])
+    n_mz = prj.hmf(Ms, zs)                     # outer grid (nM, nz)
+    b_mz = prj.bias(Ms, zs)
     budget_z = np.einsum("m,mz->z", Mw, n_mz * b_mz * M2D[:, None])
     ref = b_const * xi_c * np.sum(cmn * budget_z) / chi_o**2
     assert np.allclose(cl, ref, rtol=0.02)

@@ -8,11 +8,13 @@ from __future__ import annotations
 import numpy as np
 from astropy.cosmology import Cosmology
 
-from ..utils.decorators import scalar_array_output
-from .fiducial import fiducial_cosmology
+from ..utils.decorators import default_mvals_z, scalar_array_output
+from ..utils.interpolate import LogGridInterpolator
+from .concentration import DELTA_COLLAPSE
+from .fiducial import fiducial_cosmology, mean_matter_density
 from .growth import growth_factor
 from .pkgrid import PkGrid
-from .sigma import LinearPk, SigmaGrid
+from .sigma import SigmaGrid, lnr_grid
 
 
 class BiasModel:
@@ -39,29 +41,11 @@ class BiasModel:
     with :math:`A, a, B, b, C, c` fit as functions of the spherical
     overdensity :math:`\Delta` (``odelta``).
 
-    NOTE: units are h-free absolute throughout -- mass in Msun, length in
-    Mpc, wavenumbers in 1/Mpc, P(k) in Mpc^3. This class does *not* use the
-    "little h" convention (h/Mpc, Msun/h, (Mpc/h)^3) common in the
-    literature; matches `~clenspy.halo.NfwProfile` and
-    `~clenspy.cosmology.PkGrid`. Lives in `clenspy.cosmology`, not
-    `clenspy.halo`, because it is a structure-formation fit calibrated on
-    the same peak height as `~clenspy.cosmology.TinkerMassFunction` and
-    `~clenspy.cosmology.concentration`, not a density profile.
+    NOTE: physical units, h-free -- mass in Msun, k in 1/Mpc, P in Mpc^3.
 
-    NOTE: :math:`\bar\rho_m` in the Lagrangian radius is the **comoving**
-    :math:`\Omega_{m,0}\rho_{c,0}`, so R(M) carries no redshift
-    dependence and matches the P(k) it is integrated against.
-
-    NOTE: the Tinker et al. (2010) fit is calibrated for
-    :math:`\Delta = 200`-:math:`1600` and :math:`\nu \lesssim 4`; b(M)
-    outside that is an extrapolation.
-
-    NOTE: the constructor only **stores** its collaborators -- `cosmo`,
-    and ``k``/``P`` if given -- and does no work. If ``k``/``P`` are
-    omitted, `sigma_grid` builds a `~clenspy.cosmology.PkGrid` from
-    `cosmo` lazily, on first use, the same h-free convention this class
-    already uses -- no conversion needed, unlike the h-scaled
-    `~clenspy.cosmology.TinkerMassFunction`.
+    Calibrated for :math:`\Delta = 200`--:math:`1600` and
+    :math:`\nu \lesssim 4`. The constructor stores; `sigma_grid` builds
+    lazily on first use.
 
     Parameters
     ----------
@@ -70,7 +54,8 @@ class BiasModel:
         ``P`` to override the `PkGrid` step with a custom spectrum; give
         neither to build one from ``cosmo``.
     P : array, optional
-        Linear power spectrum [Mpc^3], physical (not h-scaled).
+        Linear power spectrum **at z=0** [Mpc^3], physical (not h-scaled);
+        redshift enters through :math:`\sigma(M,z) = D(z)\,\sigma(M,0)`.
     cosmo : astropy.cosmology instance, optional
         Cosmology to use (default: `fiducial_cosmology()`). Builds the
         z=0 `PkGrid` this instance's spectrum comes from if ``k``/``P``
@@ -78,11 +63,23 @@ class BiasModel:
     odelta : int, optional
         Spherical overdensity :math:`\Delta` defining the halo mass, e.g.
         200 for :math:`M_{200m}` (default: 200).
+    mvec : array, optional
+        Mass grid [Msun] `bias_grid` is built and cached on. Defaults to
+        the production Lagrangian-radius grid.
+    zvec : array, optional
+        Redshift grid, default ``linspace(0, 1.5, 31)``.
+    sigma_grid : object, optional
+        Prebuilt :math:`\sigma^2` evaluator; share one `SigmaGrid` with
+        `~clenspy.cosmology.TinkerMassFunction` (same peak height).
 
     Examples
     --------
-    >>> bias_model = BiasModel(k, P)
-    >>> bias = bias_model.bias(M)
+    Build the (M, z) grid once, interp thereafter::
+
+        model = BiasModel(k, P, zvec=np.linspace(0.0, 1.0, 21))
+        model.bias(1e14, z=0.3)     # float
+        model.bias(Mvec, z=0.3)     # (nM,)
+        model.bias(Mvec, zvec)      # outer grid (nM, nz)
     """
 
     def __init__(
@@ -91,48 +88,78 @@ class BiasModel:
         P: np.ndarray | None = None,
         cosmo: Cosmology | None = None,
         odelta: int = 200,
+        mvec: np.ndarray | None = None,
+        zvec: np.ndarray | None = None,
+        sigma_grid=None,
     ):
         self.k = k
         self.P = P
         self.cosmo = fiducial_cosmology() if cosmo is None else cosmo
         self.omega_m = self.cosmo.Om0
         self.odelta = odelta
-        self.rhom = self.cosmo.critical_density(0).to_value("Msun/Mpc^3") * self.omega_m
+        self.rhom = mean_matter_density(self.cosmo)
+        self._sigma_grid = sigma_grid
+        # default z grid; a single-z grid would silently return that z
+        # for every query
+        self.zvec = (np.linspace(0.0, 1.5, 31) if zvec is None
+                     else np.atleast_1d(np.asarray(zvec, dtype=float)))
+        # production Lagrangian radii (Mpc/h -> Mpc at this boundary only)
+        self.mval = ((4.0 * np.pi / 3.0) * self.rhom
+                     * (np.exp(lnr_grid()) / self.cosmo.h) ** 3
+                     if mvec is None
+                     else np.atleast_1d(np.asarray(mvec, dtype=float)))
 
-    @scalar_array_output
-    def bias(self, M, z=0.0):
-        r"""
-        Compute the linear bias b(M, z) for a given halo mass and redshift.
+    @property
+    def bias_grid(self):
+        r"""b(M, z) on ``mval`` x ``zvec``, built once on first use from
+        `sigma_grid`, with :math:`\sigma(M,z) = D(z)\,\sigma(M,0)`."""
+        if getattr(self, "_bias_grid", None) is None:
+            sigma0 = np.atleast_1d(self.sigma_tophat(self.mval, z=0.0))
+            growth = np.atleast_1d(growth_factor(self.zvec, self.cosmo))
+            nu = DELTA_COLLAPSE / (sigma0[:, None] * growth[None, :])
+            self._bias_grid = np.asarray(self.bias_at_nu(nu))
+            self._interp = LogGridInterpolator(self.mval, self.zvec,
+                                               self._bias_grid)
+        return self._bias_grid
 
-        NOTE: this used to cache :math:`\nu` on ``self`` on the first call
-        and reuse it for *every later* M, returning the first mass's bias
-        for the second mass's argument. It no longer caches. The expensive
-        part -- the FFTLog -- is cached where it belongs, on the shared
-        `~clenspy.cosmology.SigmaGrid`, so recomputing :math:`\nu` per call
-        is cheap and correct.
+    def build(self, mvec=None, zvec=None):
+        """Materialize the bias grid (optionally on new grids); return self."""
+        if mvec is not None:
+            self.mval = np.atleast_1d(np.asarray(mvec, dtype=float))
+            self._bias_grid = None
+        if zvec is not None:
+            self.zvec = np.atleast_1d(np.asarray(zvec, dtype=float))
+            self._bias_grid = None
+        _ = self.bias_grid
+        return self
 
-        NOTE: the Tinker (2010) fit coefficients :math:`(A,a,B,b,C,c)`
-        depend only on :math:`\Delta` (``self.odelta``), not :math:`z` --
-        unlike the Tinker (2008) mass function's coefficients. The only
-        redshift dependence here is :math:`\sigma(M,z)=D(z)\sigma(M,0)`,
-        through `nu_at_mass`.
+    build_all = build  # alias, one release
+
+    @property
+    def is_built(self) -> bool:
+        """Whether the (M, z) grid has been materialized."""
+        return getattr(self, "_bias_grid", None) is not None
+
+    @default_mvals_z
+    def bias(self, M=None, z=None):
+        r"""b(M, z), interpolated from `bias_grid`.
+
+        ``bias(1e14, z=0.3)`` is a float; ``bias(Mvec, z=0.3)`` has shape
+        ``(nM,)``; ``bias(Mvec, zvec)`` returns the outer grid ``(nM, nz)``.
 
         Parameters
         ----------
-        M : float or array
-            Halo mass [Msun].
-        z : float, optional
-            Redshift (default: 0.0).
-
-        Returns
-        -------
-        float or array
-            Linear bias b(M, z), same shape as M.
+        M : float or array, optional
+            Halo mass [Msun]. Defaults to `self.mval`.
+        z : float or array, optional
+            Redshift(s). Defaults to `self.zvec`.
         """
-        return self.bias_at_nu(self.nu_at_mass(M, z=z))
+        if not self.is_built:
+            self.build()
+        return self._interp(M, z)
 
     @scalar_array_output
-    def nu_at_mass(self, M, z=0.0, deltac=1.686):
+    def nu_at_mass(self, M, z=0.0, deltac=DELTA_COLLAPSE):
         r"""
         Compute peak-height :math:`\nu(M,z) = \delta_c / \sigma(M,z)`.
 
@@ -155,37 +182,15 @@ class BiasModel:
 
     @property
     def sigma_grid(self):
-        r"""The shared :math:`\sigma^2` evaluator, built once on first use.
-
-        NOTE: the Tinker (2010) bias and the Tinker (2008) mass function are
-        two fits to the **same** peak height, so they must read the same
-        :math:`\sigma(M)`. This property is the shared object; see
-        `clenspy.cosmology.sigma`.
-
-        NOTE: `~clenspy.cosmology.SigmaGrid` is unit-agnostic -- the
-        integral needs only :math:`kR` dimensionless and :math:`P` in units
-        of :math:`k^{-3}` -- which is why this h-free class can share it
-        with the h-scaled mass function. Two caveats, and **both** limits
-        are dimensionful:
-
-        - :math:`20/R` is in h/Mpc, so this class never truncates, and
-          `sigma_tophat` passes ``truncate=False``;
-        - the *fixed lower* limit :math:`10^{-4}` is in h/Mpc too. It only
-          binds when the tabulated k range extends below it. `PkGrid`
-          defaults to :math:`k_{\min} = 10^{-4}\,\mathrm{Mpc}^{-1}`, i.e.
-          right at it, so in the h-free convention the cut is at
-          :math:`10^{-4}` Mpc^-1 rather than at :math:`10^{-4}` h/Mpc --
-          a 1/h shift in where the integral starts. Harmless here, because
-          :math:`k^3 P W^2 \to 0` there and the large-scale contribution to
-          :math:`\sigma(M)` at cluster masses is negligible; recorded
-          because it is not zero and it is not obvious.
-        """
+        r"""The :math:`\sigma(M)` grid, built once on first use (Tinker
+        2008 MF and Tinker 2010 bias fit the same peak height, so both
+        read one table)."""
         if getattr(self, "_sigma_grid", None) is None:
             k, P = self.k, self.P
             if k is None or P is None:
                 pk_grid = PkGrid(cosmo=self.cosmo, nonlinear=False)
                 k, P = pk_grid.k, pk_grid(pk_grid.k, z=0.0)
-            self._sigma_grid = SigmaGrid(LinearPk(k, P))
+            self._sigma_grid = SigmaGrid(k, P)
         return self._sigma_grid
 
     @scalar_array_output
@@ -202,17 +207,8 @@ class BiasModel:
         where :math:`W` is the Fourier transform of the real-space top-hat
         window, :math:`\bar\rho_m` is the comoving mean matter density, and
         :math:`D(z)` is the linear growth factor ({doc}`../cosmology`).
-
-        NOTE: delegates to `sigma_grid`, which fixed three defects in the
-        previous inline version: it splined the **variance** linearly in
-        :math:`\log_{10} R` and then square-rooted it (percent-level error
-        where :math:`\sigma^2` is curved), it let ``np.interp`` silently
-        **clamp** outside the FFTLog range instead of refusing, and it
-        rebuilt the FFTLog on every single call.
-
-        NOTE: untruncated, i.e. the full tabulated :math:`k` range. The
-        :math:`k \le 20/R` convention belongs to the production mass
-        function, not to the bias -- see `sigma_grid`.
+        Untruncated: the :math:`kR \le 20` convention belongs to the mass
+        function, not the bias.
 
         Parameters
         ----------
@@ -248,8 +244,7 @@ class BiasModel:
             Linear bias b(ν), same shape as nu.
         """
         A, a, B, b, C, c = self.get_tinker_params()
-        bias = self._bias_at_nu(nu, A, a, B, b, C, c, deltac=1.686)
-        return bias
+        return self._bias_at_nu(nu, A, a, B, b, C, c, deltac=DELTA_COLLAPSE)
 
     def get_tinker_params(self):
         r"""
@@ -281,7 +276,7 @@ class BiasModel:
         }
         return [tinker_best_fit[col] for col in ["A", "a", "B", "b", "C", "c"]]
 
-    def _bias_at_nu(self, nu, A, a, B, b, C, c, deltac=1.686):
+    def _bias_at_nu(self, nu, A, a, B, b, C, c, deltac=DELTA_COLLAPSE):
         r"""
         Tinker et al. (2010) eq. 6:
         :math:`b(\nu) = 1 - A \nu^a / (\nu^a + \delta_c^a) + B \nu^b + C \nu^c`.
@@ -304,16 +299,16 @@ if __name__ == "__main__":
     print("Tinker et al. (2010) linear halo bias, Delta = 200m")
     print(f"{'M [Msun]':>11s}  {'sigma(M)':>9s}  {'nu':>7s}  {'b(M)':>7s}")
     for m in M:
-        s, nu, b = model.sigma_tophat(m), model.nu_at_mass(m), model.bias(m)
+        s, nu = model.sigma_tophat(m), model.nu_at_mass(m)
+        b = model.bias(m, z=0.0)
         print(f"{m:11.2e}  {s:9.4f}  {nu:7.4f}  {b:7.4f}")
 
     print("\nb rises with M and nu, as it must: rarer haloes are more biased.")
-    print("NOTE: the Tinker fit is calibrated for nu <~ 4; beyond that b(M)")
-    print("      is an extrapolation. Units are h-free absolute throughout.")
+    print("The fit is calibrated for nu <~ 4; beyond that b(M) extrapolates.")
 
     print("\nb(M, z) at M = 1e14 Msun, against z:")
     print("sigma(M,z) = D(z) sigma(M,0), so b rises with z at fixed mass --")
     print("a fixed-mass halo is rarer relative to a smaller, less-grown sigma.")
-    for z in (0.0, 0.5, 1.0, 2.0):
+    for z in (0.0, 0.5, 1.0, 1.5):
         print(f"  z = {z:4.2f}:  sigma = {model.sigma_tophat(1e14, z=z):.4f}  "
               f"b = {model.bias(1e14, z=z):.4f}")

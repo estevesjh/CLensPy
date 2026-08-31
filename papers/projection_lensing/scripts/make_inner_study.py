@@ -33,7 +33,7 @@ sys.path.insert(0, str(REPO / "src"))
 sys.path.insert(0, str(REPO / "validation"))
 
 import validate_sigma_prj_mock as V  # noqa: E402
-from clenspy.lensing import SigmaPrj  # noqa: E402
+from clenspy.lensing import SigmaPrj, SigmaPrjConfig  # noqa: E402
 from clenspy.selection import PhysicalMassMor, SelBiasEngine, SigmoidBias  # noqa: E402
 from clenspy.selection.scaling_relation import HodMor  # noqa: E402
 
@@ -76,13 +76,23 @@ def main() -> int:
                         + (sel_mean * rnd_err / rnd_stack**2) ** 2)
 
     xi_nl, hmf, bias, _ = V.build_halo_model()
+    pk_prj, hmf_prj, two_halo_prj, bias_prj = V.build_projection_products()
     engine = SelBiasEngine(cosmology=V.COSMO, xi_nl=xi_nl, hmf=hmf,
                            bias=bias,
-                           mor=PhysicalMassMor(HodMor.buzzard(), V.H))
-    prj = SigmaPrj(cosmology=V.COSMO, xi_nl=xi_nl, hmf=hmf, bias=bias,
-                   n_theta=128, theta_perp_range=(1e-3, 60.0 / V.H),
-                   los_window="hard", los_depth=50.0 / V.H,
-                   exclusion="counter", r_trunc=30.0 / V.H)
+                           mor=PhysicalMassMor(HodMor.from_lognormal(), V.H))
+    prj = SigmaPrj(cosmology=V.COSMO,
+                   pk=pk_prj,
+                   hmf=hmf_prj,
+                   two_halo=two_halo_prj,
+                   bias=bias_prj,
+                   config=SigmaPrjConfig(
+                       n_theta=128,
+                       theta_perp_range=(1e-3, 60.0 / V.H),
+                       los_window="hard",
+                       los_depth=50.0 / V.H,
+                       exclusion="counter",
+                       r_trunc=30.0 / V.H,
+                   ))
 
     P1, I1, I2 = engine.operators(lob, zob)
     mean_d, var_d = engine.delta_stats(lob, zob, B_EFF)

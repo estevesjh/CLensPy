@@ -47,6 +47,67 @@ def docstrings(path):
         )
 
 
+#: Module headers are summaries; the physics essays live in docs/*.md.
+MAX_MODULE_DOC_LINES = 15
+
+#: Burn-down list: legacy essays awaiting their move to docs/*.md. Remove
+#: an entry the moment its module is trimmed; do not add to this list.
+LONG_HEADER_BURNDOWN = {
+    "covariance/__init__.py", "covariance/counts.py",
+    "covariance/deltasigma.py", "covariance/halo_to_halo.py",
+    "cosmology/concentration.py", "cosmology/growth.py",
+    "halo/einasto.py", "halo/einasto_lown.py", "halo/einasto_series.py",
+    "kernels/__init__.py", "kernels/bessel.py", "kernels/fftlog_cov.py",
+    "kernels/lensing_kernel.py", "kernels/limber.py", "kernels/photoz.py",
+    "kernels/sigma_crit.py", "lensing/limber.py", "lensing/miscentering.py",
+    "observables/__init__.py",
+    "observables/deltasigma.py", "observables/number_counts.py",
+    "protocols.py", "selection/__init__.py", "selection/bsel.py",
+    "selection/geometry.py", "selection/miscentering.py",
+    "selection/miscentering_kernel.py", "selection/richness_kernel.py",
+    "selection/scaling_relation.py", "selection/selection_function.py",
+    "survey/__init__.py", "survey/survey.py", "utils/binning.py",
+    "utils/special.py",
+}
+
+
+def description_line_count(doc):
+    """Docstring lines that count against the budget.
+
+    Examples, inputs, and outputs are welcome in docstrings and are free:
+    numpydoc ``Examples`` sections and doctest lines (``>>>``/``...``) are
+    excluded; the budget is for description text only.
+    """
+    lines = doc.splitlines()
+    counted, in_examples = [], False
+    for i, line in enumerate(lines):
+        s = line.strip()
+        underlined = (i + 1 < len(lines) and lines[i + 1].strip()
+                      and set(lines[i + 1].strip()) == {"-"})
+        if underlined:
+            in_examples = s == "Examples"
+        if in_examples or s.startswith((">>>", "...")):
+            continue
+        counted.append(line)
+    return len(counted)
+
+
+@pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
+def test_module_headers_stay_short(path):
+    """A module docstring is a summary, not a documentation page."""
+    doc = ast.get_docstring(ast.parse(path.read_text()))
+    n = 0 if doc is None else description_line_count(doc)
+    rel = str(path.relative_to(SRC))
+    if rel in LONG_HEADER_BURNDOWN:
+        if n <= MAX_MODULE_DOC_LINES:
+            pytest.fail(f"{rel}: trimmed -- remove it from the burn-down list")
+        pytest.xfail(f"{rel}: legacy essay on the burn-down list ({n} lines)")
+    assert n <= MAX_MODULE_DOC_LINES, (
+        f"{path.name}: module docstring is {n} lines "
+        f"(max {MAX_MODULE_DOC_LINES}) -- move the essay to docs/*.md"
+    )
+
+
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
 def test_docstrings_with_backslashes_are_raw(path):
     r"""A backslash in a non-raw docstring is a Python escape.

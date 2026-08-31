@@ -98,13 +98,7 @@ class LogGridInterpolator:
         else:
             zarr = np.atleast_1d(z)
         scalar_input = np.isscalar(x) and (z is None or np.isscalar(z))
-        # Pairwise evaluation (x[i], z[i])
-        if xarr.shape == zarr.shape and xarr.ndim == 1 and xarr.size > 1:
-            pts = np.column_stack((np.log(xarr), zarr))
-            logvals = self._interp(pts)
-            xi_eval = np.exp(logvals)
-            return xi_eval if not scalar_input else float(xi_eval.squeeze())
-        # Otherwise, full meshgrid
+        # Full meshgrid: vector-x + vector-z ALWAYS returns outer grid (x.size, z.size)
         logx = np.log(xarr)
         pts = np.array(np.meshgrid(logx, zarr, indexing="ij")).reshape(2, -1).T
         logvals = self._interp(pts)

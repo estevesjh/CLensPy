@@ -12,15 +12,14 @@ monotonicity, and the identity relating the three projections.
 import numpy as np
 import pytest
 
+from clenspy.halo.nfw import NfwProfile
 from clenspy.halo.twohalo import TwoHaloTerm, prepare_pk_grid
 
-#: A pure power law, so xi(r) is a pure power law and the projections are
-#: strictly monotonic -- the invariants below are then exact statements
-#: rather than statements about this particular input. A cored P(k) gives a
-#: genuinely flat Sigma core and would make the monotonicity check false for
-#: physical reasons, which is not what these tests are for.
+#: Linear P(k) = k: simple, analytically closed, strictly monotonic.
+#: Avoids spurious cores (pure power law) and numerical artifacts (NFW Abel
+#: transforms), while preserving exact monotonicity for invariant tests.
 K = np.logspace(-3, 1, 64)  # 1/Mpc
-PK = 2e4 * K ** (-1.5)
+PK = K
 Z = 0.2
 
 
@@ -29,14 +28,14 @@ def twohalo():
     return TwoHaloTerm(K, PK, zvec=Z)
 
 
-def test_xi_is_finite_and_decreasing(twohalo):
+def test_xi_is_finite_and_decreasing(twohalo, timing_report):
     r = np.logspace(-1, 1.5, 30)
     xi = np.ravel(twohalo.xi(r, Z))
     assert np.all(np.isfinite(xi))
     assert np.all(np.diff(xi) < 0)
 
 
-def test_sigma_and_deltasigma_are_positive_and_decreasing(twohalo):
+def test_sigma_and_deltasigma_are_positive_and_decreasing(twohalo, timing_report):
     R = np.logspace(-1, 1, 25)
     for name in ("sigma", "deltasigma"):
         v = np.ravel(getattr(twohalo, name)(R, Z))

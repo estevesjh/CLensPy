@@ -102,7 +102,13 @@ class TwoHaloTerm:
         rmax_integral: float = 300,
     ) -> None:
         self.kvec, self.Pk_grid, self.zvec = prepare_pk_grid(kvec, Pk, zvec)
-        self._kfine = np.logspace(-3.0, 5, n_grid)
+        # For FFTLog Hankel transform accuracy: use fine k-grid if supplied grid
+        # is coarse (< 100 pts), else respect the supplied grid to avoid
+        # extrapolation artifacts in nonlinear spectra.
+        self._kfine = (
+            np.logspace(-3.0, 5, n_grid) if len(self.kvec) < 100
+            else self.kvec
+        )
         self._rfine = np.logspace(-3.0, np.log10(r_max), n_grid)
         self.p_kz = LogGridInterpolator(self.kvec, self.zvec, self.Pk_grid)
         self.reval = np.logspace(np.log10(r_min), np.log10(r_max), 100)
@@ -111,7 +117,7 @@ class TwoHaloTerm:
         self.rmax_integral = rmax_integral
 
     @time_method
-    def build_all(self, R_vals=None, z=None, **sigma_kwargs):
+    def build(self, R_vals=None, z=None, **sigma_kwargs):
         """
         Compute and cache ξ(r, z), Σ(R, z), ΔΣ(R, z) interpolators.
 
@@ -121,12 +127,19 @@ class TwoHaloTerm:
         Returns
         -------
         TwoHaloTerm
-            ``self``, for chaining (e.g. ``TwoHaloTerm(...).build_all()``).
+            ``self``, for chaining (e.g. ``TwoHaloTerm(...).build()``).
         """
         self.xi(R_vals, z)
         self.sigma(R_vals, z, **sigma_kwargs)
         self.deltasigma(R_vals, z)
         return self
+
+    build_all = build  # alias, one release
+
+    @property
+    def is_built(self) -> bool:
+        """Whether the ξ(r, z) interpolator has been materialized."""
+        return hasattr(self, "xi_rz_interp")
 
     @default_rvals_z
     @time_method
@@ -167,7 +180,6 @@ class TwoHaloTerm:
                 xi_at_z, [(iz, z) for iz, z in enumerate(self.zvec)]
             ):
                 xi_grid[iz, :] = xi_tmp
-        self.xi_grid = xi_grid
         self.xi_rz_interp = LogGridInterpolator(self._rfine, self.zvec, xi_grid.T)
         return self.xi_rz_interp(R_vals, z)
 
@@ -205,7 +217,8 @@ class TwoHaloTerm:
             self.xi()
 
         if not hasattr(self, "sigma_rz_interp"):
-            xi_func = lambda r, z_: self.xi_rz_interp(r, z_)
+            # the Abel integrators query xi(r_vec, z_scalar), one z at a time
+            xi_func = self.xi_rz_interp
             sigma_grid = compute_sigma_grid(
                 xi_func,
                 self._rfine,

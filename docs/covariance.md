@@ -1,7 +1,7 @@
 # Covariance
 
-Both binned observables from {doc}`observables` — the counts and the
-stacked profile — carry an uncertainty, and in both cases the interesting
+Both binned observables — the counts ({doc}`number_counts`) and the
+stacked profile ({doc}`stacked_shear`) — carry an uncertainty, and in both cases the interesting
 physics is in the *off-diagonal* structure, not just the diagonal error
 bar. `clenspy` keeps every contribution separate and sums at the end,
 because the argument an analysis makes is almost always about which term

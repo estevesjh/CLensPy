@@ -69,5 +69,5 @@ def test_bias_model_builds_its_own_pk_from_cosmo():
     from clenspy.cosmology import fiducial_cosmology
 
     model = BiasModel(cosmo=fiducial_cosmology())
-    b = model.bias(1e14)
+    b = model.bias(1e14, z=0.0)
     assert np.isfinite(b) and b > 0

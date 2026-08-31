@@ -157,6 +157,7 @@ def main(plot=False):
         fig.tight_layout()
         out = FIG_DIR / "lensing_kernel_vs_frozen.png"
         fig.savefig(out, dpi=140)
+        plt.close(fig)
         print(f"\n  wrote {out}")
 
     ok = all(r[0] for r in results)

@@ -15,7 +15,6 @@ import seaborn as sns
 
 from clenspy.cosmology import (
     BiasModel,
-    LinearPk,
     PkGrid,
     SigmaGrid,
     TinkerMassFunction,
@@ -88,22 +87,21 @@ def fig_power_spectrum():
 
 
 def fig_sigma_r(pk_grid, cosmo):
-    """sigma(R) at z=0 and z=1, in the h-scaled convention SigmaGrid uses."""
-    h = cosmo.h
-    k_h, pk_h3 = pk_grid.k / h, pk_grid(pk_grid.k, z=0.0) * h**3
-    sigma_grid = SigmaGrid(LinearPk(k_h, pk_h3))
-    r_hinv = np.logspace(-1.0, 2.0, 80)  # Mpc/h
-    sigma_z0 = np.array([sigma_grid.sigma(r) for r in r_hinv])
+    """sigma(R) at z=0 and z=1, physical units (R in Mpc)."""
+    sigma_grid = SigmaGrid(pk_grid.k, pk_grid(pk_grid.k, z=0.0))
+    r_mpc = np.logspace(-1.0, 2.0, 80)  # Mpc
+    sigma_z0 = np.array([sigma_grid.sigma(r) for r in r_mpc])
 
     fig, ax = plt.subplots(figsize=(7.5, 6.0))
     for zi, c in zip((0.0, 1.0), C2):
         d_z = growth_factor(zi, cosmo)
-        ax.loglog(r_hinv, sigma_z0 * d_z, color=c, lw=2.5, label=f"$z={zi:g}$")
-    sigma8 = sigma_grid.sigma(8.0)
-    ax.scatter([8.0], [sigma8], color=C2[0], zorder=5)
-    ax.annotate(rf"$\sigma_8={sigma8:.2f}$", (8.0, sigma8),
+        ax.loglog(r_mpc, sigma_z0 * d_z, color=c, lw=2.5, label=f"$z={zi:g}$")
+    r8 = 8.0 / cosmo.h  # sigma_8 is defined at 8 Mpc/h
+    sigma8 = sigma_grid.sigma(r8)
+    ax.scatter([r8], [sigma8], color=C2[0], zorder=5)
+    ax.annotate(rf"$\sigma_8={sigma8:.2f}$", (r8, sigma8),
                textcoords="offset points", xytext=(10, 8), fontsize=12)
-    ax.set(xlabel=r"$R \; [{\rm Mpc}/h]$", ylabel=r"$\sigma(R)$")
+    ax.set(xlabel=r"$R \; [{\rm Mpc}]$", ylabel=r"$\sigma(R)$")
     ax.set_title(r"Top-hat variance $\sigma(R)$", fontsize=16)
     ax.legend(fontsize=12, frameon=False)
     fig.tight_layout()
@@ -135,7 +133,7 @@ def fig_halo_bias(cosmo):
 
 
 def fig_mass_function(cosmo):
-    """dn/dlnM at three redshifts, mass axis converted to h^-1 Msun.
+    """dn/dlnM at three redshifts, physical mass axis (Msun).
 
     One instance: cosmo -> PkGrid -> SigmaGrid -> dndlnm_grid runs once,
     lazily, and the D(z)^2 growth scaling happens inside dndlnm_grid for
@@ -143,19 +141,14 @@ def fig_mass_function(cosmo):
     """
     zvec = np.array([0.0, 0.5, 1.0])
     hmf = TinkerMassFunction(cosmo=cosmo, zvec=zvec)
-    min_mass_hinv = 10.0**12.5  # h^-1 Msun, matches fig_halo_bias's M-axis floor
-    r_min = hmf.radius_of_mass(min_mass_hinv / cosmo.Om0)
-    r_max = hmf.radius_of_mass(MAX_MASS / cosmo.Om0)  # MAX_MASS h^-1 Msun
-    r_hinv = np.logspace(np.log10(r_min), np.log10(r_max), 60)  # Mpc/h
-    m_h = hmf.mass_of_radius(r_hinv)
-    m_hinv = m_h * cosmo.Om0  # Omega_m h^-1 Msun -> h^-1 Msun
+    M = np.logspace(12.5, np.log10(MAX_MASS), 60)  # Msun
 
     fig, ax = plt.subplots(figsize=(7.5, 6.0))
     for zi, c in zip(zvec, C3):
-        ax.loglog(m_hinv, hmf.dndlnm(m_h, z=zi), color=c, lw=2.5,
+        ax.loglog(M, hmf.dndlnm(M, z=zi), color=c, lw=2.5,
                   label=f"$z={zi:g}$")
-    ax.set(xlabel=r"$M \; [h^{-1}M_\odot]$",
-           ylabel=r"$dn/d\ln M \; [h^3\,{\rm Mpc}^{-3}]$")
+    ax.set(xlabel=r"$M \; [M_\odot]$",
+           ylabel=r"$dn/d\ln M \; [{\rm Mpc}^{-3}]$")
     ax.set_title("Tinker (2008) halo mass function", fontsize=16)
     ax.legend(fontsize=12, frameon=False)
     fig.tight_layout()

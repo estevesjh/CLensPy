@@ -133,9 +133,48 @@ def theta_to_comoving(
 
 
 __all__ = [
+    "ComovingDistance",
     "comoving_to_theta",
     "theta_to_comoving",
 ]
+
+
+class ComovingDistance:
+    r"""Comoving distance: :math:`\chi(z)`, :math:`z(\chi)`,
+    :math:`d\chi/dz`, all in Mpc.
+
+    One dense-grid linear interpolant built once per cosmology — the single
+    shared implementation of the :math:`\chi \leftrightarrow z` mapping used
+    by `clenspy.lensing.projection.SigmaPrj` and
+    `clenspy.selection.bsel.SelBiasEngine`.
+
+    Parameters
+    ----------
+    cosmology : astropy.cosmology.Cosmology
+    z_max : float
+        Upper edge of the reference grid (default 2.0).
+    n : int
+        Grid size (default 2000).
+    """
+
+    def __init__(self, cosmology, z_max: float = 2.0, n: int = 2000):
+        self.z_ref = np.linspace(1e-4, z_max, n)
+        self.chi_ref = cosmology.comoving_distance(self.z_ref).to_value("Mpc")
+        self.dchi_dz_ref = np.gradient(self.chi_ref, self.z_ref)
+
+    def chi(self, z):
+        r""":math:`\chi(z)` [Mpc]."""
+        return np.interp(np.asarray(z, dtype=float), self.z_ref, self.chi_ref)
+
+    def z_of_chi(self, chi):
+        r""":math:`z(\chi)`, the inverse mapping."""
+        return np.interp(np.asarray(chi, dtype=float),
+                         self.chi_ref, self.z_ref)
+
+    def dchi_dz(self, z):
+        r""":math:`d\chi/dz` [Mpc]."""
+        return np.interp(np.asarray(z, dtype=float),
+                         self.z_ref, self.dchi_dz_ref)
 
 
 def comoving_volume_element(z, cosmology=None):

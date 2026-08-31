@@ -104,7 +104,7 @@ from typing import Callable, Sequence
 
 import numpy as np
 
-from ..cosmology.distances import comoving_volume_element
+from ..cosmology.distances import ComovingDistance, comoving_volume_element
 from ..cosmology.fiducial import fiducial_cosmology
 from ..kernels.photoz import (
     photoz_projection,
@@ -323,10 +323,8 @@ class SelBiasEngine:
             log10_M_max if log10_M_max is not None
             else np.log10(10.0**15.5 / self.h)
         )
-        # fast comoving-distance interpolant [Mpc]
-        self._zs_ref = np.linspace(1e-4, 2.0, 2000)
-        self._chi_ref = cosmology.comoving_distance(self._zs_ref).to_value("Mpc")
-        self._dchi_dz_ref = np.gradient(self._chi_ref, self._zs_ref)
+        # fast comoving-distance interpolant [Mpc], shared with SigmaPrj
+        self.distance = ComovingDistance(cosmology)
         # the exact tabulated window; its table IS the n_sigma*sigma_z
         # half-width, hence n_sigma = 1.0 at every call site below
         self._window = y3_photoz_window()
@@ -334,7 +332,7 @@ class SelBiasEngine:
 
     # -- helpers ---------------------------------------------------------
     def chi(self, z):
-        return np.interp(np.asarray(z, dtype=float), self._zs_ref, self._chi_ref)
+        return self.distance.chi(z)
 
     def _dv(self, z):
         return comoving_volume_element(z, self.cosmo)
@@ -353,9 +351,7 @@ class SelBiasEngine:
     def _z_grid(self, lob, zob, z_fg_lo, z_bg_hi):
         chi_o = float(self.chi(zob))
         R_excl = r_lambda(lob, self.h) * (1.0 + zob)
-        dchi_dz_at_zob = float(
-            np.interp(zob, self._zs_ref, self._dchi_dz_ref)
-        )
+        dchi_dz_at_zob = float(self.distance.dchi_dz(zob))
         dz_excl = R_excl / dchi_dz_at_zob
 
         n_ring = max(9, self.n_z // 4)
@@ -372,8 +368,8 @@ class SelBiasEngine:
                 return np.array([]), np.array([])
             u, w_u = gl_nodes(np.log(R_excl), np.log(dis_max), n_outer)
             dis = np.exp(u)
-            z_out = np.interp(chi_o + sign * dis, self._chi_ref, self._zs_ref)
-            dchi_dz = np.interp(z_out, self._zs_ref, self._dchi_dz_ref)
+            z_out = self.distance.z_of_chi(chi_o + sign * dis)
+            dchi_dz = self.distance.dchi_dz(z_out)
             return z_out, w_u * dis / dchi_dz
 
         z_fg, w_fg = _outer(dis_fg_max, -1.0)

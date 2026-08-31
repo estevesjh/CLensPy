@@ -1,0 +1,114 @@
+\section{Area overlap: a companion-kernel check against the mock's own
+algorithm}
+\label{sec:area_overlap}
+
+Section~\ref{sec:results}'s $\Delta^{\rm prj}_{\rm RND} = P_1 + \beff I_2$
+agreement (\DeltaPrjAgreeMin{}--\DeltaPrjAgreeMax{}) still leaves a
+per-bin residual too large to attribute to the MOR fix alone (issue \#5).
+This section isolates one candidate: `area\_overlap`, the closed-form
+disk-overlap fraction weighting every companion halo's contribution to
+$P_1$, $I_1$, $I_2$.
+
+\pyfile{clenspy.selection.geometry.area\_overlap($\theta$, $\theta_{\lob}$,
+$\theta_{\ltr}$)} treats a companion halo's richness as smeared
+\emph{uniformly} over its own aperture disk of angular radius
+$\theta_{\ltr}$, and returns the geometric overlap area of that disk with
+the target's disk of radius $\theta_{\lob}$. That is not what the mock
+actually does. Reading its generator verbatim
+(\pyfile{SelectionBias/make\_mock\_lob\_sigma\_catalog.py:run\_lambda\_ob},
+faithful to notebook cell 24): every candidate cluster's
+$\lambda^{\rm ob}$ is measured by (i) a hard angular cut, keeping only
+galaxies with $\theta < \theta_{\lob}$, and (ii) among those, a soft
+radial weight $\theta_r(x) = \tfrac12\,{\rm erfc}\big(15(x-1.2)\big)$,
+$x = R_i/R_{\lambda,{\rm target}}$ -- but the hard cut already confines
+$x < 1$, where $\theta_r \ge 0.9999$, i.e.\ effectively $1$. So the real
+selection is purely geometric: what fraction of a companion's own
+galaxies -- one central at its centre plus
+$\mathrm{round}(\ltr) - 1$ satellites drawn from its own projected-NFW
+profile (the same \pyfile{Mprj\_com}/\pyfile{fun} kernel as the mock's
+$\Sigma_{\rm NFW}$, notebook cell 15) -- fall inside the \emph{target's}
+aperture disk.
+
+\subsection{An exact, unit-free reduction}
+
+At fixed redshift $\theta = R_\lambda(1+z)/\chi(z)$ for both objects, so
+every angle ratio equals the corresponding $R_\lambda$ ratio and the
+$(1+z)/\chi(z)$ factors cancel identically between target and companion.
+Working in target-aperture units ($\theta_{\lob} \equiv 1$), the
+companion's own aperture is $r_{\ltr} = \theta_{\ltr}/\theta_{\lob}$ and
+its angular separation from the target is $s = \theta_{\rm sep}/\theta_{\lob}$
+-- both dimensionless, both independent of $h$, $z$, and $\chi(z)$. The
+true overlap fraction is then a deterministic ring integral, not a Monte
+Carlo estimate: with the companion's satellites radially distributed as
+$p(r)\,dr \propto r\,\Sigma_{\rm NFW}(r)\,dr$ on $r \in [0, r_{\ltr}]$
+(concentration $c$, scale radius $r_{\ltr}/c$), and
+${\rm ring}(r, s)$ the exact angular fraction of a ring of radius $r$
+centred a distance $s$ from a unit-radius target disk that lies inside
+it,
+\[
+f_{\rm true}(s, r_{\ltr}, c) = \frac{
+  \mathbb{1}[s<1] + (\ltr - 1)\int_0^{r_{\ltr}} p(r)\,{\rm ring}(r,s)\,dr
+}{\ltr},
+\qquad
+\ltr = \lambda^{\rm ob}\,r_{\ltr}^{5}
+\]
+(the last identity from $R_\lambda \propto \lambda^{0.2}$). The central
+term uses $\lambda^{\rm ob} = 24$, this report's reference-bin richness;
+the mock's own generator always adds a deterministic $+1$ central
+regardless of mass, so the split is only meaningful once
+$\ltr \gtrsim 2$ -- which is why the comparison below starts at
+$r_{\ltr} = 0.6$.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.72\textwidth]{fig_area_overlap.pdf}
+  \caption{The true companion-richness fraction landing in the target
+  aperture, $f_{\rm true}(s)$ (solid, exact NFW ring quadrature,
+  $c=\AreaOverlapCFidLow[]$--$\AreaOverlapCFidHigh[]$ tested,
+  $c=5$ shown), against \modname{area\_overlap}'s uniform-disk
+  approximation (dashed), for three companion sizes relative to the
+  target's own aperture.}
+  \label{fig:area_overlap}
+\end{figure}
+
+\subsection{Result}
+
+Figure~\ref{fig:area_overlap} shows a clean, physically sensible
+crossover at $s = 1$: for $s < 1$ (companion centred inside the target's
+aperture -- the region that dominates the $\sin\theta$-weighted $P_1$,
+$I_1$, $I_2$ integrals), \modname{area\_overlap} \emph{under}-predicts
+the true, NFW-concentrated overlap by up to \AreaOverlapMaxUnder{}: a
+companion's richness is centrally concentrated at its own core, so more
+of it lands in the target's aperture than a uniform smear would give.
+For $s > 1$ (companion centred outside), the sign flips and
+\modname{area\_overlap} \emph{over}-predicts by up to
+\AreaOverlapMaxOver{}: the uniform disk still has mass reaching toward
+the target from its near edge, where the NFW profile has already fallen
+off. The mean absolute deviation across the full $s$ range tested is
+\AreaOverlapMeanAbs{}. This is not a concentration-tuning artefact --
+varying $c$ from \AreaOverlapCFidLow{} to \AreaOverlapCFidHigh{} at
+$r_{\ltr}=0.75$ moves the peak deviation only from
+\AreaOverlapConcMin{} to \AreaOverlapConcMax{}, i.e.\ the sign and rough
+size of the effect are set by the uniform-disk-versus-NFW assumption
+itself, not by the concentration value chosen.
+
+Because $P_1$, $I_1$, $I_2$ integrate this kernel against $\sin\theta$
+over the \emph{entire} $\theta$ range from the exclusion boundary to
+$2\theta_{\lob}$ -- a region straddling $s=1$ -- the under- and
+over-prediction partially cancel rather than adding in one direction,
+which is consistent with $P_1$ itself checking out to sub-percent
+accuracy against an independent closed-form full-range integral
+(Sec.~\ref{sec:results}) while the bin-by-bin
+$\Delta^{\rm prj}_{\rm RND}/\Delta^{\rm prj}_{\rm mock}$ residual remains
+at the \DeltaPrjAgreeMax{} level. The net effect on $I_1$/$I_2$, which
+carry an additional $\xi_{\rm NL}(\theta)$ weight that is not flat across
+$\theta$, is not yet isolated from this check alone and is the natural
+next step: reweighting the ring integral by $\xi_{\rm NL}$ the way the
+production operators do, rather than treating $P_1$'s flat weight as
+representative of all three operators.
+
+All numbers and the figure in this section are generated by
+\pyfile{scripts/make\_area\_overlap\_check.py} $\to$
+\pyfile{scripts/make\_figures.py} / \pyfile{scripts/make\_values.py},
+independently of \pyfile{scripts/make\_results.py} -- this is a check of
+one geometric kernel in isolation, not a rerun of the full pipeline.

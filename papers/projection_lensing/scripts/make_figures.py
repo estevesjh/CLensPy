@@ -182,6 +182,28 @@ def fig_inner_study():
     plt.close(fig)
 
 
+def fig_area_overlap():
+    rows = np.loadtxt(DATA / "area_overlap_check.csv", delimiter=",")
+    r_ltr_values = sorted(set(rows[:, 0]))
+    colors = {r_ltr_values[0]: "#8C1D40", r_ltr_values[1]: "#1F4E79",
+             r_ltr_values[2]: "#4B644A"}
+    fig, ax = plt.subplots(figsize=(6.6, 4.8))
+    for r_ltr in r_ltr_values:
+        m = rows[:, 0] == r_ltr
+        c = colors[r_ltr]
+        ax.plot(rows[m, 1], rows[m, 2], "--", color=c, lw=1.4,
+                label=rf"$r_{{\rm ltr}}={r_ltr:.2g}$: area\_overlap")
+        ax.plot(rows[m, 1], rows[m, 3], "-", color=c, lw=1.8,
+                label=rf"$r_{{\rm ltr}}={r_ltr:.2g}$: true (NFW)")
+    ax.axvline(1.0, ls=":", color="gray", lw=0.8)
+    ax.set_xlabel(r"$s = \theta_{\rm sep}/\theta_{\rm ob}$")
+    ax.set_ylabel(r"companion richness fraction landing in target aperture")
+    ax.legend(fontsize=7.5, frameon=False, ncol=2)
+    fig.tight_layout()
+    fig.savefig(BUILD / "fig_area_overlap.pdf")
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     BUILD.mkdir(exist_ok=True)
     fig_ratio_grid()
@@ -189,4 +211,5 @@ if __name__ == "__main__":
     fig_absolute()
     fig_decomposition()
     fig_inner_study()
-    print("wrote 5 figures to", BUILD)
+    fig_area_overlap()
+    print("wrote 6 figures to", BUILD)

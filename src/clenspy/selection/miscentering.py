@@ -206,39 +206,54 @@ class NfwMiscenteringTable:
         instead evaluates the halo :math:`x_{\rm mis}^{\max}/x_{\rm mis}`
         times closer than it is.
         """
-        x = np.atleast_1d(np.asarray(x, dtype=float))
-        if np.log(x_mis) < self._ln_x_mis[0]:
-            return centred(x)
-        if np.log(x_mis) > self._ln_x_mis[-1]:
-            if interp is self._sigma:
-                far = float(self._centred_sigma(
-                    np.atleast_1d(float(x_mis)))[0])
-                return np.full(x.shape, far)
-            return np.zeros(x.shape)
-        x_lo, x_hi = self._x_range
+        x, x_mis = np.broadcast_arrays(
+            np.atleast_1d(np.asarray(x, dtype=float)),
+            np.asarray(x_mis, dtype=float),
+        )
+        with np.errstate(divide="ignore"):
+            ln_xm_all = np.log(x_mis)
         out = np.empty(x.shape, dtype=float)
 
-        above = x > x_hi
-        tabled = ~above
-        if np.any(tabled):
-            xt = np.maximum(x[tabled], x_lo)          # clamp the left bound
-            ln_xm = min(np.log(x_mis), self._ln_x_mis[-1])
-            ln_q = np.clip(np.log(xt / x_mis), self._ln_q[0], self._ln_q[-1])
-            pts = np.stack([np.full_like(ln_q, ln_xm), ln_q], axis=-1)
-            out[tabled] = interp(pts)
-        if np.any(above):
-            out[above] = centred(x[above])
+        below_m = ln_xm_all < self._ln_x_mis[0]
+        above_m = ln_xm_all > self._ln_x_mis[-1]
+        if np.any(below_m):
+            out[below_m] = centred(x[below_m])
+        if np.any(above_m):
+            if interp is self._sigma:
+                out[above_m] = self._centred_sigma(x_mis[above_m])
+            else:
+                out[above_m] = 0.0
+
+        mid = ~(below_m | above_m)
+        if np.any(mid):
+            xm, xmm = x[mid], x_mis[mid]
+            x_lo, x_hi = self._x_range
+            above = xm > x_hi
+            tabled = ~above
+            sub = np.empty(xm.shape, dtype=float)
+            if np.any(tabled):
+                xt = np.maximum(xm[tabled], x_lo)     # clamp the left bound
+                ln_q = np.clip(np.log(xt / xmm[tabled]),
+                               self._ln_q[0], self._ln_q[-1])
+                pts = np.stack([np.log(xmm[tabled]), ln_q], axis=-1)
+                sub[tabled] = interp(pts)
+            if np.any(above):
+                sub[above] = centred(xm[above])
+            out[mid] = sub
         return out
 
     def sigma_hat(self, x, x_mis) -> np.ndarray:
-        r""":math:`\hat\Sigma_{\rm mis} = \Sigma_{\rm mis}/\Sigma_0`."""
-        if x_mis == 0.0:
+        r""":math:`\hat\Sigma_{\rm mis} = \Sigma_{\rm mis}/\Sigma_0`.
+        ``x`` and ``x_mis`` broadcast together (a zero offset falls back
+        to the centred closed form)."""
+        if np.ndim(x_mis) == 0 and x_mis == 0.0:
             return self._centred_sigma(np.atleast_1d(np.asarray(x, dtype=float)))
         return self._query(self._sigma, self._centred_sigma, x, x_mis)
 
     def ds_hat(self, x, x_mis) -> np.ndarray:
-        r""":math:`\widehat{\Delta\Sigma}_{\rm mis}`, signed (see the module)."""
-        if x_mis == 0.0:
+        r""":math:`\widehat{\Delta\Sigma}_{\rm mis}`, signed (see the module).
+        ``x`` and ``x_mis`` broadcast together."""
+        if np.ndim(x_mis) == 0 and x_mis == 0.0:
             return self._centred_ds(np.atleast_1d(np.asarray(x, dtype=float)))
         return self._query(self._ds, self._centred_ds, x, x_mis)
 

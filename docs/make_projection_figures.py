@@ -12,10 +12,11 @@ import numpy as np
 import sanzo_wada as sw
 import seaborn as sns
 from astropy.cosmology import FlatLambdaCDM
+from scipy.interpolate import RegularGridInterpolator
 
 from clenspy.cosmology import BiasModel, TinkerMassFunction
 from clenspy.cosmology.pkgrid import PkGrid
-from clenspy.lensing import SigmaPrj
+from clenspy.lensing import SigmaPrj, SigmaPrjConfig
 from clenspy.selection import PhysicalMassMor, SelBiasEngine, XiNL
 from clenspy.selection.scaling_relation import HodMor
 
@@ -26,48 +27,56 @@ C3 = [C4[3], C4[2], C4[1]]
 
 sns.set_theme(style="white", context="talk", font_scale=0.8)
 
-H, OMEGA_M = 0.7, 0.286
+H, OMEGA_M = 0.6736, 0.3153  # Planck 2018 (assumed; the mock is DES Y3 data)
 
 
-class BuzzardCosmology(FlatLambdaCDM):
-    sigma8 = 0.82
-    n_s = 0.96
+class PlanckCosmology(FlatLambdaCDM):
+    sigma8 = 0.8111
+    n_s = 0.9649
 
 
-COSMO = BuzzardCosmology(H0=100.0 * H, Om0=OMEGA_M, Ob0=0.046)
+COSMO = PlanckCosmology(H0=100.0 * H, Om0=OMEGA_M, Ob0=0.0493)
 
 
 def halo_model():
     pk = PkGrid(cosmo=COSMO, nonlinear=True)
     xi_nl = XiNL(pk, clip=False)
-    tmf = TinkerMassFunction(cosmo=COSMO, zvec=np.linspace(0.0, 1.0, 21))
-    bm = BiasModel(cosmo=COSMO)
+    mgrid = np.geomspace(1.0e12, 1.0e16, 256)
+    zgrid = np.linspace(0.0, 1.0, 21)
+    tmf = TinkerMassFunction(cosmo=COSMO, mvec=mgrid, zvec=zgrid)
+    bm = BiasModel(cosmo=COSMO, mvec=mgrid, zvec=zgrid)
 
-    def hmf(mass, z):
-        m, zz = np.broadcast_arrays(np.asarray(mass, float),
-                                    np.asarray(z, float))
-        vals = tmf.dndlnm(m.ravel() * H / OMEGA_M, zz.ravel())
-        return vals.reshape(m.shape) * H**3 / m
+    # pointwise field adapters for SelBiasEngine's broadcast convention
+    hmf_pt = RegularGridInterpolator(
+        (np.log(mgrid), zgrid), np.asarray(tmf.dndlnm()) / mgrid[:, None],
+        bounds_error=False, fill_value=None)
+    bias_pt = RegularGridInterpolator(
+        (np.log(mgrid), zgrid), np.asarray(bm.bias()),
+        bounds_error=False, fill_value=None)
 
-    def bias(mass, z):
-        m, zz = np.broadcast_arrays(np.asarray(mass, float),
-                                    np.asarray(z, float))
-        return np.asarray(bm.bias(m.ravel(), zz.ravel())).reshape(m.shape)
+    def field(interp):
+        def f(mass, z):
+            m, zz = np.broadcast_arrays(np.asarray(mass, float),
+                                        np.asarray(z, float))
+            pts = np.column_stack((np.log(m.ravel()), zz.ravel()))
+            return np.asarray(interp(pts)).reshape(m.shape)
+        return f
 
-    return xi_nl, hmf, bias
+    return xi_nl, tmf, bm, field(hmf_pt), field(bias_pt)
 
 
 def fig_projection_lensing():
     """Left: the rnd/cl channel split of Sigma_prj. Right: the ratio
     observable (selected over b_eff-weighted random), b_sel on vs off."""
-    xi_nl, hmf, bias = halo_model()
+    xi_nl, tmf, bm, hmf, bias = halo_model()
     lob, zob, b_eff = 23.9, 0.425, 3.02  # the mock's [20,30)x[0.35,0.5) bin
     engine = SelBiasEngine(cosmology=COSMO, xi_nl=xi_nl, hmf=hmf, bias=bias,
-                           mor=PhysicalMassMor(HodMor.buzzard(), H))
+                           mor=PhysicalMassMor(HodMor.from_lognormal(), H))
     bsel = engine.marginalised_bias(lob, zob, b_eff=b_eff)
-    prj = SigmaPrj(cosmology=COSMO, xi_nl=xi_nl, hmf=hmf, bias=bias,
-                   los_window="hard", los_depth=50.0 / H,
-                   exclusion="ball", theta_perp_range=(1e-3, 60.0 / H))
+    prj = SigmaPrj(cosmology=COSMO, xi_nl=xi_nl, hmf=tmf, bias=bm,
+                   config=SigmaPrjConfig(
+                       los_window="hard", los_depth=50.0 / H,
+                       exclusion="ball", theta_perp_range=(1e-3, 60.0 / H)))
 
     R = np.geomspace(0.1, 40.0, 32)  # comoving Mpc
     tot = prj.sigma_prj(R, lob, zob, bsel, channel="sum")
@@ -94,7 +103,7 @@ def fig_projection_lensing():
                    r"^{b_{\rm eff}}$")
     ax2.legend(frameon=False)
     fig.suptitle(r"$\lambda^{\rm ob}=23.9$, $z^{\rm ob}=0.425$ "
-                 "(Buzzard-mock configuration)", fontsize=13)
+                 "(mock configuration, Planck 2018)", fontsize=13)
     fig.tight_layout()
     fig.savefig(OUT / "projection_lensing.png", dpi=150)
     plt.close(fig)

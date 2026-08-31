@@ -61,7 +61,7 @@ one per paper (Wu et al. here; the HOD literature there).
 
 averaged over the bin's own selection-weighted mass population — the same
 $W_{ij}$-derived $P(M)$ the counts themselves are built from
-({doc}`observables`), so this term cannot describe a different sample from
+({doc}`number_counts`), so this term cannot describe a different sample from
 the data vector it is attached to. Concentration scatter at fixed mass is
 folded in by Gauss-Hermite quadrature over $\ln c$ (8 nodes, exact for a
 lognormal to the precision anything else here has — deterministic, unlike

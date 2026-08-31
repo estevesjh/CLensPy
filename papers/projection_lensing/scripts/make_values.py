@@ -36,6 +36,7 @@ def main():
         w("MedTwoHaloResid", f"{np.median(resid2h_med):.3f}")
         w("MaxInnerResid", f"{bins[:, 16].max():.2f}")
         w("LegCMaxDev", f"{legc.max() * 100:.1f}\\%")
+        w("LegCRatioMed", f"{np.median((model / mock)[band]):.2f}")
         w("DeltaPrjAgreeMin", f"{dd.min() * 100:.1f}\\%")
         w("DeltaPrjAgreeMax", f"{dd.max() * 100:.0f}\\%")
         w("BeffMin", f"{bins[:, 9].min():.2f}")
@@ -53,6 +54,39 @@ def main():
         pull = np.abs(prof[mfit, 4] - prof[mfit, 2]) / prof[mfit, 3]
         w("FitMaxPull", f"{pull.max():.2f}")
         w("FitMeanPull", f"{pull.mean():.2f}")
+
+    ao = np.loadtxt(DATA / "area_overlap_check.csv", delimiter=",")
+    ao_inside = ao[:, 1] < 1.0
+    ao_diff = ao[:, 3] - ao[:, 2]
+    ao_conc = np.loadtxt(DATA / "area_overlap_conc_sensitivity.csv",
+                        delimiter=",")
+    with open(BUILD / "values.tex", "a") as f:
+        w = lambda name, val: f.write(f"\\newcommand{{\\{name}}}{{{val}}}\n")
+        w("AreaOverlapMaxUnder", f"{ao_diff[ao_inside].max() * 100:.0f}\\%")
+        w("AreaOverlapMaxOver", f"{-ao_diff[~ao_inside].min() * 100:.0f}\\%")
+        w("AreaOverlapMeanAbs", f"{np.abs(ao_diff).mean() * 100:.1f}\\%")
+        w("AreaOverlapCFidLow", f"{ao_conc[0, 0]:.0f}")
+        w("AreaOverlapCFidHigh", f"{ao_conc[2, 0]:.0f}")
+        w("AreaOverlapConcMin", f"{ao_conc[:, 1].min() * 100:.0f}\\%")
+        w("AreaOverlapConcMax", f"{ao_conc[:, 1].max() * 100:.0f}\\%")
+
+    # absolute-column table: mock vs model total (rnd+cl) and their ratio,
+    # on the scored annuli (the mock's 4 inner annuli are Poisson-starved)
+    def sci(v):
+        m, e = f"{v:.2e}".split("e")
+        return f"${m}\\times10^{{{int(e)}}}$"
+
+    scored = np.arange(R.size) >= 4
+    with open(BUILD / "table_absolute.tex", "w") as f:
+        f.write("\\begin{tabular}{r r r r}\n\\toprule\n")
+        f.write("$R$ [$h^{-1}$cMpc] & "
+                "$\\langle\\Sigma\\rangle_{\\rm mock}$ & "
+                "$\\Sigma_{\\rm rnd} + \\Sigma_{\\rm cl}$ & "
+                "model/mock\\\\\n\\midrule\n")
+        for Ri, mo, mod in zip(R[scored], mock[scored], model[scored]):
+            f.write(f"{Ri:.2f} & {sci(mo)} & {sci(mod)} & "
+                    f"{mod / mo:.3f}\\\\\n")
+        f.write("\\bottomrule\n\\end{tabular}\n")
 
     # per-bin table
     with open(BUILD / "table_bins.tex", "w") as f:

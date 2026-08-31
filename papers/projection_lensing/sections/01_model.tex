@@ -183,21 +183,32 @@ masking the cell mass by the ring's arc-length fraction instead discards
 the cusp-concentrated mass and over-truncates by tens of percent at the
 outermost radii.
 
-The redshift integrals of Eqs.~\eqref{eq:wcl} and \eqref{eq:wrnd} are,
-at fixed $\theta$, the line-of-sight parametrization of a two-sided
-truncated \emph{Abel transform} of $\xinl$: with
-$u = |\Delta\chi_\parallel|$, the flat-sky chord gives
-$\int du\, \xinl(\sqrt{u^2 + R_\theta^2}) =
-2\int_{R_\theta}^{r_{\max}} \xinl(r)\, r\, dr / \sqrt{r^2 - R_\theta^2}$
---- the $r = R\cosh u$ substitution that removes the Abel edge
-singularity is already built into the parametrization, and the same
-substitution underlies every $\xi \to \Sigma$ routine in
-\modname{clenspy.utils.integrate}. The exclusion ball is an exact inner
-truncation of that transform. A dedicated numerical audit (flat-sky
-chord error $\le 1.4\%$ at the grid's outer corner; thin-window weight
-variations quantified; convergence scans against an $8\times$ finer
-reference) found no singularity to protect against; the one genuine
-non-smoothness is the exclusion indicator's crossing, pinned by
-splitting each Gauss--Legendre side at $|\Delta\chi| = \Rexcl$, which
-bounds the channel quadrature error at $2.6\times10^{-3}$ at the worst
-radius.
+The redshift integrals of Eqs.~\eqref{eq:wcl} and \eqref{eq:wrnd} are
+evaluated as exact two-sided cosh--Abel transforms.  At fixed $\theta$,
+define the closest-approach geometry
+\begin{equation}
+R_\perp=\chi_o\sin\theta,\qquad
+\chi_0=\chi_o\cos\theta,\qquad
+\chi-\chi_0=sR_\perp\sinh u,\qquad
+|d\chi|=R_\perp\cosh u\,du,
+\quad s\in\{-1,+1\}.
+\label{eq:abel}
+\end{equation}
+The exact law-of-cosines chord is then
+$|d\chi|_{\rm chord}=R_\perp\cosh u$.  If $R_\perp<\Rexcl$, the
+exclusion surface is the integration boundary
+$u_{\rm ex}=\operatorname{arcosh}(\Rexcl/R_\perp)$; otherwise
+$u_{\rm ex}=0$.  Clipping this value to each branch's projection support
+produces one smooth inside interval and one smooth outside interval per
+branch.  The code maps a Gauss--Legendre rule to all branch intervals at
+once, evaluates the mass function on the batched inside and outside
+arrays, and evaluates halo bias only on the outside array.  The channel
+decomposition is therefore assembled directly as
+$W_{\rm exc}=W_{\rm corr,out}-W_{\rm rnd,in}$, with no Boolean mask or
+quadrature node on the discontinuity.  The production orders are six
+inside and sixteen outside Abel nodes; the corresponding convergence
+check raises them to eight and twenty-four while monitoring the random
+counterterm and correlated outside term separately.  The single
+tangency angle $\theta_{\rm tan}=\arcsin(\Rexcl/\chi_o)$ is retained as
+an angular cell edge, and the profile kernel and cosmological weights
+always consume the same edge array.

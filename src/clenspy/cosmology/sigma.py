@@ -1,66 +1,15 @@
 r"""The variance of the linear density field, :math:`\sigma^2(R)`.
 
 .. math::
-    \sigma^2(R) = \frac{1}{2\pi^2}\int dk\,k^{2}\,P_{\rm lin}(k)\,W^{2}(kR)
-                = \int d\ln k\;\frac{k^{3}P_{\rm lin}(k)}{2\pi^{2}}\,W^{2}(kR)
+    \sigma^2(R) = \int d\ln k\;\frac{k^{3}P_{\rm lin}(k)}{2\pi^{2}}\,W^{2}(kR)
 
-One quantity, two consumers: the Tinker (2008) mass function and the
-Tinker (2010) bias are two fits to the *same* peak height
-:math:`\nu = \delta_c/\sigma(M)`. Computing :math:`\sigma` twice from one
-:math:`P(k)` is how they silently drift apart, so it is computed once,
-here, and `clenspy.cosmology.TinkerMassFunction` and
-`clenspy.cosmology.BiasModel` both take a `SigmaGrid`.
+Computed once, here: `clenspy.cosmology.TinkerMassFunction` and
+`clenspy.cosmology.BiasModel` fit the same peak height and both take a
+`SigmaGrid`.
 
-Transcribed from ``y3_cluster_cpp`` branch ``docs/sphinx-site``,
-``src/modules/mf_tinker_cpp/python/tinker_core.py`` -- the in-repo
-replacement for CosmoSIS's ``MfTinker``, itself a port of the Fortran
-``sigma.f90`` / ``linearpk.f90`` (Komatsu CRL). Its measured accuracy is
-the reason to prefer it: the Gauss--Legendre-panel evaluator agrees with
-arbitrary-precision mpmath quadrature to **4.4e-16**, and with
-``cluster_toolkit.peak_height.sigma2_at_R`` to **1.0e-7**.
-
-**Three things here are conventions, not choices, and all three bite.**
-
-1. **The integration limits are** :math:`k \in [10^{-4},\,20/R]`. The upper
-   limit *depends on* :math:`R`. It is part of the algorithm the production
-   :math:`dn/dM` was calibrated against, not a convergence cutoff, which is
-   why `sigma2` takes ``truncate`` explicitly rather than hiding it.
-
-2. **FFTLog cannot reproduce that truncation.** An FFTLog transform
-   integrates the whole sampled :math:`k` range at every :math:`R`
-   simultaneously; an :math:`R`-dependent limit is exactly what it cannot
-   express. So the fast path (`sigma2_fftlog`) computes the
-   ``truncate=False`` quantity and *must* be validated against
-   ``truncate=False``. The measured size of the difference it cannot
-   capture, propagated to :math:`dn/d\ln M`: **7.0e-3** over
-   :math:`0 \le z \le 2`, **8.2e-4** restricted to :math:`z \le 0.8`.
-
-3. **The derivative is taken under the integral sign, not by finite
-   differences,** and when the truncation is active the moving boundary
-   contributes a Leibniz term:
-
-   .. math::
-       \frac{d\sigma^2}{d\ln R} =
-         \int d\ln k\,\frac{k^3 P}{2\pi^2}\,2W(x)W'(x)\,x
-         \;-\; \left.\frac{k^3P}{2\pi^2}W^2\right|_{k = 20/R}
-
-   because :math:`\ln k_{\rm up} = \ln 20 - \ln R` has
-   :math:`d/d\ln R = -1`. Dropping that boundary term is a silent error in
-   :math:`dn/d\ln M`, which is proportional to
-   :math:`d\ln\nu/d\ln R`.
-
-NOTE: **units are h-scaled here, deliberately** -- ``k`` in h/Mpc, ``P``
-in (Mpc/h)^3, ``R`` in Mpc/h. This is the one convention `clenspy`
-inherits rather than chooses, because the Tinker calibration, the
-production Fortran and `cluster_toolkit` all use it. Every identifier says
-so (``r_hinv``, ``k_h``, ``pk_h3``). The rest of the package is h-free
-absolute; convert at the boundary, visibly.
-
-NOTE: the input :math:`P(k)` policy is part of the definition, not
-plumbing: a **natural** cubic spline of :math:`\ln P` against
-:math:`\ln k`, and :math:`P \equiv 0` strictly outside the tabulated
-range. `LinearPk` implements exactly that. Substituting a different
-extrapolation changes :math:`\sigma^2` at the ends of the :math:`R` grid.
+NOTE: physical units, h-free -- k in 1/Mpc, P in Mpc^3, R in Mpc; output
+dimensionless. Conventions, provenance, and the truncation/Leibniz/FFTLog
+details: ``docs/mass_function.md``.
 """
 
 from __future__ import annotations
@@ -77,7 +26,6 @@ __all__ = [
     "LNR2",
     "NR",
     "STEP",
-    "LinearPk",
     "SigmaGrid",
     "lnr_grid",
 ]
@@ -89,11 +37,13 @@ LNR2 = 4.0
 STEP = 0.01
 NR = 969
 
-#: Fixed lower quadrature limit of ``sigma.f90``: :math:`k = 10^{-4}` h/Mpc.
+#: Fixed lower quadrature limit of ``sigma.f90``: :math:`k = 10^{-4}` 1/Mpc.
+#: Binds only when the tabulated k range extends below it.
 LNK_LO = np.log(1.0e-4)
 
-#: Upper quadrature limit coefficient: :math:`k_{\max} = 20/R`. See the
-#: module NOTE -- this is algorithm-defining, and FFTLog cannot express it.
+#: Upper quadrature limit coefficient: :math:`k_{\max} = 20/R`, i.e. the
+#: dimensionless cut :math:`kR \le 20`. See the module NOTE -- this is
+#: algorithm-defining, and FFTLog cannot express it.
 KCUT_COEF = 20.0
 
 
@@ -102,87 +52,19 @@ def lnr_grid():
     return LNR1 + STEP * np.arange(NR)
 
 
-class LinearPk:
-    r"""The linear power spectrum, with the production input policy.
-
-    A **natural** cubic spline of :math:`\ln P` against :math:`\ln k`, and
-    :math:`P \equiv 0` outside :math:`[k_{\min}, k_{\max}]`.
-
-    NOTE: units -- ``k_h`` in h/Mpc, ``pk_h3`` in (Mpc/h)^3. Returns
-    :math:`P` in (Mpc/h)^3.
-
-    NOTE: both halves matter. ``bc_type="natural"`` (zero second derivative
-    at the ends) reproduces the Fortran's ``spline_cubic_set`` with
-    ``ibcbeg = ibcend = 2``; the hard zero outside the table reproduces
-    ``Linear_Pk``, and is *not* the same as clamping or as a power-law
-    extrapolation. It makes :math:`\sigma^2` depend on the tabulated
-    :math:`k` range, which is why `SigmaGrid` reports that range.
-
-    Parameters
-    ----------
-    k_h : array-like
-        Wavenumbers [h/Mpc], strictly ascending.
-    pk_h3 : array-like
-        Linear power spectrum [(Mpc/h)^3], positive, same shape.
-    """
-
-    def __init__(self, k_h, pk_h3):
-        k_h = np.asarray(k_h, dtype=float)
-        pk_h3 = np.asarray(pk_h3, dtype=float)
-        if k_h.shape != pk_h3.shape:
-            raise ValueError(
-                f"k and P must have the same shape, got {k_h.shape} and "
-                f"{pk_h3.shape}"
-            )
-        if np.any(np.diff(k_h) <= 0.0):
-            raise ValueError("k must be strictly ascending")
-        if np.any(pk_h3 <= 0.0):
-            raise ValueError("P must be positive (it is splined in log)")
-        self.lnk = np.log(k_h)
-        self.spline = CubicSpline(self.lnk, np.log(pk_h3), bc_type="natural")
-        self.lnk_min = float(self.lnk[0])
-        self.lnk_max = float(self.lnk[-1])
-
-    def __call__(self, lnk):
-        """:math:`P(k)` at ``lnk``; exactly zero outside the table."""
-        lnk = np.asarray(lnk, dtype=float)
-        scalar = lnk.ndim == 0
-        lnk = np.atleast_1d(lnk)
-        out = np.zeros_like(lnk)
-        # strict inequalities, matching Linear_Pk: the endpoints are out
-        inside = (lnk > self.lnk_min) & (lnk < self.lnk_max)
-        out[inside] = np.exp(self.spline(lnk[inside]))
-        return out[0] if scalar else out
-
-    def __repr__(self):
-        return (f"LinearPk(k = [{np.exp(self.lnk_min):.3g}, "
-                f"{np.exp(self.lnk_max):.3g}] h/Mpc, n = {self.lnk.size})")
-
-
 class SigmaGrid:
     r"""Top-hat variance :math:`\sigma^2(R)` and its :math:`\ln R` derivative.
 
-    Two evaluation routes, and they compute *different quantities*:
-
-    - `sigma2` / `dsigma2_dlnr` -- Gauss--Legendre panels between spline
-      knots. The reference. Honours the :math:`k \le 20/R` truncation and
-      the Leibniz boundary term.
-    - `sigma2_fftlog` -- one FFTLog per call, all :math:`R` at once, ~1000x
-      faster and **untruncated**. Compare it to ``truncate=False`` only.
-
-    NOTE: units -- ``r_hinv`` in Mpc/h, dimensionless output. See the
-    module NOTE for why this module is h-scaled.
-
-    NOTE: the panel edges are the spline's own knots, because the integrand
-    is analytic *within* a knot interval and merely continuous across one.
-    A single global rule of the same total order is far worse; a fixed
-    24-point rule per panel reaches ~1e-14 relative and 48 points changes
-    nothing at 1e-16.
+    `sigma2`/`dsigma2_dlnr` are the Gauss--Legendre reference (with the
+    :math:`kR \le 20` truncation and its Leibniz term); `sigma2_fftlog`
+    is the fast untruncated route -- compare it to ``truncate=False`` only.
 
     Parameters
     ----------
-    pk : LinearPk
-        Stored verbatim.
+    k : array-like
+        Wavenumbers [1/Mpc], physical, strictly ascending.
+    pk : array-like
+        Linear power spectrum at z=0 [Mpc^3], positive, same shape.
     nquad : int, optional
         Gauss--Legendre order per panel (default: 24).
     """
@@ -190,31 +72,52 @@ class SigmaGrid:
     #: default GL order per panel; 24 vs 48 agree to 1e-16
     NQUAD = 24
 
-    def __init__(self, pk, nquad: int = NQUAD):
-        if not isinstance(pk, LinearPk):
-            raise TypeError(
-                "pk must be a LinearPk -- the input spline and zero-outside "
-                "policy are part of the definition of sigma^2 here"
+    def __init__(self, k, pk, nquad: int = NQUAD):
+        k = np.asarray(k, dtype=float)
+        pk = np.asarray(pk, dtype=float)
+        if k.shape != pk.shape:
+            raise ValueError(
+                f"k and P must have the same shape, got {k.shape} and "
+                f"{pk.shape}"
             )
-        self.pk = pk
+        if np.any(np.diff(k) <= 0.0):
+            raise ValueError("k must be strictly ascending")
+        if np.any(pk <= 0.0):
+            raise ValueError("P must be positive (it is splined in log)")
+        self.lnk = np.log(k)
+        self._lnpk_spline = CubicSpline(self.lnk, np.log(pk),
+                                        bc_type="natural")
+        self.lnk_min = float(self.lnk[0])
+        self.lnk_max = float(self.lnk[-1])
         self.nquad = int(nquad)
         self._nodes, self._weights = np.polynomial.legendre.leggauss(
             self.nquad
         )
         self._fftlog_plan = None
 
+    def pk(self, lnk):
+        """:math:`P(k)` at ``lnk``; exactly zero outside the table."""
+        lnk = np.asarray(lnk, dtype=float)
+        scalar = lnk.ndim == 0
+        lnk = np.atleast_1d(lnk)
+        out = np.zeros_like(lnk)
+        # strict inequalities, matching Linear_Pk: the endpoints are out
+        inside = (lnk > self.lnk_min) & (lnk < self.lnk_max)
+        out[inside] = np.exp(self._lnpk_spline(lnk[inside]))
+        return out[0] if scalar else out
+
     # -- the reference route --------------------------------------------
 
-    def _edges(self, r_hinv, truncate):
+    def _edges(self, r, truncate):
         """Panel edges: the spline knots inside the integration range."""
-        lo = max(LNK_LO, self.pk.lnk_min)
-        up = self.pk.lnk_max
+        lo = max(LNK_LO, self.lnk_min)
+        up = self.lnk_max
         if truncate:
             # the R-dependent upper limit -- the whole reason for `truncate`
-            up = min(up, np.log(KCUT_COEF / r_hinv))
+            up = min(up, np.log(KCUT_COEF / r))
         if up <= lo:
             return None
-        inner = self.pk.lnk[(self.pk.lnk > lo) & (self.pk.lnk < up)]
+        inner = self.lnk[(self.lnk > lo) & (self.lnk < up)]
         return np.concatenate(([lo], inner, [up]))
 
     def _panel_points(self, edges):
@@ -224,106 +127,93 @@ class SigmaGrid:
         wts = (half[:, None] * self._weights[None, :]).ravel()
         return pts, wts
 
-    def _integrand(self, lnk, r_hinv):
+    def _integrand(self, lnk, r):
         r"""The :math:`\sigma^2` integrand in :math:`\ln k`."""
         k = np.exp(lnk)
-        w = tophat_w(k * r_hinv)
+        w = tophat_w(k * r)
         return k**3 * self.pk(lnk) * w * w / (2.0 * np.pi**2)
 
-    def _d_integrand(self, lnk, r_hinv):
+    def _d_integrand(self, lnk, r):
         r""":math:`d/d\ln R` of the integrand at **fixed** limits."""
         k = np.exp(lnk)
-        x = k * r_hinv
+        x = k * r
         return (k**3 * self.pk(lnk) * 2.0 * tophat_w(x) * tophat_dw(x) * x
                 / (2.0 * np.pi**2))
 
-    def sigma2(self, r_hinv, truncate: bool = True):
-        r""":math:`\sigma^2(R)`, dimensionless. ``r_hinv`` scalar, in Mpc/h."""
-        r_hinv = float(r_hinv)
-        if r_hinv <= 0.0:
+    def sigma2(self, r, truncate: bool = True):
+        r""":math:`\sigma^2(R)`, dimensionless. ``r`` scalar."""
+        r = float(r)
+        if r <= 0.0:
             raise ValueError("R must be positive")
-        edges = self._edges(r_hinv, truncate)
+        edges = self._edges(r, truncate)
         if edges is None:
             return 0.0
         pts, wts = self._panel_points(edges)
-        return float(np.dot(wts, self._integrand(pts, r_hinv)))
+        return float(np.dot(wts, self._integrand(pts, r)))
 
-    def dsigma2_dlnr(self, r_hinv, truncate: bool = True):
-        r""":math:`d\sigma^2/d\ln R`, by differentiating under the integral.
-
-        NOTE: includes the Leibniz moving-boundary term
-        :math:`-\left[k^3P W^2/2\pi^2\right]_{k=20/R}` whenever the
-        truncation is active *and* :math:`20/R` lies inside the tabulated
-        range. Omitting it biases :math:`dn/d\ln M` directly.
-        """
-        r_hinv = float(r_hinv)
-        edges = self._edges(r_hinv, truncate)
+    def dsigma2_dlnr(self, r, truncate: bool = True):
+        r""":math:`d\sigma^2/d\ln R`, differentiated under the integral;
+        includes the Leibniz moving-boundary term when the truncation is
+        active."""
+        r = float(r)
+        edges = self._edges(r, truncate)
         if edges is None:
             return 0.0
         pts, wts = self._panel_points(edges)
-        value = float(np.dot(wts, self._d_integrand(pts, r_hinv)))
-        lnk_up = np.log(KCUT_COEF / r_hinv)
-        if truncate and lnk_up < self.pk.lnk_max:
+        value = float(np.dot(wts, self._d_integrand(pts, r)))
+        lnk_up = np.log(KCUT_COEF / r)
+        if truncate and lnk_up < self.lnk_max:
             # d(ln k_up)/d(lnR) = -1, hence the minus sign
-            value -= float(self._integrand(np.array([lnk_up]), r_hinv)[0])
+            value -= float(self._integrand(np.array([lnk_up]), r)[0])
         return value
 
-    def sigma(self, r_hinv, truncate: bool = True):
+    def sigma(self, r, truncate: bool = True):
         r""":math:`\sigma(R) = \sqrt{\sigma^2(R)}`, dimensionless."""
-        return np.sqrt(self.sigma2(r_hinv, truncate=truncate))
+        return np.sqrt(self.sigma2(r, truncate=truncate))
 
-    def dlnsigma2_dlnr(self, r_hinv, truncate: bool = True):
+    def dlnsigma2_dlnr(self, r, truncate: bool = True):
         r""":math:`d\ln\sigma^2/d\ln R`. Negative: variance falls with R."""
-        s2 = self.sigma2(r_hinv, truncate=truncate)
+        s2 = self.sigma2(r, truncate=truncate)
         if s2 <= 0.0:
             raise ValueError(
-                f"sigma^2(R = {r_hinv:g} Mpc/h) is not positive; R is "
-                "outside the range the tabulated P(k) supports"
+                f"sigma^2(R = {r:g}) is not positive; R is outside the "
+                "range the tabulated P(k) supports"
             )
-        return self.dsigma2_dlnr(r_hinv, truncate=truncate) / s2
+        return self.dsigma2_dlnr(r, truncate=truncate) / s2
 
     # -- the FFTLog fast route ------------------------------------------
 
-    def sigma2_fftlog(self, lnr_hinv, n_fine: int = 8192,
+    def sigma2_fftlog(self, lnr, n_fine: int = 8192,
                       pad_decades: float = 3.0):
         r"""Untruncated :math:`\ln\sigma^2` and its derivative, by FFTLog.
 
-        Returns ``(ln_sigma2, dlnsigma2_dlnr)`` on ``lnr_hinv``.
-
-        NOTE: this is the ``truncate=False`` quantity and cannot be made
-        otherwise -- see module NOTE 2. Validate it against
-        ``sigma2(..., truncate=False)``, never against the default.
-
-        NOTE: the input :math:`P(k)` is resampled onto a log grid
-        **explicitly zero-padded** by ``pad_decades`` on each side. Two
-        reasons, both necessary: the zero-outside policy then belongs to the
-        sampled input rather than to mcfit's periodic padding, and the
-        output :math:`R` grid is the reciprocal of the input :math:`k`
-        range, so without padding it stops near :math:`1/k_{\max}` -- far
-        above the grid floor at 0.0034 Mpc/h.
+        Returns ``(ln_sigma2, dlnsigma2_dlnr)`` on ``lnr``. This is the
+        ``truncate=False`` quantity; validate it against that, never the
+        default. The input P(k) is resampled zero-padded by ``pad_decades``
+        per side so the output R grid covers the production range.
         """
         import mcfit
 
-        lnr_hinv = np.asarray(lnr_hinv, dtype=float)
+        lnr = np.asarray(lnr, dtype=float)
         key = (n_fine, pad_decades)
         if self._fftlog_plan is None or self._fftlog_plan[0] != key:
             pad = pad_decades * np.log(10.0)
-            lnk_fine = np.linspace(self.pk.lnk_min - pad,
-                                   self.pk.lnk_max + pad, int(n_fine))
+            lnk_fine = np.linspace(self.lnk_min - pad,
+                                   self.lnk_max + pad, int(n_fine))
             plan = mcfit.TophatVar(np.exp(lnk_fine), lowring=True)
             self._fftlog_plan = (key, lnk_fine, plan)
         _, lnk_fine, plan = self._fftlog_plan
 
         r_fft, var = plan(self.pk(lnk_fine), extrap=False)
         ln_r_fft = np.log(r_fft)
-        if (ln_r_fft[0] > lnr_hinv.min() or ln_r_fft[-1] < lnr_hinv.max()):
+        if (ln_r_fft[0] > lnr.min() or ln_r_fft[-1] < lnr.max()):
             raise RuntimeError(
-                f"FFTLog R grid [{r_fft[0]:.4g}, {r_fft[-1]:.4g}] Mpc/h does "
+                f"FFTLog R grid [{r_fft[0]:.4g}, {r_fft[-1]:.4g}] does "
                 f"not cover the requested R; raise pad_decades (currently "
                 f"{pad_decades})"
             )
-        window = ((ln_r_fft > lnr_hinv.min() - 0.5)
-                  & (ln_r_fft < lnr_hinv.max() + 0.5))
+        window = ((ln_r_fft > lnr.min() - 0.5)
+                  & (ln_r_fft < lnr.max() + 0.5))
         if np.any(var[window] <= 0.0):
             raise RuntimeError(
                 "FFTLog sigma^2 is non-positive inside the requested R "
@@ -331,21 +221,22 @@ class SigmaGrid:
                 "attention"
             )
         spline = CubicSpline(ln_r_fft[window], np.log(var[window]))
-        return spline(lnr_hinv), spline.derivative()(lnr_hinv)
+        return spline(lnr), spline.derivative()(lnr)
 
     def __repr__(self):
-        return (f"SigmaGrid({self.pk!r}, nquad={self.nquad})")
+        return (f"SigmaGrid(k = [{np.exp(self.lnk_min):.3g}, "
+                f"{np.exp(self.lnk_max):.3g}], n = {self.lnk.size}, "
+                f"nquad={self.nquad})")
 
 
 if __name__ == "__main__":
     # a scale-free test spectrum: P = A k^n with a cutoff, so sigma^2 is
     # smooth and the two routes are comparable without a CAMB call
     k = np.logspace(-5.0, 3.0, 600)
-    pk = LinearPk(k, 2.0e4 * k**-1.5 * np.exp(-((k / 50.0) ** 2)))
-    grid = SigmaGrid(pk)
+    grid = SigmaGrid(k, 2.0e4 * k**-1.5 * np.exp(-((k / 50.0) ** 2)))
     print(grid, "\n")
 
-    print(f"{'R [Mpc/h]':>10s}  {'sigma trunc':>12s}  {'sigma full':>11s}  "
+    print(f"{'R':>10s}  {'sigma trunc':>12s}  {'sigma full':>11s}  "
           f"{'ratio-1':>10s}  {'dlnsig2/dlnR':>13s}")
     for r in (0.01, 0.1, 1.0, 8.0, 30.0):
         st = grid.sigma(r, truncate=True)
@@ -354,9 +245,9 @@ if __name__ == "__main__":
         print(f"{r:10.3f}  {st:12.6f}  {sf:11.6f}  {st / sf - 1:10.2e}  "
               f"{d:13.6f}")
     print("  <- the truncate column is the production quantity. Note the")
-    print("     direction: the k <= 20/R limit bites at LARGE R, because")
+    print("     direction: the kR <= 20 limit bites at LARGE R, because")
     print(f"     20/R must fall inside the table (k_max = "
-          f"{np.exp(pk.lnk_max):.0f} h/Mpc) to cut anything. At R = 0.01,")
+          f"{np.exp(grid.lnk_max):.0f}) to cut anything. At R = 0.01,")
     print("     20/R = 2000 > k_max, so nothing is cut and the two agree")
     print("     exactly.")
 
@@ -367,10 +258,10 @@ if __name__ == "__main__":
     for r in (0.01, 0.1, 1.0, 8.0, 30.0):
         total = grid.dsigma2_dlnr(r, truncate=True)
         lnk_up = np.log(KCUT_COEF / r)
-        active = lnk_up < pk.lnk_max
+        active = lnk_up < grid.lnk_max
         boundary = (-float(grid._integrand(np.array([lnk_up]), r)[0])
                     if active else 0.0)
-        print(f"  R = {r:6.3f} Mpc/h:  20/R = {KCUT_COEF / r:9.1f} h/Mpc  "
+        print(f"  R = {r:6.3f}:  20/R = {KCUT_COEF / r:9.1f}  "
               f"{'active ' if active else 'inactive'}  "
               f"boundary/total = {boundary / total:9.2e}")
     print("  <- small here (<= 2e-4) only because this toy P(k) carries an")
