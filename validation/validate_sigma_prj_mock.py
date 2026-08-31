@@ -12,7 +12,7 @@ A. **b_eff per bin** — :math:`N[b]/N[1]` from `ClusterCounts.average`
    with `HodMor.from_lognormal()` (the Costanzi et al. 2021 log-normal
    MOR, fitted to HOD form) and the Y3 EMG projection kernel. Reported,
    and fed to leg B.
-B. **b_sel per bin** — `SelBiasEngine.plateaus(..., b_eff=...)` with the
+B. **b_sel per bin** — `SelBiasEngine.b_small_large(..., b_eff=...)` with the
    bin-averaged b_eff from leg A.
 C. **absolute stacked** :math:`\langle\Sigma^{\rm prj}\rangle` at
    :math:`\lambda^{\rm ob} = 20 \pm 2.5\%`, :math:`z = 0.5 \pm 5\%`
@@ -78,7 +78,6 @@ from clenspy.lensing import SigmaPrj, SigmaPrjConfig  # noqa: E402
 from clenspy.observables import ClusterCounts  # noqa: E402
 from clenspy.selection import (  # noqa: E402
     EmgParams,
-    PhysicalMassMor,
     SelBiasEngine,
     SelectionFunction,
     XiNL,
@@ -174,8 +173,8 @@ def stacked_profile_weighted_by_mass_redshift(
 
 # ------------------------------------------------------------------- model
 def build_halo_model():
-    """(xi_nl, hmf, bias) in SigmaPrj/SelBiasEngine's physical-Msun
-    broadcast convention, from the package's own chain."""
+    """(xi_nl, hmf, bias) in SigmaPrj/SelBiasEngine's physical-Msun,
+    outer-grid convention, from the package's own chain."""
     pk = PkGrid(cosmo=COSMO, nonlinear=True)
     xi_nl = XiNL(pk, clip=False)
     tmf = TinkerMassFunction(cosmo=COSMO, zvec=np.linspace(0.0, 1.0, 21))
@@ -207,18 +206,23 @@ def build_halo_model():
         bounds_error=False, fill_value=None,
     )
 
+    def _grid(interp, mass, z):
+        """vector-mass + vector-z -> outer grid (n_mass, n_z), matching
+        clenspy.utils.interpolate.LogGridInterpolator's own convention
+        (SigmaPrj/SelBiasEngine's LOS integrals call hmf/bias unshaped)."""
+        m = np.atleast_1d(np.asarray(mass, float))
+        zz = np.atleast_1d(np.asarray(z, float))
+        pts = np.array(np.meshgrid(np.log(m), zz, indexing="ij")
+                      ).reshape(2, -1).T
+        out = np.asarray(interp(pts)).reshape(m.size, zz.size)
+        return out.squeeze()
+
     def hmf(mass, z):
         """dn/dM [Msun^-1 Mpc^-3] at physical Msun."""
-        m, zz = np.broadcast_arrays(np.asarray(mass, float),
-                                    np.asarray(z, float))
-        points = np.column_stack((np.log(m.ravel()), zz.ravel()))
-        return np.asarray(hmf_interp(points)).reshape(m.shape)
+        return _grid(hmf_interp, mass, z)
 
     def bias(mass, z):
-        m, zz = np.broadcast_arrays(np.asarray(mass, float),
-                                    np.asarray(z, float))
-        points = np.column_stack((np.log(m.ravel()), zz.ravel()))
-        return np.asarray(bias_interp(points)).reshape(m.shape)
+        return _grid(bias_interp, mass, z)
 
     return xi_nl, hmf, bias, tmf
 
@@ -369,8 +373,9 @@ def main(argv=None):
     if args.xi_clip:
         xi_nl.clip = True
     engine = SelBiasEngine(
-        cosmology=COSMO, xi_nl=xi_nl, hmf=hmf, bias=bias,
-        mor=PhysicalMassMor(HodMor.from_lognormal(), H),
+        sigma_prj=SigmaPrj(cosmology=COSMO, hmf=hmf, bias=bias,
+                           xi_nl=xi_nl).build(),
+        mor=HodMor.from_lognormal(),
     )
     prj = SigmaPrj(
         cosmology=COSMO,

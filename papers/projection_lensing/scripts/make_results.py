@@ -23,7 +23,7 @@ sys.path.insert(0, str(REPO / "validation"))
 
 import validate_sigma_prj_mock as V  # noqa: E402
 from clenspy.lensing import SigmaPrj, SigmaPrjConfig  # noqa: E402
-from clenspy.selection import PhysicalMassMor, SelBiasEngine  # noqa: E402
+from clenspy.selection import SelBiasEngine  # noqa: E402
 from clenspy.selection.scaling_relation import HodMor  # noqa: E402
 
 OUT = Path(__file__).resolve().parents[1] / "data" / "processed"
@@ -64,9 +64,11 @@ def main() -> int:
 
     xi_nl, hmf, bias, _ = V.build_halo_model()
     pk_prj, hmf_prj, two_halo_prj, bias_prj = V.build_projection_products()
-    engine = SelBiasEngine(cosmology=V.COSMO, xi_nl=xi_nl, hmf=hmf,
-                           bias=bias,
-                           mor=PhysicalMassMor(HodMor.from_lognormal(), V.H))
+    engine = SelBiasEngine(
+        sigma_prj=SigmaPrj(cosmology=V.COSMO, hmf=hmf, bias=bias,
+                           xi_nl=xi_nl).build(),
+        mor=HodMor.from_lognormal(),
+    )
     prj = SigmaPrj(cosmology=V.COSMO,
                    pk=pk_prj,
                    hmf=hmf_prj,

@@ -2,12 +2,12 @@ r"""Independent quadrature cross-check of `SelBiasEngine.operators()`
 (:math:`P_1, I_1, I_2`) -- same method as
 ``RichnessSelection/validations/quad_validate.py``: adaptive
 ``scipy.integrate.quad`` over the line-of-sight redshift, dense fixed
-grids (no Gauss-Legendre, no z-ring/outer split) for the coupled
+grids (no Gauss-Legendre, no cosh-Abel substitution) for the coupled
 :math:`(\theta, M, \lambda^{\rm tr})` integral at each z. If this agrees
-with the production engine (``bsel.py``'s GL-node, ring-split machinery)
-to a few parts in 1e-3, the issue #5 discrepancy is not in
-`SelBiasEngine`'s numerics -- see ``validate_mor_notebook.py`` for the
-part that is.
+with the production engine (``bsel.py``'s GL-node, `LosGeometry` cosh-Abel
+machinery, shared with `SigmaPrj`) to a few parts in 1e-3, the issue #5
+discrepancy is not in `SelBiasEngine`'s numerics -- see
+``validate_mor_notebook.py`` for the part that is.
 
 Physics reproduced verbatim from `SelBiasEngine.operators()` (the
 docstring's :math:`\mathcal P[X]` with :math:`X \in \{1, b\xi, b\xi\sigma\}`);
@@ -40,7 +40,8 @@ from clenspy.kernels.photoz import (  # noqa: E402
     photoz_projection_support,
     y3_photoz_window,
 )
-from clenspy.selection import PhysicalMassMor, SelBiasEngine  # noqa: E402
+from clenspy.lensing import SigmaPrj  # noqa: E402
+from clenspy.selection import SelBiasEngine  # noqa: E402
 from clenspy.selection.geometry import (  # noqa: E402
     area_overlap,
     r_lambda,
@@ -151,14 +152,15 @@ def main():
 
     lob, zob = 20.0, 0.5
 
+    sigma_prj = SigmaPrj(cosmology=V.COSMO, hmf=hmf, bias=bias,
+                        xi_nl=xi_nl).build()
     for label, mor in (
         ("HodMor.from_lognormal() [current production MOR]",
-         PhysicalMassMor(HodMor.from_lognormal(), V.H)),
-        ("HodMor.buzzard()", PhysicalMassMor(HodMor.buzzard(), V.H)),
+         HodMor.from_lognormal()),
+        ("HodMor.buzzard()", HodMor.buzzard()),
     ):
         print(f"=== MOR = {label} ===")
-        engine = SelBiasEngine(cosmology=V.COSMO, xi_nl=xi_nl, hmf=hmf,
-                               bias=bias, mor=mor)
+        engine = SelBiasEngine(sigma_prj=sigma_prj, mor=mor)
         t0 = time.time()
         p1_prod, i1_prod, i2_prod = engine.operators(lob, zob)
         t_prod = time.time() - t0

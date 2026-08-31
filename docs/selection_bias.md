@@ -64,15 +64,46 @@ amplitude, exposed as `SelBiasEngine.boost_slope` so it can be varied
 rather than hidden. $b_{\rm small}$ comes from a **linear inversion** and
 is the output that can go unstable: when $I_2\to I_1$ the denominator
 vanishes, and `_closure` falls back to $b_{\rm large}$ there — a named
-degradation, not a silent one. The figure's $b_{\rm small}=108$ is this
-instability made visible on purpose: the demo's toy `hmf` and $\xi_{\rm
-NL}$ are not mutually calibrated, so $\Delta^{\rm prj}_{\rm RND}$
-under-predicts the true richness excess and the division by the small
-$I_2-I_1$ inflates $b_{\rm small}$. The *shape* of $b_{\rm sel}(\theta)$ is
-still correct; only the amplitude needs a real $P(k)$ and a real halo
-model, i.e. {doc}`power_spectrum`'s `PkGrid` and {doc}`mass_function`'s
-`TinkerMassFunction` in place of the stand-ins.
+degradation, not a silent one. The figure's $b_{\rm small}\approx19$ is this
+instability made visible on purpose: `HodMor.des_y1()` is not calibrated
+against the demo's Tinker(2008)+Tinker(2010)+CAMB halo model at this
+$(\lambda^{\rm ob},z^{\rm ob})$, so $\Delta^{\rm prj}_{\rm RND}$ under-predicts the true
+richness excess and the division by the small $I_2-I_1$ inflates
+$b_{\rm small}$. The *shape* of $b_{\rm sel}(\theta)$ is still correct;
+only the amplitude needs a mutually calibrated MOR, e.g.
+`HodMor.from_lognormal()` or `HodMor.buzzard()`.
 ```
+
+## Units and numerics
+
+Masses are **physical** $M_\odot$ here, not $h^{-1}M_\odot$: `SelBiasEngine`
+shares its `hmf`/`bias`/`xi_nl` with {doc}`projection_lensing`'s `SigmaPrj`
+(pass a built one, or let the engine build a default), all in that
+convention. $R_\lambda$ is physical Mpc, $\chi$ and $\xi_{\rm NL}$ are
+comoving Mpc, angles are radians, $b_{\rm sel}$ is dimensionless. This
+differs from `clenspy.selection.scaling_relation`, which is h-scaled;
+`PhysicalMassMor` converts at the boundary — the engine wraps the raw MOR
+in it internally, so the caller passes e.g. `HodMor.des_y1()` directly.
+
+The photo-$z$ weight is the **exact tabulated window**
+(`clenspy.kernels.photoz.y3_photoz_window`), passed with `n_sigma=1.0`
+because that table already *is* the $n_\sigma\sigma_z$ half-width. Its
+support is asymmetric by 17% at $z^{\rm ob}=0.4$, so the line-of-sight
+bounds come from `photoz_projection_support` and not a symmetric
+$z^{\rm ob}\pm$ width.
+
+The $\mathcal P[X]$ operator's line-of-sight integral is the same
+cosh–Abel `LosGeometry`/`integrate_los` machinery as `SigmaPrj`'s own
+(see {doc}`projection_lensing`, "Exclusion"): halo exclusion is an exact
+interval boundary, never a mask or a per-$z$ grid split. One named
+approximation remains: $\xi_{\rm NL}$ is **clipped at zero**, discarding
+the BAO trough (measured at $O(10^{-4})$ in a $w_z$-suppressed region),
+which keeps $I_1,I_2$ positive so the closure cannot divide by a
+sign-indefinite denominator. $I_2-I_1$ itself — the $b_{\rm small}$
+denominator — is computed as its own direct quadrature
+($\mathcal P[b\,\xi_{\rm NL}(1-\sigma)]$, by linearity) rather than a
+float subtraction of $I_2$ and $I_1$, removing the cancellation error at
+the one place this closure can go unstable.
 
 ## Example
 
@@ -83,12 +114,12 @@ model, i.e. {doc}`power_spectrum`'s `PkGrid` and {doc}`mass_function`'s
 ```
 
 ```
-theta_lambda = 0.001073 rad, b_small = 108.059, b_large = 3.247
-theta/theta_lambda=0.00  b_sel=84.7175
-theta/theta_lambda=0.50  b_sel=55.6530
-theta/theta_lambda=1.00  b_sel=26.5886
-theta/theta_lambda=2.00  b_sel=5.6551
-theta/theta_lambda=5.00  b_sel=3.2482
+theta_lambda = 0.001073 rad, b_small = 18.666, b_large = 5.068
+theta/theta_lambda=0.00  b_sel=15.6376
+theta/theta_lambda=0.50  b_sel=11.8669
+theta/theta_lambda=1.00  b_sel=8.0962
+theta/theta_lambda=2.00  b_sel=5.3804
+theta/theta_lambda=5.00  b_sel=5.0681
 ```
 
 See also: {doc}`api/index` for the full `clenspy.selection` reference,

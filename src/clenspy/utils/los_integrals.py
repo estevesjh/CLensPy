@@ -21,8 +21,8 @@ import numpy as np
 
 from .integrate import gl_nodes_batched
 
-__all__ = ["LosGeometry", "integrate_los", "shell_masses", "tail_masses",
-           "theta_edges", "theta_grid"]
+__all__ = ["LosGeometry", "integrate_los", "field_integrand", "shell_masses",
+           "tail_masses", "theta_edges", "theta_grid"]
 
 
 def theta_edges(chi_o, theta_range, n_theta, r_excl=0.0):
@@ -127,6 +127,29 @@ def integrate_los(geometry: LosGeometry, integrand, n_u: int,
     W = np.einsum("...bk,bk->...b", integrand(r, chi, geometry.theta_index),
                   r * w_u)
     return np.moveaxis(geometry.fold(W), -1, 0)
+
+
+def field_integrand(distance, hmf, common, Ms, M_weight):
+    r"""The bias/xi-free line-of-sight weight, as an ``integrand(r, chi,
+    theta_index)`` for `integrate_los`: :math:`{\rm common}(z)/(d\chi/dz)\,
+    n(M,z)\,M\,d\ln M`, shape ``(n_M, n_branch, n_u)``.
+
+    ``common(z)`` is the caller's own :math:`z`-density (comoving volume
+    element times whatever photo-z weight applies); ``hmf`` is
+    :math:`n(M,z)` [mass^-1 length^-3]; ``Ms``/``M_weight`` are
+    `clenspy.utils.integrate.mass_nodes`. Ignores ``theta_index`` -- this
+    weight has no :math:`\theta` dependence on its own. Shared by
+    `clenspy.lensing.projection.SigmaPrj` (the background channel) and
+    `clenspy.selection.bsel.SelBiasEngine` (:math:`\mathcal P[1]`'s
+    :math:`z`-density) -- the one piece of the two modules' line-of-sight
+    integrals that is identical, not merely analogous.
+    """
+    def integrand(r, chi, theta_index):
+        z = distance.z_of_chi(chi)
+        w = (common(z.ravel()) / distance.dchi_dz(z.ravel())).reshape(z.shape)
+        n_M = hmf(Ms, z.ravel()).reshape(Ms.size, *z.shape)
+        return w * n_M * M_weight[:, None, None]
+    return integrand
 
 
 def shell_masses(R, s_edges, rs, sigma0, mean_sigma, which, n_gl: int = 4):

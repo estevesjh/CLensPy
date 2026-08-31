@@ -12,12 +12,11 @@ import numpy as np
 import sanzo_wada as sw
 import seaborn as sns
 from astropy.cosmology import FlatLambdaCDM
-from scipy.interpolate import RegularGridInterpolator
 
 from clenspy.cosmology import BiasModel, TinkerMassFunction
 from clenspy.cosmology.pkgrid import PkGrid
 from clenspy.lensing import SigmaPrj, SigmaPrjConfig
-from clenspy.selection import PhysicalMassMor, SelBiasEngine, XiNL
+from clenspy.selection import SelBiasEngine, XiNL
 from clenspy.selection.scaling_relation import HodMor
 
 OUT = pathlib.Path(__file__).resolve().parent / "_static" / "img"
@@ -45,38 +44,21 @@ def halo_model():
     zgrid = np.linspace(0.0, 1.0, 21)
     tmf = TinkerMassFunction(cosmo=COSMO, mvec=mgrid, zvec=zgrid)
     bm = BiasModel(cosmo=COSMO, mvec=mgrid, zvec=zgrid)
-
-    # pointwise field adapters for SelBiasEngine's broadcast convention
-    hmf_pt = RegularGridInterpolator(
-        (np.log(mgrid), zgrid), np.asarray(tmf.dndlnm()) / mgrid[:, None],
-        bounds_error=False, fill_value=None)
-    bias_pt = RegularGridInterpolator(
-        (np.log(mgrid), zgrid), np.asarray(bm.bias()),
-        bounds_error=False, fill_value=None)
-
-    def field(interp):
-        def f(mass, z):
-            m, zz = np.broadcast_arrays(np.asarray(mass, float),
-                                        np.asarray(z, float))
-            pts = np.column_stack((np.log(m.ravel()), zz.ravel()))
-            return np.asarray(interp(pts)).reshape(m.shape)
-        return f
-
-    return xi_nl, tmf, bm, field(hmf_pt), field(bias_pt)
+    return xi_nl, tmf, bm
 
 
 def fig_projection_lensing():
     """Left: the rnd/cl channel split of Sigma_prj. Right: the ratio
     observable (selected over b_eff-weighted random), b_sel on vs off."""
-    xi_nl, tmf, bm, hmf, bias = halo_model()
+    xi_nl, tmf, bm = halo_model()
     lob, zob, b_eff = 23.9, 0.425, 3.02  # the mock's [20,30)x[0.35,0.5) bin
-    engine = SelBiasEngine(cosmology=COSMO, xi_nl=xi_nl, hmf=hmf, bias=bias,
-                           mor=PhysicalMassMor(HodMor.from_lognormal(), H))
-    bsel = engine.marginalised_bias(lob, zob, b_eff=b_eff)
+    # one built halo model, shared by SigmaPrj and SelBiasEngine
     prj = SigmaPrj(cosmology=COSMO, xi_nl=xi_nl, hmf=tmf, bias=bm,
                    config=SigmaPrjConfig(
                        los_window="hard", los_depth=50.0 / H,
                        exclusion="ball", theta_perp_range=(1e-3, 60.0 / H)))
+    engine = SelBiasEngine(sigma_prj=prj, mor=HodMor.from_lognormal())
+    bsel = engine.marginalised_bias(lob, zob, b_eff=b_eff)
 
     R = np.geomspace(0.1, 40.0, 32)  # comoving Mpc
     tot = prj.sigma_prj(R, lob, zob, bsel, channel="sum")

@@ -2,24 +2,16 @@ r"""Projection lensing: :math:`\Sigma_{\rm prj}` and :math:`\Delta\Sigma_{\rm pr
 
 The two-halo projected surface density around a richness-selected cluster
 (Costanzi 2026 eq. 13): a sum over neighbour mass :math:`M` and offset
-angle :math:`\theta` of the correlated weight :math:`n_{\rm cl}(\theta, M)`
-against the mass shell :math:`M_\theta(R \mid M)` — not an aperture mass
-"inside :math:`R`", but the neighbour halo's own offset profile,
-:math:`R_\theta = \theta\chi_o`, converted from a shell mass into a
-density (see `MassShells`):
-
-.. math::
-    \Sigma_{\rm prj}(R) = \int d\theta\, 2\pi\sin\theta \int dM\;
-        n_{\rm cl}(\theta, M)\, M_\theta(R \mid M)
-
-:math:`\Delta\Sigma_{\rm prj}` is the same sum with the mass shell
-swapped for its signed excess, :math:`M_\theta \to \Delta M_\theta`
-(never a numerical reconstruction of a tabulated :math:`\Sigma_{\rm prj}`).
+angle :math:`\theta` of the correlated weight :math:`n_{\rm cl}(\theta,M)`
+against the mass shell :math:`M_\theta(R\mid M)` -- the neighbour halo's
+own offset profile (see `MassShells`), not an aperture mass "inside
+:math:`R`". :math:`\Delta\Sigma_{\rm prj}` is the same sum with the mass
+shell swapped for its signed excess, never a numerical reconstruction of
+a tabulated :math:`\Sigma_{\rm prj}`.
 
 NOTE: physical :math:`M_\odot`, comoving Mpc, h-free; :math:`\Sigma` in
-comoving :math:`M_\odot\,{\rm Mpc}^{-2}`. Full derivation, channel split
-(:math:`n_{\rm rnd}`/:math:`n_{\rm cl}`), exclusion semantics, named
-approximations, and the comoving/:math:`(1+z)^2` table convention:
+comoving :math:`M_\odot\,{\rm Mpc}^{-2}`. Full derivation, the master
+equation, channel split, exclusion semantics, and named approximations:
 ``docs/projection_lensing.md``.
 """
 
@@ -40,8 +32,8 @@ from ..cosmology.sigma import SigmaGrid
 from ..halo.nfw import NfwProfile
 from ..halo.twohalo import TwoHaloTerm
 from ..kernels.photoz import (
+    photoz_chi_bounds,
     photoz_projection,
-    photoz_projection_support,
     y3_photoz_window,
 )
 from ..selection.geometry import r_excl
@@ -50,6 +42,7 @@ from ..utils.integrate import mass_nodes
 from ..utils.interpolate import LogGridInterpolator
 from ..utils.los_integrals import (
     LosGeometry,
+    field_integrand,
     integrate_los,
     shell_masses,
     tail_masses,
@@ -70,12 +63,15 @@ class SigmaPrjConfig:
         Default: the packaged table.
     n_theta, n_M : int
         Quadrature sizes: log theta cells integrated exactly by the
-        profile kernel; Gauss-Legendre in ln M. n_theta=96 from a
-        measured convergence scan (0.2% vs 192 at the smallest R).
+        profile kernel; Gauss-Legendre in ln M. Defaults 144/64: at
+        96/40, sigma_prj is 0.06-0.36% off a 192/80/10/28 reference
+        across R = 0.5-25 comoving Mpc; at 144/64 that tightens to
+        0.04-0.12%, both cheap (<0.1s/call), so the finer pair is the
+        default with margin to spare.
     n_u_inside, n_u_outside : int
         Cosh-Abel Gauss-Legendre orders inside and outside the exclusion
         sphere; the discontinuity is an interval boundary, never a mask.
-        Compare 6/16 against 8/24 when changing the projection support.
+        Defaults 8/24 (was 6/16, per the same convergence check above).
     theta_perp_range : tuple of float
         Transverse comoving span (Mpc) of the theta grid at z_ob. Lower
         edge 1e-3: the 2 pi sin(theta) measure kills the integrand faster
@@ -104,10 +100,10 @@ class SigmaPrjConfig:
     """
 
     mis_table: object | None = None
-    n_theta: int = 96
-    n_M: int = 40
-    n_u_inside: int = 6
-    n_u_outside: int = 16
+    n_theta: int = 144
+    n_M: int = 64
+    n_u_inside: int = 8
+    n_u_outside: int = 24
     theta_perp_range: tuple[float, float] = (1e-3, 90.0)
     min_mass: float | None = None
     log10_M_max: float | None = None
@@ -490,10 +486,8 @@ class SigmaPrj:
             chi_min = chi_o - self.config.los_depth
             chi_max = chi_o + self.config.los_depth
         else:
-            z_min, z_max = photoz_projection_support(
-                zob, self._window, n_sigma=1.0)
-            chi_min = float(self.distance.chi(z_min))
-            chi_max = float(self.distance.chi(z_max))
+            chi_min, chi_max = photoz_chi_bounds(
+                zob, self._window, self.distance)
         r_ex = (r_excl(lob, zob, self.h)
                 if self.config.exclusion != "none" else 0.0)
         return LosGeometry(thetas, chi_o, chi_min, chi_max, r_excl=r_ex)
@@ -525,13 +519,10 @@ class SigmaPrj:
                                   cfg.n_M)
         geometry = self._geometry(thetas, lob, zob)
 
-        def n_rnd_integrand(r, chi, theta_index):
-            ## master equation, background: common(z)/(dchi/dz) n(M,z) M dlnM
-            z = self.distance.z_of_chi(chi)
-            common = (self.common(z.ravel(), zob)
-                      / self.distance.dchi_dz(z.ravel())).reshape(z.shape)
-            n_M = self.hmf(Ms, z.ravel()).reshape(Ms.size, *z.shape)
-            return common * n_M * M_weight[:, None, None]
+        ## master equation, background: common(z)/(dchi/dz) n(M,z) M dlnM
+        n_rnd_integrand = field_integrand(
+            self.distance, self.hmf, lambda z: self.common(z, zob),
+            Ms, M_weight)
 
         def n_lss_integrand(r, chi, theta_index):
             ## master equation, correlated excess: n_rnd x b(M,z) xi_NL(r)

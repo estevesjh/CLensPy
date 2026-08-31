@@ -96,6 +96,7 @@ __all__ = [
     "y3_photoz_window",
     "Y3_Z_KERNEL_FILE",
     "photoz_projection_support",
+    "photoz_chi_bounds",
 ]
 
 _SQRT2 = np.sqrt(2.0)
@@ -339,6 +340,22 @@ def photoz_projection_support(z_ob, sigma_z, n_sigma: float = 3.0,
         half = width(z_ob)
         return max(lo, z_ob - half), z_ob + half
     return z_lo, z_hi
+
+
+def photoz_chi_bounds(z_ob, sigma_z, distance, n_sigma: float = 1.0):
+    r"""Comoving-distance bounds of the exact projection window:
+    `photoz_projection_support` converted through ``distance.chi``.
+
+    ``distance``: a `clenspy.cosmology.distances.ComovingDistance` (or
+    anything with a ``chi(z)`` method). ``n_sigma=1.0`` is the right
+    default for `y3_photoz_window`, whose table already is the window
+    half-width -- see that function's NOTE. Shared by
+    `clenspy.lensing.projection.SigmaPrj._geometry` (the ``"wpz"``
+    branch) and `clenspy.selection.bsel.SelBiasEngine`, which only ever
+    uses this window (no "hard" top-hat option).
+    """
+    z_lo, z_hi = photoz_projection_support(z_ob, sigma_z, n_sigma=n_sigma)
+    return float(distance.chi(z_lo)), float(distance.chi(z_hi))
 
 
 if __name__ == "__main__":

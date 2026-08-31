@@ -62,7 +62,7 @@ LONG_HEADER_BURNDOWN = {
     "kernels/sigma_crit.py", "lensing/limber.py", "lensing/miscentering.py",
     "observables/__init__.py",
     "observables/deltasigma.py", "observables/number_counts.py",
-    "protocols.py", "selection/__init__.py", "selection/bsel.py",
+    "protocols.py", "selection/__init__.py",
     "selection/geometry.py", "selection/miscentering.py",
     "selection/miscentering_kernel.py", "selection/richness_kernel.py",
     "selection/scaling_relation.py", "selection/selection_function.py",
