@@ -4,15 +4,24 @@ Matteo's closure is algebraically identical to `SelBiasEngine._closure`
 (his ``bar_delta_prj_bkg`` = P1 + boost*b_eff*I1, his ``numerator2`` =
 I2 - I1), but the lambda_tr marginalisation his notebook feeds to the
 theta-grid interpolator (``b_sel_lob_theta_grid_inter``) is not defined
-in the notebook. This script brackets the defensible choices at the
-reference bin (lambda_ob in [20,30), z in [0.35,0.50)) and fits the
-mock-implied inner plateau:
+in the notebook. This script brackets the historically defensible
+choices at the reference bin (lambda_ob in [20,30), z in [0.35,0.50))
+against the mock-implied inner plateau -- see
+docs/plan-bsel-stable-closure.md for the resolution: "y3"/"self" turned
+out to feed the closure a posterior mean 1.5-2.2x too high (an
+exponential-tilt divergence, not a kernel-calibration issue), and
+"eddington" (the package default since that fix) replaces them.
 
-  A. "y3"    -- Y3 EMG kernel marginalisation (the package default)
-  B. "self"  -- self-consistent exponential kernel x n(lambda_tr) prior
-  C. "point" -- single point lambda_tr = lambda_ob - Delta_RND
-                (the closure evaluated at its own mean boost)
-  D. "fit"   -- b_small fitted to the mock inner ratio (R < 1 cMpc/h)
+  A. "y3"        -- Y3 EMG kernel marginalisation (pre-fix default, kept
+                    here only as the historical comparison point)
+  B. "self"      -- self-consistent exponential kernel x n(lambda_tr)
+                    prior (pre-fix; also superseded)
+  C. "point"     -- single point lambda_tr = lambda_ob - Delta_RND
+                    (the closure evaluated at its own mean boost, delta=0)
+  D. "eddington" -- SelBiasEngine's current default: delta from
+                    `excess_delta` (parameter-free Eddington-tilt
+                    estimate of the mean excess richness)
+  E. "fit"       -- b_small fitted to the mock inner ratio (R < 1 cMpc/h)
 
 Writes data/processed/inner_study.csv (profiles) and
 inner_study_summary.csv (the b_small values).
@@ -80,7 +89,7 @@ def main() -> int:
     engine = SelBiasEngine(
         sigma_prj=SigmaPrj(cosmology=V.COSMO, hmf=hmf, bias=bias,
                            xi_nl=xi_nl).build(),
-        mor=HodMor.from_lognormal(),
+        mor=HodMor.buzzard(),
     )
     prj = SigmaPrj(cosmology=V.COSMO,
                    pk=pk_prj,
@@ -90,7 +99,6 @@ def main() -> int:
                    config=SigmaPrjConfig(
                        n_theta=128,
                        theta_perp_range=(1e-3, 60.0 / V.H),
-                       los_window="hard",
                        los_depth=50.0 / V.H,
                        exclusion="counter",
                        r_trunc=30.0 / V.H,
@@ -106,12 +114,19 @@ def main() -> int:
         _, bs, bl = engine._closure(lob, P1, I1, I2, B_EFF, d_arr)
         return float(bs[0]), float(bl[0])
 
+    def marginalised_point(plob_mode):
+        """Pre-fix behaviour: marginalise _closure over _ltr_weights's
+        posterior (superseded by excess_delta -- see module docstring)."""
+        ltr, w = engine._ltr_weights(lob, zob, b_eff=B_EFF,
+                                     plob_mode=plob_mode)
+        _, bs_vec, bl_vec = engine._closure(lob, P1, I1, I2, B_EFF, ltr)
+        return float(np.sum(w * bs_vec)), float(np.sum(w * bl_vec))
+
     variants = {}
-    bs, bl = engine.b_small_large(lob, zob, b_eff=B_EFF, plob_mode="y3")
-    variants["y3"] = (bs, bl)
-    bs, bl = engine.b_small_large(lob, zob, b_eff=B_EFF, plob_mode="self")
-    variants["self"] = (bs, bl)
+    variants["y3"] = marginalised_point("y3")
+    variants["self"] = marginalised_point("self")
     variants["point"] = closure_point(mean_d)
+    variants["eddington"] = engine.b_small_large(lob, zob, b_eff=B_EFF)
 
     model_rnd, _ = V.model_annulus_average(prj, lob, zob,
                                            lambda th: B_EFF)
@@ -122,27 +137,28 @@ def main() -> int:
         m_sel, _ = V.model_annulus_average(prj, lob, zob, bsel)
         return m_sel / model_rnd
 
-    # D: fit b_small to the mock inner ratio (R < 1 cMpc/h, skip first 4)
+    # E: fit b_small to the mock inner ratio (R < 1 cMpc/h, skip first 4),
+    # holding b_large at the current default's (eddington's) value
     inner = (np.arange(V.R_MID_HINV.size) >= V.I_RBIN_MIN) \
         & (V.R_MID_HINV < 1.0)
-    b_large_y3 = variants["y3"][1]
+    b_large_ref = variants["eddington"][1]
 
     def cost(bs):
-        r = ratio_for(bs, b_large_y3)
+        r = ratio_for(bs, b_large_ref)
         return np.sum(((r - ratio_mock)[inner] / sig_ratio[inner]) ** 2)
 
     from scipy.optimize import minimize_scalar
     fit = minimize_scalar(cost, bounds=(1.0, 40.0), method="bounded")
-    variants["fit"] = (float(fit.x), b_large_y3)
+    variants["fit"] = (float(fit.x), b_large_ref)
 
+    labels = {"y3": 0, "self": 1, "point": 2, "eddington": 3, "fit": 4}
     rows, summary = [], []
     for name, (bs, bl) in variants.items():
         r = ratio_for(bs, bl)
         for k in np.where(np.arange(V.R_MID_HINV.size) >= V.I_RBIN_MIN)[0]:
-            rows.append([{"y3": 0, "self": 1, "point": 2, "fit": 3}[name],
+            rows.append([labels[name],
                          V.R_MID_HINV[k], ratio_mock[k], sig_ratio[k], r[k]])
-        summary.append([{"y3": 0, "self": 1, "point": 2, "fit": 3}[name],
-                        bs, bl])
+        summary.append([labels[name], bs, bl])
         print(f"{name:6s}: b_small={bs:7.2f} b_large={bl:5.2f}")
     print(f"Delta: mock={delta_mock:.2f}, model RND={mean_d:.2f}, "
           f"var={var_d:.2f}")
@@ -150,7 +166,8 @@ def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     with open(OUT / "inner_study.csv", "w") as f:
         f.write("# variant (0=y3 EMG, 1=self kernel, 2=point Delta_RND, "
-                "3=fit), R [cMpc/h], ratio_mock, sigma_ratio, ratio_model\n"
+                "3=eddington [default], 4=fit), "
+                "R [cMpc/h], ratio_mock, sigma_ratio, ratio_model\n"
                 f"# bin lam [{LAM_LO},{LAM_HI}) z [{Z_LO},{Z_HI}); "
                 f"lob={lob:.2f} zob={zob:.4f} b_eff={B_EFF}; "
                 f"delta_mock={delta_mock:.3f} delta_rnd={mean_d:.3f} "

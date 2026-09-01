@@ -6,10 +6,12 @@ INNER := data/processed/inner_study.csv data/processed/inner_study_summary.csv
 AREA_OVERLAP := data/processed/area_overlap_check.csv \
                 data/processed/area_overlap_summary.csv \
                 data/processed/area_overlap_conc_sensitivity.csv
-FIGS := build/fig_ratio_grid.pdf build/fig_absolute.pdf \
+FIGS := build/fig_ratio_grid.pdf build/fig_paper6.pdf build/fig_absolute.pdf \
         build/fig_decomposition.pdf build/fig_inner_study.pdf \
         build/fig_one2one.pdf build/fig_area_overlap.pdf
 MODEL_SRC := ../../src/clenspy/lensing/projection.py \
+             ../../src/clenspy/selection/bsel.py \
+             ../../src/clenspy/selection/richness_kernel.py \
              ../../validation/validate_sigma_prj_mock.py
 AREA_OVERLAP_SRC := ../../src/clenspy/selection/geometry.py
 

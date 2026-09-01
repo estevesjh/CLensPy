@@ -1,0 +1,67 @@
+\section{Validation against Costanzi et al.\ (2026) Fig.~6}
+\label{sec:fig6}
+
+\textbf{Script:} \pyfile{scripts/make\_fig6.py}.
+\textbf{Reference:} \pyfile{validation/data/costanzi2026\_fig6.csv},
+hand-digitized from the paper's own Fig.~6 (the \textbf{model} curve, not
+a mock measurement) --- currently 2 of the paper's 4 richness bins
+($\lambda\in[20,30)$ and $\lambda\in[60,500)$, each at 3 redshift bins);
+the middle two bins are not yet digitized.
+
+Both plateaus enter
+$\langle\Sprj\rangle_{\lob\text{-sel}}/\langle\Sprj\rangle_{\rm RND}$
+linearly at fixed geometry, $\xinl$, and halo mass function, so a
+closed-form $(\bsmall,\blarge)$ fit to the digitized curve is possible
+per panel; used as an independent cross-check below, not as a
+calibration --- the model prediction plotted is \modname{SelBiasEngine}'s
+own \modname{excess\_delta}, with no free parameters tuned to this curve.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{fig_fig6.pdf}
+\caption{Model (solid) against the digitized Costanzi et al.\ (2026)
+Fig.~6 theory curve (points), one panel per richness bin, redshift
+colour-coded within each panel.}
+\label{fig:fig6}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llrrrr}
+\toprule
+$\lambda$ bin & $z$ bin & $\lob$ & $\beff$ & median resid. & max resid. \\
+\midrule
+\input{table_fig6.tex}
+\bottomrule
+\end{tabular}
+\caption{Per-panel fractional residual of the model against the digitized
+curve. Overall ($\FigSixNPoints$ points): median $\FigSixMedianAbsResid$,
+max $\FigSixMaxAbsResid$.}
+\label{tab:fig6}
+\end{table}
+
+Before the closure fix derived this session, this same comparison ran at
+a $\sim$50\% median, worst case over 100\% (the $\lambda[20,30)$ panels
+were 66--110\% high). What remains is a genuinely mixed pattern, not one
+uniform offset, and it is now precisely attributed rather than merely
+consistent-with. Plotting the fixed model against the digitized curve
+(not just the aggregate residual) shows the three per-redshift model
+curves in the $\lambda[60,500)$ panel are almost indistinguishable, while
+the data fan out sharply by $z$: \modname{excess\_delta}'s $\delta$ gets
+the mean level right but has the \textbf{wrong-sign redshift trend} ---
+at fixed richness it falls with $\zob$ while the data need it to rise.
+Confirmed converged (a $1.7\times$ finer quadrature changes $\delta$ by
+$<0.05\%$) and traced to $I_2^{(2)}$ (the correlated-structure second
+moment) declining faster with $z$ than $\DRND$ grows --- full factor
+breakdown in \pyfile{docs/plan-bsel-stable-closure.md} \S9. Combined with
+the closure's already-documented $\DRND$ mismatch below $z=0.35$
+(\modname{\_closure}'s own \texttt{NOTE}, 17--50\% high there), this
+explains the $\lambda[20,30)$ trend (worst at the lowest $z$, 0.142,
+tapering to $\sim$0.075). The $\lambda[60,500)$ sign flip (best at lowest
+$z$, turning negative to $-0.106$) is a second, separate effect: a
+$\sim$20--40\% low-richness $\beff$ normalisation offset, visible because
+inverting the digitized curve through the $\blarge$ side gives an
+impossible negative $\delta$ in $\lambda[20,30)$ (same reference, \S9)
+--- independent of $\delta$'s own $z$-shape problem. \textbf{Open, not
+fixed this session}: see the reference above for candidate next steps.

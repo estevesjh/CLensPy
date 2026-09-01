@@ -13,19 +13,45 @@ Mpc^3, dn/dlnM in Mpc^-3. Physics and provenance: ``docs/mass_function.md``.
 
 from __future__ import annotations
 
+import hashlib
+import os
+from pathlib import Path
+
 import numpy as np
 
 from ..utils.decorators import default_mvals_z, scalar_array_output
 from ..utils.interpolate import LogGridInterpolator
 from .fiducial import fiducial_cosmology, mean_matter_density
 from .growth import growth_factor
-from .pkgrid import PkGrid
+from .pkgrid import PkGrid, _astropy_to_dict, _hash
 from .sigma import SigmaGrid, lnr_grid
 
 __all__ = [
     "TINKER08_TABLE2",
     "TinkerMassFunction",
 ]
+
+# ------------------------------------------------------------------
+# Disk cache -- same shape as pkgrid._data_dir/_hash, own subdir -----
+# ------------------------------------------------------------------
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]  # cosmology/ -> clenspy/
+_DEFAULT_DATA = _PACKAGE_ROOT / "data"
+
+
+def _cache_dir(subdir: str) -> Path:
+    """`pkgrid._data_dir`, parameterized by cache subdir name."""
+    root = os.environ.get("CLENSPY_DATA", str(_DEFAULT_DATA))
+    path = Path(root).expanduser() / subdir
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _hash_arrays(*arrays) -> str:
+    """MD5 of the concatenated raw bytes of one or more float arrays."""
+    h = hashlib.md5()
+    for a in arrays:
+        h.update(np.ascontiguousarray(a, dtype=float).tobytes())
+    return h.hexdigest()
 
 #: Tinker et al. (2008) Table 2 -- ``Delta -> (A0, a0, b0, c)``, with
 #: :math:`\Delta` referred to the mean matter density. Interpolated
@@ -75,6 +101,14 @@ class TinkerMassFunction:
         and ``dlnsigma2_dlnr(r, truncate=)``; overrides ``k``/``pk``.
         Share one `SigmaGrid` with `~clenspy.cosmology.BiasModel` -- both
         fit the same peak height.
+    cache : bool, optional
+        If True (default), store / reuse ``*.npz`` files of
+        `dndlnm_grid` in ``clenspy-data/hmf_cache``, keyed on cosmology,
+        ``delta``, ``truncate``, and the ``mval``/``zvec`` grids (plus a
+        content hash of ``k``/``pk`` if given). NOTE: an injected
+        ``sigma_grid`` is an opaque object that cannot be hashed by
+        content, so caching is skipped entirely in that case -- the grid
+        is always rebuilt, never read from or written to disk.
 
     Examples
     --------
@@ -99,7 +133,7 @@ class TinkerMassFunction:
 
     def __init__(self, cosmo=None, k=None, pk=None, mvec=None,
                  zvec=None, delta: float = 200.0, truncate: bool = True,
-                 sigma_grid=None):
+                 sigma_grid=None, cache: bool = True):
         d = np.asarray(TINKER08_TABLE2["delta"], dtype=float)
         if not (d[0] <= delta <= d[-1]):
             raise ValueError(
@@ -113,6 +147,8 @@ class TinkerMassFunction:
         self.k = None if k is None else np.asarray(k, dtype=float)
         self.pk = None if pk is None else np.asarray(pk, dtype=float)
         self._sigma_grid = sigma_grid
+        self._sigma_grid_injected = sigma_grid is not None
+        self.cache = cache
         self.delta = float(delta)
         self.truncate = truncate
         # default z grid; a single-z grid would silently return that z
@@ -133,6 +169,27 @@ class TinkerMassFunction:
         )
         # eq. 8: the exponent of the b(z) evolution
         self.alpha = 10.0 ** (-((0.75 / (target - _LOG10_75)) ** 1.2))
+
+        # cache path is fixed at construction: build() takes no grid
+        # overrides, so (mval, zvec) here are the ones that will ever be
+        # used. An injected sigma_grid cannot be hashed by content, so
+        # caching is skipped for it (see class docstring).
+        self._cache_file = (
+            None if (not self.cache or self._sigma_grid_injected)
+            else self._compute_cache_path()
+        )
+
+    def _compute_cache_path(self) -> Path:
+        spec = dict(
+            cosmo=_astropy_to_dict(self.cosmo),
+            delta=self.delta,
+            truncate=self.truncate,
+            mval=_hash_arrays(self.mval),
+            zvec=_hash_arrays(self.zvec),
+        )
+        if self.k is not None:
+            spec["kpk"] = _hash_arrays(self.k, self.pk)
+        return _cache_dir("hmf_cache") / f"{_hash(spec)}.npz"
 
     @property
     def sigma_grid(self):
@@ -221,7 +278,25 @@ class TinkerMassFunction:
 
     def build(self):
         """Materialize the cached mass-function grid and return ``self``."""
-        _ = self.dndlnm_grid
+        if getattr(self, "_dndlnm_grid", None) is not None:
+            return self
+        if self._cache_file is not None and self._cache_file.exists():
+            grid = np.load(self._cache_file)["grid"]
+            if grid.shape != (len(self.mval), len(self.zvec)):
+                raise RuntimeError(
+                    f"cache shape mismatch at {self._cache_file}: "
+                    f"{grid.shape} vs expected "
+                    f"{(len(self.mval), len(self.zvec))}"
+                )
+            self._dndlnm_grid = grid
+            self._interp = LogGridInterpolator(self.mval, self.zvec, grid)
+            print(f"TinkerMassFunction loaded cache file: {self._cache_file}")
+            return self
+        _ = self.dndlnm_grid  # fills self._dndlnm_grid, self._interp
+        if self._cache_file is not None:
+            self._cache_file.parent.mkdir(parents=True, exist_ok=True)
+            np.savez(self._cache_file, grid=self._dndlnm_grid)
+            print(f"TinkerMassFunction saved cache file: {self._cache_file}")
         return self
 
     build_all = build  # alias, one release

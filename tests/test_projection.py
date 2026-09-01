@@ -55,8 +55,7 @@ def _prj(model, **kw):
     """SigmaPrj on the shared fixture models; kwargs are SigmaPrjConfig
     fields, except ``xi_nl`` which overrides the injected callable."""
     xi_nl = kw.pop("xi_nl", model.xi_nl)
-    cfg = dict(n_theta=48, n_M=16,
-               los_window="hard", los_depth=50.0 / H, exclusion="cl")
+    cfg = dict(n_theta=48, n_M=16, los_depth=50.0 / H, exclusion="cl")
     cfg.update(kw)
     return SigmaPrj(cosmology=COSMO, hmf=model.hmf, bias=model.bias,
                     xi_nl=xi_nl, config=SigmaPrjConfig(**cfg))
@@ -290,7 +289,7 @@ def test_two_halo_limit_wiring_with_flat_xi(model):
     chi_n, w_chi = gl_nodes(chi_lo, chi_hi, 64)
     zs = prj.distance.z_of_chi(chi_n)
     dchidz = prj.distance.dchi_dz(zs)
-    cmn = prj.common(zs, ZOB) * w_chi / dchidz
+    cmn = prj.common(zs) * w_chi / dchidz
     Ms, Mw = mass_nodes(prj.min_mass, 10.0**prj.log10_M_max,
                         prj.config.n_M)
     from clenspy.halo.nfw import NfwProfile
@@ -312,10 +311,6 @@ def test_two_halo_limit_wiring_with_flat_xi(model):
 def test_bad_switches_raise(model):
     with pytest.raises(ValueError):
         _prj(model, exclusion="slab")
-    with pytest.raises(ValueError):
-        _prj(model, los_window="gaussian")
-    with pytest.raises(ValueError):
-        _prj(model, los_window="hard", los_depth=None)
 
 
 def test_counter_term_exclusion(model):

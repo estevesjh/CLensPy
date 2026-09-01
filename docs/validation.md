@@ -264,21 +264,88 @@ by-parts reduction below it are in {doc}`miscentering_math` section 9.
 
 ---
 
-## Projection lensing against the Costanzi mock
+## Selection bias and projected density (Costanzi et al. 2026)
+
+The chain under test: `ClusterCounts.average` supplies the bin
+$b_{\rm eff}=N[b]/N[1]$; `SelBiasEngine.marginalised_bias(..., b_eff=...)`
+supplies $b_{\rm sel}(\theta)$ from the closure described in
+{doc}`selection_bias` and derived in {doc}`plan-bsel-stable-closure`;
+`SigmaPrj` folds $b_{\rm sel}(\theta)$ into the correlated channel. Two
+independent references are used below — a published theory curve with no
+sampling noise (a), and a synthetic mock with real shot noise but an
+unknown true cosmology (b) — because agreement with only one of them
+would leave open whether a residual is a model bug or a reference
+artifact.
+
+### a. Costanzi et al. (2026) Fig. 6, digitized
+
+**Script:** `validation/validate_fig6_digitized.py`
+**Reference:** `validation/data/costanzi2026_fig6.csv`, hand-digitized from
+the paper's own Fig. 6 (the **model** curve, not a mock measurement) —
+currently 2 of the paper's 4 richness bins ($\lambda\in[20,30)$ and
+$\lambda\in[60,500)$, each at 3 redshift bins); the middle two bins are
+not yet digitized.
+
+Because this is a theory curve with no shot noise, any residual is
+attributable to a model or input mismatch, not measurement scatter — the
+strongest test available. Both plateaus enter
+$\langle\Sigma^{\rm prj}\rangle_{\lambda\text{-sel}}/
+\langle\Sigma^{\rm prj}\rangle_{\rm RND}$ linearly (fixed geometry,
+$\xi_{\rm NL}$, HMF), which is what makes a closed-form
+$(b_{\rm small},b_{\rm large})$ fit to the curve possible per panel — used
+below as an independent cross-check of the closure, not as a calibration
+(the model is never fit to this curve; `excess_delta` has no free
+parameters).
+
+| panel | median frac. resid. | max frac. resid. |
+|---|---|---|
+| $\lambda[20,30)\;z[0.20,0.35)$ | +0.142 | +0.205 |
+| $\lambda[20,30)\;z[0.35,0.50)$ | +0.075 | +0.188 |
+| $\lambda[20,30)\;z[0.50,0.65)$ | +0.076 | +0.191 |
+| $\lambda[60,500)\;z[0.20,0.35)$ | +0.000 | +0.024 |
+| $\lambda[60,500)\;z[0.35,0.50)$ | -0.106 | -0.131 |
+| $\lambda[60,500)\;z[0.50,0.65)$ | -0.089 | -0.147 |
+| **overall (184 points)** | **0.102** | **0.205** |
+
+Before the fix derived in {doc}`plan-bsel-stable-closure`, this same
+comparison ran at median 0.51, worst-case 1.10 (the $\lambda[20,30)$
+panels were 66–110% high). What is left is a genuinely mixed pattern, not
+one uniform offset, and it is now precisely attributed (not merely
+consistent-with): `excess_delta`'s $\delta$ gets the mean level right but
+has the **wrong-sign redshift trend** — at fixed richness it *falls* with
+$z^{\rm ob}$ while the digitized curve needs it to *rise*, confirmed
+converged (a $\times1.7$ finer quadrature changes $\delta$ by <0.05%) and
+traced to $I_2^{(2)}$ (the correlated-structure second moment) declining
+faster with $z$ than $\Delta_{\rm RND}$ grows — see
+{doc}`plan-bsel-stable-closure` §9 for the full factor breakdown. This
+alone explains the $\lambda[20,30)$ trend (worst at the lowest $z$,
+0.142, tapering to $\sim$0.075) once combined with the closure's
+already-known $\Delta_{\rm RND}$ mismatch below $z=0.35$ (`_closure`'s
+own `NOTE`, 17–50% high there). The $\lambda[60,500)$ sign flip (best at
+lowest $z$, turning negative to $-0.106$ at higher $z$) is a second,
+separate effect: a $\sim$20–40% low-richness $b_{\rm eff}$ normalisation
+offset visible in the closed-form fit (inverting the digitized curve
+through the $b_{\rm large}$ side gives an impossible negative $\delta$ in
+$\lambda[20,30)$ — {doc}`plan-bsel-stable-closure` §9), independent of
+$\delta$'s own $z$-shape problem.
+
+### b. The Costanzi mock catalogue
 
 **Script:** `validation/validate_sigma_prj_mock.py`
 **Reference:** `mock_lob_sigma_catalog.fits` under `$SELECTION_BIAS_DIR` —
 3,009,025 halos of an octant light-cone dressed with untruncated NFW
-profiles and a synthetic redMaPPer richness; per halo, the target-removed
-$\Sigma^{\rm prj}(R)$ on 20 log annuli (recipe: `MOCK_RECIPE.md` in the
-same directory). Skips itself when the FITS is absent.
+profiles and a synthetic redMaPPer richness, storing both
+`LAMBDA_TR_LOB` and `LAMBDA_OB_LOB` per halo (recipe: `MOCK_RECIPE.md` in
+the same directory) and the target-removed $\Sigma^{\rm prj}(R)$ on 20 log
+annuli. Skips itself when the FITS is absent. Cosmology: Buzzard v1.1
+($\Omega_m=0.286$, $h=0.7$, $\sigma_8=0.82$, $n_s=0.96$), confirmed
+(not assumed) via `costanzi_notebook/cosmology.py`, a verbatim
+transcription of the mock-generation notebook's own cosmology cell.
 
-The full chain under test: `ClusterCounts.average` supplies the bin
-$b_{\rm eff} = N[b]/N[1]$; `SelBiasEngine.marginalised_bias(...,
-b_eff=...)` supplies $b_{\rm sel}(\theta)$; `SigmaPrj` — in the
-mock-matched configuration (hard $\pm 50\,h^{-1}$cMpc window, counter-term
-exclusion (the $-1$ in the chord ball), halo-centric truncation at 30 $h^{-1}$cMpc, `HodMor.buzzard()`,
-Buzzard v1.1 cosmology) — is annulus-averaged on the mock grid.
+`SigmaPrj`, in the mock-matched configuration (hard $\pm 50\,h^{-1}$cMpc
+window, counter-term exclusion, halo-centric truncation at
+$30\,h^{-1}$cMpc, `HodMor.buzzard()`), is annulus-averaged on the mock
+grid.
 
 ```{figure} _static/validation/sigma_prj_ratio_grid.png
 :alt: Selected-to-random Sigma_prj ratio, model vs mock, 12 bins
@@ -290,16 +357,101 @@ $\langle\Sigma^{\rm prj}\rangle_{\lambda}/\langle\Sigma^{\rm prj}
 stack is Hao-Yi Wu's mass-and-redshift weighted estimator.
 ```
 
-Scored: the two-halo regime, $R > 3\,h^{-1}$cMpc, where the per-bin
-maximum residual of the ratio is 0.009–0.039 (all 12 bins pass at
-$\max(2\sigma_{\rm mock}, 0.02)$); the absolute
-$\langle\Sigma^{\rm prj}\rangle$ at $(\lambda^{\rm ob}=20, z=0.5)$ agrees
-to better than 10% there, the remainder being the Tinker-vs-simulation
-halo budget that the ratio cancels. Unscored and reported: inside
-$\sim 2R_\lambda$ the ratio is set by the closure's $b_{\rm small}$ — a
-linear inversion whose $\langle\lambda^{\rm ob}-\lambda^{\rm tr}\rangle$
-input uses the Y3 EMG kernel while the mock draws its own (unpercolated)
-boosts. The closure's random-line-of-sight prediction
-$\Delta_{\rm RND} = P_1 + b_{\rm eff} I_2$ matches the mock's measured
-mean boost to 3–13% in every bin — the operator machinery, validated
-independently of that calibration.
+Scored: the two-halo regime, $R>3\,h^{-1}$cMpc, where the per-bin maximum
+residual of the ratio is 0.005–0.078 — **12/12 bins pass** at
+$\max(2\sigma_{\rm mock},0.02)$; the absolute
+$\langle\Sigma^{\rm prj}\rangle$ at $(\lambda^{\rm ob}\approx20,z=0.5)$
+agrees to 6.6%. Unscored and reported (the inner aperture, $R\lesssim
+2R_\lambda$, is Poisson-starved in the mock and dominated by $b_{\rm
+small}$, which this comparison does not have the statistics to score
+tightly): $\Delta_{\rm RND}=P_1+b_{\rm eff}I_2$ against the mock's
+directly measured $\langle\lambda^{\rm ob}-\lambda^{\rm tr}\rangle$ agrees
+to 2–33% (worst at $z<0.35$, the same open issue as in (a)); the
+model's own implied $\langle\lambda^{\rm tr}\rangle=\lambda^{\rm ob}-
+\Delta_{\rm RND}(1+\delta)$ agrees with the mock's directly stored mean to
+better than 3% in all 6 cross-checked bins (median 0.5%) — the tightest
+test available, since it probes the closure's one physical input before
+the $\times(18\text{–}40)$ gain $A_s$ touches it (see
+{doc}`plan-bsel-stable-closure` §6.1).
+
+### c. Numerical methods
+
+Both `SigmaPrj` and `SelBiasEngine` share one line-of-sight recipe
+(`utils.los_integrals.LosGeometry`/`integrate_los`): a cosh–Abel
+substitution along the line of sight with halo exclusion as an exact
+interval boundary, never a mask or a per-redshift grid split — see
+{doc}`projection_lensing` ("Exclusion") for the derivation and
+{doc}`selection_bias` ("Units and numerics") for how `SelBiasEngine`
+reuses it for the $\mathcal P[X]$ operator. $\xi_{\rm NL}$ is clipped at
+zero (discards the BAO trough, $O(10^{-4})$ in a $w_z$-suppressed region)
+so the operators stay sign-definite. $D=I_2-I_1$ is quadratured directly,
+never by float subtraction — real, but not where the closure's
+sensitivity actually lives; that derivation, and why the fix is a
+different mean-$\lambda^{\rm tr}$ estimator rather than a numerical
+patch, is in {doc}`plan-bsel-stable-closure`.
+
+### d. Sensitivity of $b_{\rm sel}$ to the MOR slope $\alpha$
+
+`HodMor.buzzard()`'s mass-richness slope $\alpha=0.859$ is a fit to
+DES Y1 NC+3x2pt, not a closed-form number — how much does it drive
+$b_{\rm small}$, $b_{\rm large}$? Scaling $\alpha$ by
+$\{0.9,1.0,1.1,1.2,1.3,1.5\}$ at fixed $M_{\min}$, $M_1$, $\epsilon$,
+$\sigma_{\rm intr}$ (recomputing $b_{\rm eff}$ fresh per variant, since it
+depends on the MOR too), both plateaus fall monotonically with $\alpha$ —
+a steeper slope widens the halo-mass range mapped to a fixed richness,
+pulling in lower-bias halos on average (the same direction found earlier,
+by hand, when swapping MORs mid-investigation):
+
+| | $\partial\ln B_{\rm small}/\partial\ln\alpha$ | $\partial\ln B_{\rm large}/\partial\ln\alpha$ | $\partial\ln b_{\rm eff}/\partial\ln\alpha$ |
+|---|---|---|---|
+| $\lambda[20,30)$ | $-1.15$ to $-1.19$ | $-0.83$ to $-0.91$ | $-0.80$ to $-0.88$ |
+| $\lambda[60,500)$ | $-1.81$ to $-1.94$ | $-1.73$ to $-1.85$ | $-1.69$ to $-1.81$ |
+
+$B_{\rm small}$ is consistently the more $\alpha$-sensitive of the two
+(1.05–1.4$\times$ larger in magnitude), and both are roughly twice as
+sensitive at high richness as at low. Decomposing out $b_{\rm eff}$'s own
+$\alpha$-dependence, though, shows the closure's *residual* boost above
+$b_{\rm eff}$ ($B/b_{\rm eff}-1$) behaves differently for the two
+plateaus: $B_{\rm large}$'s residual boost has a uniform,
+richness-independent elasticity of about $-1.25$, while $B_{\rm small}$'s
+residual boost is *less* $\alpha$-sensitive at high richness
+($-0.21$ to $-0.23$) than at low ($-0.50$ to $-0.54$). So the strong
+high-richness sensitivity in the raw table above is mostly $b_{\rm eff}$
+tracking the MOR, not the excess-richness closure amplifying it further —
+this systematic therefore mostly cancels in a ratio observable that
+already divides by $b_{\rm eff}$ (e.g. (b)'s selected/RND ratio), and
+matters most for anything that reports $b_{\rm small}$/$b_{\rm large}$ in
+absolute units.
+
+### e. Sensitivity of $\Sigma_{\rm prj}$ to $\Omega_m$, $\sigma_8$
+
+The selected/RND ratio — the observable in (b) — is **remarkably
+insensitive to cosmology**: at fixed $b_{\rm eff}$, a $\pm10\%$ shift in
+either $\Omega_m$ or $\sigma_8$ around the Buzzard fiducial moves the
+ratio by well under 1% at every $R$ tested (1–20 cMpc/h), in both the
+$\lambda[20,30)$ and $\lambda[60,500)$ bins at $z\approx0.5$:
+
+| bin | $R$ [cMpc/h] | $\partial\ln({\rm ratio})/\partial\ln\Omega_m$ | $\partial\ln({\rm ratio})/\partial\ln\sigma_8$ |
+|---|---|---|---|
+| $\lambda[20,30)$ | 1 | $-0.021$ | $+0.016$ |
+| $\lambda[20,30)$ | 3 | $-0.014$ | $+0.020$ |
+| $\lambda[20,30)$ | 10 | $-0.011$ | $+0.009$ |
+| $\lambda[20,30)$ | 20 | $-0.009$ | $+0.005$ |
+| $\lambda[60,500)$ | 1 | $+0.022$ | $+0.064$ |
+| $\lambda[60,500)$ | 3 | $-0.002$ | $+0.038$ |
+| $\lambda[60,500)$ | 10 | $-0.009$ | $+0.018$ |
+| $\lambda[60,500)$ | 20 | $-0.011$ | $+0.012$ |
+
+$\sigma_8$ dominates over $\Omega_m$ (elasticity 2–6$\times$ larger,
+always positive: more clustering amplitude strengthens the correlated
+channel the boost model responds to); $\Omega_m$'s effect is small and
+sign-mixed. Both are largest near the aperture ($R=1$) and decay toward
+the two-halo regime — the *ratio* cancels most of the direct $P(k)$
+dependence between its numerator and denominator, leaving only the
+residual from $b_{\rm sel}(\theta)$'s own cosmology dependence through
+$b_{\rm eff}$/$\Delta_{\rm RND}$. This means the systematic uncertainty
+budget for this observable is dominated by the MOR and the closure's
+$\delta$ estimate (d, and {doc}`plan-bsel-stable-closure`), not by
+cosmological parameter uncertainty. (Scope: $b_{\rm eff}$ was held fixed
+across the cosmology grid; letting it respond self-consistently could add
+a comparable secondary effect not captured here.)

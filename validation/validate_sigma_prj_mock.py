@@ -9,9 +9,9 @@ Per halo it stores :math:`\Sigma(R)` and the target-removed
 Legs:
 
 A. **b_eff per bin** — :math:`N[b]/N[1]` from `ClusterCounts.average`
-   with `HodMor.from_lognormal()` (the Costanzi et al. 2021 log-normal
-   MOR, fitted to HOD form) and the Y3 EMG projection kernel. Reported,
-   and fed to leg B.
+   with `HodMor.buzzard()` (the exact shifted-Poisson HOD the mock's
+   own richness was generated with) and the Y3 EMG projection kernel.
+   Reported, and fed to leg B.
 B. **b_sel per bin** — `SelBiasEngine.b_small_large(..., b_eff=...)` with the
    bin-averaged b_eff from leg A.
 C. **absolute stacked** :math:`\langle\Sigma^{\rm prj}\rangle` at
@@ -29,11 +29,11 @@ E. **two-halo limit** (diagnostic, unscored) — the model's cl channel at
    NFW-wing convolution, not an error.
 
 Mock-matched model configuration (from MOCK_RECIPE.md):
-``los_window="hard"`` with half-depth 50 cMpc/h, ``exclusion="counter"``
+LOS top-hat half-depth 50 cMpc/h (``los_depth``), ``exclusion="counter"``
 (the -1 counter term in the 3-D chord ball, :math:`R_\lambda(1+z)`;
 identical total to removing the neighbours, background kept uniform), untruncated NFW with Duffy-08 200m
-concentration, transverse aperture 60 cMpc/h, Planck 2018 cosmology
-(assumed — the mock is built on DES Y3 data), `HodMor.from_lognormal()`.
+concentration, transverse aperture 60 cMpc/h, Buzzard v1.1 cosmology
+(confirmed via ``costanzi_notebook/cosmology.py``), `HodMor.buzzard()`.
 The model is annulus-averaged on the mock's radial grid; the first 4
 annuli are dropped (Poisson-starved in the mock).
 
@@ -89,21 +89,21 @@ from clenspy.utils.integrate import gl_nodes  # noqa: E402
 FIG_DIR = Path(__file__).resolve().parents[1] / "docs" / "_static" / "validation"
 
 # ---------------------------------------------------------------- mock spec
-# The mock is built on actual DES Y3 data, so its cosmology is unknown;
-# assume Planck 2018 (TT,TE,EE+lowE+lensing). The catalog's h-scaled
-# columns convert with this h.
-H = 0.6736
-OMEGA_M = 0.3153
+# Buzzard v1.1 flat LCDM -- confirmed (not assumed) via costanzi_notebook/
+# cosmology.py, a verbatim transcription of the mock-generation notebook's
+# own cosmology cell. The catalog's h-scaled columns convert with this h.
+H = 0.7
+OMEGA_M = 0.286
 
 
-class PlanckCosmology(FlatLambdaCDM):
-    """Planck 2018; the class attrs are what PkGrid reads via getattr."""
+class BuzzardCosmology(FlatLambdaCDM):
+    """Buzzard v1.1; the class attrs are what PkGrid reads via getattr."""
 
-    sigma8 = 0.8111
-    n_s = 0.9649
+    sigma8 = 0.82
+    n_s = 0.96
 
 
-COSMO = PlanckCosmology(H0=100.0 * H, Om0=OMEGA_M, Ob0=0.0493)
+COSMO = BuzzardCosmology(H0=100.0 * H, Om0=OMEGA_M, Ob0=0.046)
 
 LAMBDA_EDGES = np.array([20.0, 30.0, 45.0, 60.0, 500.0])
 Z_EDGES = np.array([0.20, 0.35, 0.50, 0.65])
@@ -256,7 +256,7 @@ def build_projection_products():
 def b_eff_table():
     """Leg A: N[b]/N[1] per (lambda, z) bin from ClusterCounts.average."""
     sel = SelectionFunction(
-        LAMBDA_EDGES, Z_EDGES, HodMor.from_lognormal(), EmgParams.from_y3_table(),
+        LAMBDA_EDGES, Z_EDGES, HodMor.buzzard(), EmgParams.from_y3_table(),
         sigma_z=5e-3,   # the mock bins in TRUE z; a near-top-hat S_j
     )
     ln_mass = np.log(np.logspace(13.0, 15.7, 64))  # h^-1 Msun
@@ -329,7 +329,6 @@ def main(argv=None):
     ap.add_argument("--plot", action="store_true")
     ap.add_argument("--quick", action="store_true",
                     help="one bin only (lambda in [20,30), z in [0.35,0.5))")
-    ap.add_argument("--los-window", default="hard", choices=["hard", "wpz"])
     ap.add_argument("--exclusion", default="counter",
                     choices=["counter", "ball", "cl", "none"])
     ap.add_argument("--xi-clip", action="store_true",
@@ -375,7 +374,7 @@ def main(argv=None):
     engine = SelBiasEngine(
         sigma_prj=SigmaPrj(cosmology=COSMO, hmf=hmf, bias=bias,
                            xi_nl=xi_nl).build(),
-        mor=HodMor.from_lognormal(),
+        mor=HodMor.buzzard(),
     )
     prj = SigmaPrj(
         cosmology=COSMO,
@@ -386,9 +385,7 @@ def main(argv=None):
         config=SigmaPrjConfig(
             n_theta=args.n_theta,
             theta_perp_range=(1e-3, 2.0 * APERTURE_HINV / H),
-            los_window=args.los_window,
-            los_depth=(LOS_HALF_DEPTH_HINV / H
-                       if args.los_window == "hard" else None),
+            los_depth=LOS_HALF_DEPTH_HINV / H,
             exclusion=args.exclusion,
             r_trunc=(args.r_trunc / H if args.r_trunc > 0 else None),
         ),
@@ -532,7 +529,7 @@ def main(argv=None):
             ax.plot(R_MID_HINV[m], rat_mod[m], "k-", label="SigmaPrj")
             ax.axhline(1.0, ls="--", color="gray", lw=0.8)
             ax.set_xscale("log")
-            ax.set_ylim(0.95, 1.25)
+            ax.set_ylim(0.95, 1.6)
             ax.text(0.05, 0.9,
                     f"$\\lambda\\in[{LAMBDA_EDGES[i]:.0f},"
                     f"{LAMBDA_EDGES[i+1]:.0f})$, "

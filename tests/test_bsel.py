@@ -3,10 +3,10 @@ r"""The selection-affected halo bias, :math:`b_{\rm sel}(\theta)`.
 The paper's Section 4.1. Most of these are structural rather than
 numerical, because the physical amplitude needs a self-consistent halo
 model and the point of the tests is the *machinery*: that the three
-operators are positive and ordered, that the closure inverts, that the
-:math:`\lambda^{\rm tr}` marginalisation commutes with the sigmoid (which
-is what makes a two-scalar table exact), and that the sigmoid has the
-shape the paper specifies.
+operators are positive and ordered, that the closure inverts, that both
+plateaus are affine in :math:`\lambda^{\rm tr}` (which is what makes a
+two-scalar table exact -- see docs/plan-bsel-stable-closure.md), and that
+the sigmoid has the shape the paper specifies.
 """
 
 from types import SimpleNamespace
@@ -26,7 +26,6 @@ from clenspy.selection import (
     SigmoidBias,
     XiNL,
 )
-from clenspy.selection.geometry import sigmoid_theta
 from clenspy.selection.scaling_relation import HodMor
 
 COSMO = fiducial_cosmology()
@@ -256,31 +255,36 @@ def test_the_stable_D_matches_the_subtraction_away_from_degeneracy():
 # -- the marginalisation, and why the table is two columns wide ------------
 
 
-def test_the_marginalisation_commutes_with_the_sigmoid():
-    r"""The identity that makes a two-scalar table **exact**.
-
-    :math:`\sigma(\theta)` carries no :math:`\lambda^{\rm tr}`, so
-    averaging the plateaus and then building the sigmoid equals building a
-    sigmoid per :math:`\lambda^{\rm tr}` and averaging. Without this the
-    table would have to store a whole :math:`\theta` grid per bin.
+def test_b_small_large_matches_the_closure_at_the_injected_delta():
+    r"""`b_small_large` is `_closure`'s own algebra, evaluated at a single
+    ``ltr`` equivalent to ``delta`` -- both plateaus are affine in
+    :math:`\lambda^{\rm tr}`, so a posterior would contribute only its
+    mean (docs/plan-bsel-stable-closure.md), and this is that mean
+    evaluated directly rather than quadratured and averaged.
     """
     engine = _engine()
-    p1, i1, i2 = engine.operators(LOB, ZOB)
+    P1, I1, I2 = engine.operators(LOB, ZOB)
     D = engine._d_cache[("ops", float(LOB), float(ZOB))]
     b_eff = engine.b_eff(LOB, ZOB)
-    ltr, weights = engine._ltr_weights(LOB, ZOB)
-    _, b_small_vec, b_large_vec = engine._closure(
-        LOB, p1, i1, i2, b_eff, ltr, D=D)
-    profile = engine.marginalised_bias(LOB, ZOB)
-    theta_lam = profile.theta_lambda
+    delta = 0.3
+    D_RND = P1 + b_eff * I2
+    ltr_equiv = np.array([LOB - D_RND * (1.0 + delta)])
+    _, bs_expected, bl_expected = engine._closure(
+        LOB, P1, I1, I2, b_eff, ltr_equiv, D=D)
 
-    for fraction in (0.1, 0.5, 1.0, 3.0):
-        theta = fraction * theta_lam
-        sigma = sigmoid_theta(theta, theta_lam)
-        built_then_averaged = float(np.sum(
-            weights * (b_small_vec + (b_large_vec - b_small_vec) * sigma)))
-        assert profile(theta) == pytest.approx(built_then_averaged,
-                                              rel=1e-12), fraction
+    bs, bl = engine.b_small_large(LOB, ZOB, b_eff=b_eff, delta=delta)
+    assert bs == pytest.approx(float(bs_expected[0]), rel=1e-12)
+    assert bl == pytest.approx(float(bl_expected[0]), rel=1e-12)
+
+
+def test_b_small_large_at_zero_delta_is_the_fixed_point():
+    """delta=0 (an average line of sight) collapses both plateaus to
+    b_eff exactly -- the closure's own fixed point."""
+    engine = _engine()
+    b_eff = engine.b_eff(LOB, ZOB)
+    bs, bl = engine.b_small_large(LOB, ZOB, b_eff=b_eff, delta=0.0)
+    assert bs == pytest.approx(b_eff, rel=1e-10)
+    assert bl == pytest.approx(b_eff, rel=1e-14)
 
 
 def test_b_small_large_accept_an_external_b_eff():
@@ -300,11 +304,10 @@ def test_b_small_large_accept_an_external_b_eff():
     b_small_3, b_large_3 = engine.b_small_large(LOB, ZOB, b_eff=3.0)
     assert b_small_2 != b_small_3 and b_large_2 != b_large_3
     # b_large follows the closure formula at the passed b_eff exactly
-    # (delta_prj itself depends on b_eff through Delta_RND = P1 + b_eff I2)
-    p1, i1, i2 = engine.operators(LOB, ZOB)
-    ltr, w = engine._ltr_weights(LOB, ZOB)
-    delta = (LOB - ltr) / (p1 + 2.0 * i2) - 1.0
-    expected = float(np.sum(w * 2.0 * (1.0 + engine.boost_slope * delta)))
+    # (delta itself depends on b_eff through Delta_RND = P1 + b_eff I2,
+    # and through excess_delta's own b_eff factor)
+    delta = engine.excess_delta(LOB, ZOB, 2.0)
+    expected = 2.0 * (1.0 + engine.boost_slope * delta)
     assert b_large_2 == pytest.approx(expected, rel=1e-12)
     profile = engine.marginalised_bias(LOB, ZOB, b_eff=2.0)
     assert profile.b_large == pytest.approx(b_large_2, rel=1e-14)

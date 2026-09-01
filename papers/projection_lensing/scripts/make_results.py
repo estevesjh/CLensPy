@@ -29,7 +29,7 @@ from clenspy.selection.scaling_relation import HodMor  # noqa: E402
 OUT = Path(__file__).resolve().parents[1] / "data" / "processed"
 
 CONFIG = dict(
-    los_window="hard", los_half_depth_hinv=V.LOS_HALF_DEPTH_HINV,
+    los_half_depth_hinv=V.LOS_HALF_DEPTH_HINV,
     exclusion="counter", r_trunc_hinv=V.APERTURE_HINV, n_theta=128,
     theta_perp_max_hinv=2 * V.APERTURE_HINV, xi_clip=False,
     hod="buzzard",
@@ -67,7 +67,7 @@ def main() -> int:
     engine = SelBiasEngine(
         sigma_prj=SigmaPrj(cosmology=V.COSMO, hmf=hmf, bias=bias,
                            xi_nl=xi_nl).build(),
-        mor=HodMor.from_lognormal(),
+        mor=HodMor.buzzard(),
     )
     prj = SigmaPrj(cosmology=V.COSMO,
                    pk=pk_prj,
@@ -78,7 +78,6 @@ def main() -> int:
                        n_theta=CONFIG["n_theta"],
                        theta_perp_range=(1e-3,
                                          CONFIG["theta_perp_max_hinv"] / V.H),
-                       los_window="hard",
                        los_depth=CONFIG["los_half_depth_hinv"] / V.H,
                        exclusion="counter",
                        r_trunc=CONFIG["r_trunc_hinv"] / V.H,
@@ -122,6 +121,13 @@ def main() -> int:
                 prj, lob_rep, zob_rep, bsel, channel="cl")
             ratio_model = model_sel / model_rnd
 
+            # b_lambda-ob(R)/b_eff -- paper Fig. 6's dashed line. R is a
+            # comoving transverse separation at zob, so theta = R/chi(zob)
+            # (the (1+z) factors in r_lambda's own physical->comoving
+            # conversion cancel exactly against angular-diameter distance).
+            theta_of_R = (V.R_MID_HINV / V.H) / engine.chi(zob_rep)
+            bsel_over_beff = bsel(theta_of_R) / beff
+
             keep = np.arange(V.R_MID_HINV.size) >= V.I_RBIN_MIN
             score = keep & (V.R_MID_HINV > V.R_2H_HINV)
             resid = np.abs(ratio_model - ratio_mock)
@@ -137,7 +143,7 @@ def main() -> int:
                     i, j, V.R_MID_HINV[k], ratio_mock[k], sig_ratio[k],
                     ratio_model[k], sel_mean[k] * V.H, rnd_stack[k] * V.H,
                     model_sel[k], model_rnd[k], sel_err[k] * V.H,
-                    model_cl[k],
+                    model_cl[k], bsel_over_beff[k],
                 ])
             print(f"bin ({i},{j}) done: n={n_sel}, "
                   f"2h max resid={resid[score].max():.4f}")
@@ -158,7 +164,8 @@ def main() -> int:
             "sigma_sel_model [Msun/cMpc^2 h-free], "
             "sigma_rnd_model [Msun/cMpc^2 h-free], "
             "sigma_sel_mock_err [Msun/cMpc^2 h-free], "
-            "sigma_cl_model [Msun/cMpc^2 h-free, correlated channel only]"))
+            "sigma_cl_model [Msun/cMpc^2 h-free, correlated channel only], "
+            "bsel_over_beff [b_lambda-ob(R)/b_eff, dimensionless]"))
         np.savetxt(f, np.asarray(prof_rows), delimiter=",", fmt="%.6g")
 
     # absolute comparison at the Costanzi notebook's cell-19 selection

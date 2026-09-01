@@ -10,6 +10,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import seaborn as sns  # noqa: E402
+from matplotlib.lines import Line2D  # noqa: E402
 
 BASE = Path(__file__).resolve().parents[1]
 DATA = BASE / "data" / "processed"
@@ -48,6 +49,41 @@ def fig_ratio_grid():
     axs[0, 0].legend(fontsize=8.5, frameon=False, loc="upper right")
     fig.tight_layout()
     fig.savefig(BUILD / "fig_ratio_grid.pdf")
+    plt.close(fig)
+
+
+def fig_paper6():
+    """Reproduce Costanzi 2026 Fig. 6: <Sigma^prj>_sel/<Sigma^prj>_RND-sel
+    (solid, mock band + model) and b_lambda-ob(R)/b_eff (dashed, model),
+    one panel per lambda bin, z color-coded within each panel."""
+    rows = np.loadtxt(DATA / "ratio_profiles.csv", delimiter=",")
+    z_colors = ["tab:blue", "tab:orange", "tab:green"]
+    fig, axs = plt.subplots(1, 4, figsize=(15, 4), sharex=True, sharey=True)
+    for i in range(4):
+        ax = axs[i]
+        for j in range(3):
+            m = (rows[:, 0] == i) & (rows[:, 1] == j)
+            R, rat_m, sig, rat_mod = (rows[m, 2], rows[m, 3], rows[m, 4],
+                                       rows[m, 5])
+            bsel_beff = rows[m, 12]
+            c = z_colors[j]
+            ax.fill_between(R, rat_m - sig, rat_m + sig, color=c, alpha=0.25)
+            ax.plot(R, rat_mod, "-", color=c, lw=1.6)
+            ax.plot(R, bsel_beff, "--", color=c, lw=1.3)
+        ax.axhline(1.0, ls=":", color="gray", lw=0.8)
+        ax.set_xscale("log")
+        ax.set_ylim(0.98, 1.62)
+        ax.set_xlabel(r"$R$ [$h^{-1}$cMpc]")
+        ax.text(0.5, 0.94, rf"${LAM_EDGES[i]}<\lambda<{LAM_EDGES[i+1]}$",
+                transform=ax.transAxes, fontsize=9.5, ha="center", va="top")
+    axs[0].set_ylabel(r"$\langle\Sigma^{\rm prj}\rangle_{\lambda^{\rm ob}"
+                       r"{\rm -sel}}/\langle\Sigma^{\rm prj}\rangle_{\rm RND-sel}$")
+    handles = [Line2D([0], [0], color=z_colors[j], lw=2,
+                      label=rf"${Z_EDGES[j]:.2f}<z<{Z_EDGES[j+1]:.2f}$")
+               for j in range(3)]
+    axs[0].legend(handles=handles, fontsize=8, frameon=False, loc="upper left")
+    fig.tight_layout()
+    fig.savefig(BUILD / "fig_paper6.pdf")
     plt.close(fig)
 
 
@@ -207,9 +243,10 @@ def fig_area_overlap():
 if __name__ == "__main__":
     BUILD.mkdir(exist_ok=True)
     fig_ratio_grid()
+    fig_paper6()
     fig_one2one()
     fig_absolute()
     fig_decomposition()
     fig_inner_study()
     fig_area_overlap()
-    print("wrote 6 figures to", BUILD)
+    print("wrote 7 figures to", BUILD)

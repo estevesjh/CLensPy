@@ -50,8 +50,14 @@ $2\pi\sin\theta\,d\theta$ measure used below. See "Numerics" for the
 shell-mass integral itself. That weight, $n_{\rm cl}(\theta, M)$,
 is the correlated excess above the uncorrelated background rate
 $n_{\rm rnd}(\theta, M) = \int dz\;{\rm common}(z)\, n(M, z)$
-($n$ the mass function, ${\rm common}(z) = \tfrac{dV}{d\Omega\,dz}\,
-w_{pz}(z; z^{\rm ob})$):
+($n$ the mass function, ${\rm common}(z) = \tfrac{dV}{d\Omega\,dz}$ —
+**no photo-z weight**: $\Sigma_{\rm prj}$ is a lensing observable, the
+real projected mass column along the true line of sight, so it carries
+only geometry and clustering. Photo-z uncertainty about *which*
+structure counts as near the cluster is a richness-counting artifact,
+not a lensing one — that is what {doc}`selection_bias`'s $\mathcal
+P[X]$ operator's own $w_z(z,z^{\rm ob})$ models, for $b_{\rm sel}$
+alone):
 
 $$
 n_{\rm cl}(\theta, M) = \int dz\;{\rm common}(z)\, n(M, z)\, b(M, z)\,
@@ -92,14 +98,14 @@ near-uniform in $R$ and blind to the selection. `sigma_prj` and
 are always stored on the object (`components()`), because the scientific
 argument is about which dominates where.
 
-Three named conventions, all of which have bitten a pipeline before: the
+Two named conventions, both of which have bitten a pipeline before: the
 measure is $2\pi\sin\theta\,d\theta$ — an exact angular integral on the
-sphere, no Limber approximation and no Bessel transform; the photo-z
-weight $w_{pz}$ is the **parabolic** projection kernel of
-{doc}`lensing_kernel`'s sibling `photoz_projection`, never the Gaussian
-counts kernel; and the survey footprint $\Omega(z)$ does **not** appear —
-it cancels in the surface density, and folding it in is a silent
-normalisation error.
+sphere, no Limber approximation and no Bessel transform; and the survey
+footprint $\Omega(z)$ does **not** appear — it cancels in the surface
+density, and folding it in is a silent normalisation error. The
+line-of-sight bound itself (`SigmaPrjConfig.los_depth`) is a plain
+top-hat truncation, wide enough that $\xi_{\rm NL}$ is already small
+there — a numerical convenience, not a physical weight.
 
 ## ΔΣ_prj is its own integral
 

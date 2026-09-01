@@ -5,6 +5,10 @@ Halo bias models for relating halo abundance to matter density.
 
 from __future__ import annotations
 
+import hashlib
+import os
+from pathlib import Path
+
 import numpy as np
 from astropy.cosmology import Cosmology
 
@@ -13,8 +17,30 @@ from ..utils.interpolate import LogGridInterpolator
 from .concentration import DELTA_COLLAPSE
 from .fiducial import fiducial_cosmology, mean_matter_density
 from .growth import growth_factor
-from .pkgrid import PkGrid
+from .pkgrid import PkGrid, _astropy_to_dict, _hash
 from .sigma import SigmaGrid, lnr_grid
+
+# ------------------------------------------------------------------
+# Disk cache -- same shape as pkgrid._data_dir/_hash, own subdir -----
+# ------------------------------------------------------------------
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]  # cosmology/ -> clenspy/
+_DEFAULT_DATA = _PACKAGE_ROOT / "data"
+
+
+def _cache_dir(subdir: str) -> Path:
+    """`pkgrid._data_dir`, parameterized by cache subdir name."""
+    root = os.environ.get("CLENSPY_DATA", str(_DEFAULT_DATA))
+    path = Path(root).expanduser() / subdir
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _hash_arrays(*arrays) -> str:
+    """MD5 of the concatenated raw bytes of one or more float arrays."""
+    h = hashlib.md5()
+    for a in arrays:
+        h.update(np.ascontiguousarray(a, dtype=float).tobytes())
+    return h.hexdigest()
 
 
 class BiasModel:
@@ -71,6 +97,14 @@ class BiasModel:
     sigma_grid : object, optional
         Prebuilt :math:`\sigma^2` evaluator; share one `SigmaGrid` with
         `~clenspy.cosmology.TinkerMassFunction` (same peak height).
+    cache : bool, optional
+        If True (default), store / reuse ``*.npz`` files of `bias_grid`
+        in ``clenspy-data/bias_cache``, keyed on cosmology, ``odelta``,
+        and the ``mval``/``zvec`` grids (plus a content hash of ``k``/``P``
+        if given). NOTE: an injected ``sigma_grid`` is an opaque object
+        that cannot be hashed by content, so caching is skipped entirely
+        in that case -- the grid is always rebuilt, never read from or
+        written to disk.
 
     Examples
     --------
@@ -91,6 +125,7 @@ class BiasModel:
         mvec: np.ndarray | None = None,
         zvec: np.ndarray | None = None,
         sigma_grid=None,
+        cache: bool = True,
     ):
         self.k = k
         self.P = P
@@ -99,6 +134,8 @@ class BiasModel:
         self.odelta = odelta
         self.rhom = mean_matter_density(self.cosmo)
         self._sigma_grid = sigma_grid
+        self._sigma_grid_injected = sigma_grid is not None
+        self.cache = cache
         # default z grid; a single-z grid would silently return that z
         # for every query
         self.zvec = (np.linspace(0.0, 1.5, 31) if zvec is None
@@ -108,6 +145,20 @@ class BiasModel:
                      * (np.exp(lnr_grid()) / self.cosmo.h) ** 3
                      if mvec is None
                      else np.atleast_1d(np.asarray(mvec, dtype=float)))
+
+    def _compute_cache_path(self) -> Path:
+        # Recomputed inside build(), not cached at construction: unlike
+        # TinkerMassFunction, build(mvec=, zvec=) can replace the grids
+        # after __init__.
+        spec = dict(
+            cosmo=_astropy_to_dict(self.cosmo),
+            odelta=self.odelta,
+            mval=_hash_arrays(self.mval),
+            zvec=_hash_arrays(self.zvec),
+        )
+        if self.k is not None and self.P is not None:
+            spec["kP"] = _hash_arrays(self.k, self.P)
+        return _cache_dir("bias_cache") / f"{_hash(spec)}.npz"
 
     @property
     def bias_grid(self):
@@ -130,6 +181,27 @@ class BiasModel:
         if zvec is not None:
             self.zvec = np.atleast_1d(np.asarray(zvec, dtype=float))
             self._bias_grid = None
+        if getattr(self, "_bias_grid", None) is not None:
+            return self
+        if self.cache and not self._sigma_grid_injected:
+            cache_file = self._compute_cache_path()
+            if cache_file.exists():
+                grid = np.load(cache_file)["grid"]
+                if grid.shape != (len(self.mval), len(self.zvec)):
+                    raise RuntimeError(
+                        f"cache shape mismatch at {cache_file}: "
+                        f"{grid.shape} vs expected "
+                        f"{(len(self.mval), len(self.zvec))}"
+                    )
+                self._bias_grid = grid
+                self._interp = LogGridInterpolator(self.mval, self.zvec, grid)
+                print(f"BiasModel loaded cache file: {cache_file}")
+                return self
+            _ = self.bias_grid  # fills self._bias_grid, self._interp
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            np.savez(cache_file, grid=self._bias_grid)
+            print(f"BiasModel saved cache file: {cache_file}")
+            return self
         _ = self.bias_grid
         return self
 

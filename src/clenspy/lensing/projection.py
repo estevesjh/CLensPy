@@ -31,11 +31,7 @@ from ..cosmology.pkgrid import PkGrid
 from ..cosmology.sigma import SigmaGrid
 from ..halo.nfw import NfwProfile
 from ..halo.twohalo import TwoHaloTerm
-from ..kernels.photoz import (
-    photoz_chi_bounds,
-    photoz_projection,
-    y3_photoz_window,
-)
+from ..kernels.photoz import y3_photoz_window
 from ..selection.geometry import r_excl
 from ..selection.miscentering import load_nfw_miscentering_table
 from ..utils.integrate import mass_nodes
@@ -79,12 +75,29 @@ class SigmaPrjConfig:
         outermost mock radius with xi_NL already small.
     min_mass, log10_M_max : float, optional
         Mass range, physical Msun; defaults 1e13 and 10^15.5 h^-1 Msun
-        converted once with h (the RichnessSelection range).
-    los_window : {"wpz", "hard"}
-        "wpz": parabolic photo-z weight, exact Y3 table (production).
-        "hard": top-hat in comoving distance, needs ``los_depth``.
+        converted once with h (the RichnessSelection range) -- matches
+        `SelBiasEngine`'s own default (see that class's `min_mass` NOTE
+        for why a physically-motivated lower galaxy/group-halo edge was
+        tried and reverted).
     los_depth : float, optional
-        Half-depth [comoving Mpc] for ``los_window="hard"``.
+        Half-depth [comoving Mpc] of the line-of-sight top-hat window
+        around z_ob. ``None`` (default): the bound follows the photo-z
+        window's own support (`clenspy.kernels.photoz.
+        photoz_projection_support`, the same table `SelBiasEngine` uses)
+        at z_ob, so it widens or narrows with that window's z_ob-
+        dependent :math:`\Delta z_{\max}` instead of a number picked
+        once for one cosmology/z_ob and silently wrong elsewhere. Pass
+        a float to override with a fixed depth -- the one legitimate
+        reason is matching a fixed-depth mock's own generation recipe
+        (``validate_sigma_prj_mock.py``, 50 cMpc/h).
+
+        Either way this is a **bound only**, never a weight: eq. Sprj
+        carries no photo-z factor -- it sums the real projected mass
+        column along the true line of sight (geometry and clustering
+        only). A smooth photo-z taper on the *integrand* would conflate
+        this lensing observable with bsel's own P[X] operator, which
+        legitimately carries w_z(z,zob) because it models redMaPPer's
+        photometric member counting, not gravitational lensing.
     exclusion : {"counter", "cl", "ball", "none"}
         Halo-exclusion semantics; see ``docs/projection_lensing.md``.
         "counter" (default): the neighbour count inside the chord ball
@@ -107,7 +120,6 @@ class SigmaPrjConfig:
     theta_perp_range: tuple[float, float] = (1e-3, 90.0)
     min_mass: float | None = None
     log10_M_max: float | None = None
-    los_window: str = "wpz"
     los_depth: float | None = None
     exclusion: str = "counter"
     r_trunc: float | None = None
@@ -311,10 +323,10 @@ class SigmaPrj:
 
     Examples
     --------
-    Cosmology triggers all, with the mock's hard window::
+    Cosmology triggers all; the LOS bound follows the photo-z window at
+    z_ob by default (``SigmaPrjConfig().los_depth is None``)::
 
-        cfg = SigmaPrjConfig(los_window="hard", los_depth=71.4)
-        prj = SigmaPrj(cosmology=cosmo, config=cfg)
+        prj = SigmaPrj(cosmology=cosmo)
         sig = prj.sigma_prj(R, lob=20.0, zob=0.5, b_sel=bsel)
 
     Injected ingredients on one shared (M, z) grid::
@@ -364,6 +376,9 @@ class SigmaPrj:
         )
         # fast comoving-distance interpolant [Mpc], shared with SelBiasEngine
         self.distance = ComovingDistance(self.cosmo)
+        # the exact tabulated photo-z half-width sigma_z(z), shared with
+        # SelBiasEngine -- used here only to set the LOS bound (below),
+        # never as a weight on the integrand
         self._window = y3_photoz_window()
         self.rho_m = mean_matter_density(self.cosmo)
         self.shells = MassShells(
@@ -384,11 +399,6 @@ class SigmaPrj:
     def _validate(cfg) -> None:
         if not isinstance(cfg, SigmaPrjConfig):
             raise TypeError("config must be a SigmaPrjConfig")
-        if cfg.los_window not in ("wpz", "hard"):
-            raise ValueError(
-                f"los_window must be 'wpz' or 'hard', got {cfg.los_window!r}")
-        if cfg.los_window == "hard" and cfg.los_depth is None:
-            raise ValueError("los_window='hard' needs los_depth [comoving Mpc]")
         # exclusion mode is validated by Exclusion itself
 
     def build(self, *, pk=None, hmf=None, two_halo=None, bias=None,
@@ -468,26 +478,34 @@ class SigmaPrj:
                                    np.asarray(model.zvec, dtype=float),
                                    grid_of(model))
 
-    def common(self, zs, zob: float):
-        r"""E.3: :math:`{\rm common}(z) = \frac{dV}{d\Omega dz} w_{pz}` —
-        **no** :math:`\Omega(z)` (it cancels in the surface density)."""
-        dV = comoving_volume_element(zs, self.cosmo)
-        if self.config.los_window == "hard":
-            w_pz = np.ones_like(np.asarray(zs, dtype=float))
-        else:
-            w_pz = photoz_projection(zs, zob, self._window, n_sigma=1.0)
-        return dV * w_pz
+    def common(self, zs):
+        r"""E.3: :math:`{\rm common}(z) = \frac{dV}{d\Omega dz}` —
+        **no** :math:`\Omega(z)` (it cancels in the surface density) and
+        **no photo-z weight**: eq. Sprj carries none -- see the
+        `SigmaPrjConfig.los_depth` NOTE for why not."""
+        return comoving_volume_element(zs, self.cosmo)
 
     def _geometry(self, thetas, lob: float, zob: float) -> LosGeometry:
         r"""Exact chord and exclusion limits on both cosh--Abel branches,
-        over the projection support of the photo-z (or hard) window."""
+        over the top-hat line-of-sight window ``zob +/- half_depth``.
+
+        ``half_depth``: ``config.los_depth`` if given (fixed-depth
+        override, e.g. mock-matching), else :math:`\sigma_z(z^{\rm ob})`
+        (`y3_photoz_window`, the same table `SelBiasEngine` uses)
+        converted from redshift to comoving Mpc via :math:`d\chi/dz` at
+        :math:`z^{\rm ob}` -- the bound follows the photo-z window's own
+        z_ob-dependent width rather than one fixed number, while the
+        integrand itself carries no photo-z weight (see the module and
+        `SigmaPrjConfig.los_depth` NOTEs).
+        """
         chi_o = float(self.distance.chi(zob))
-        if self.config.los_window == "hard":
-            chi_min = chi_o - self.config.los_depth
-            chi_max = chi_o + self.config.los_depth
+        if self.config.los_depth is not None:
+            half_depth = self.config.los_depth
         else:
-            chi_min, chi_max = photoz_chi_bounds(
-                zob, self._window, self.distance)
+            sigma_z = float(self._window(zob))
+            half_depth = sigma_z * float(self.distance.dchi_dz(zob))
+        chi_min = chi_o - half_depth
+        chi_max = chi_o + half_depth
         r_ex = (r_excl(lob, zob, self.h)
                 if self.config.exclusion != "none" else 0.0)
         return LosGeometry(thetas, chi_o, chi_min, chi_max, r_excl=r_ex)
@@ -521,7 +539,7 @@ class SigmaPrj:
 
         ## master equation, background: common(z)/(dchi/dz) n(M,z) M dlnM
         n_rnd_integrand = field_integrand(
-            self.distance, self.hmf, lambda z: self.common(z, zob),
+            self.distance, self.hmf, self.common,
             Ms, M_weight)
 
         def n_lss_integrand(r, chi, theta_index):
@@ -619,8 +637,7 @@ if __name__ == "__main__":
     # random-subtracted excess
     # (under "ball" the exclusion hole is booked in rnd instead, and the
     # default channel="cl" of deltasigma_prj would silently omit it)
-    prj = SigmaPrj(cosmology=cosmo, xi_nl=xi_nl, hmf=tmf, bias=bias_model,
-                   config=SigmaPrjConfig(los_window="hard", los_depth=71.4))
+    prj = SigmaPrj(cosmology=cosmo, xi_nl=xi_nl, hmf=tmf, bias=bias_model)
     lob, zob = 20.0, 0.5
     bsel = SigmoidBias(lob=lob, zob=zob,
                        theta_lambda=(r_excl(lob, zob, prj.h)
@@ -630,7 +647,9 @@ if __name__ == "__main__":
 
     sig = prj.sigma_prj(R, lob, zob, bsel, channel="sum")
     parts = prj.components()
-    print(f"Sigma_prj at (lob={lob}, zob={zob}), hard +/-{prj.config.los_depth} cMpc:")
+    half_depth = float(prj._window(zob)) * float(prj.distance.dchi_dz(zob))
+    print(f"Sigma_prj at (lob={lob}, zob={zob}), photo-z-window LOS "
+          f"+/-{half_depth:.1f} cMpc:")
     print(f"{'R [cMpc]':>9s} {'rnd':>12s} {'cl':>12s} {'sum':>12s}")
     for i, r in enumerate(R):
         print(f"{r:9.2f} {parts['rnd'][i]:12.4e} {parts['cl'][i]:12.4e} "
@@ -646,7 +665,7 @@ if __name__ == "__main__":
     # rho_halos x 2 los_depth, i.e. the halo mass fraction times the
     # uniform-universe column rho_m x 2 los_depth
     prj0 = SigmaPrj(cosmology=cosmo, xi_nl=xi_nl, hmf=tmf, bias=bias_model,
-                    config=SigmaPrjConfig(los_window="hard", los_depth=71.4,
+                    config=SigmaPrjConfig(los_depth=71.4,
                                           exclusion="none"))
     prj0.sigma_prj(R, lob, zob, lambda th: 0.0)
     column = prj0.rho_m * 2.0 * prj0.config.los_depth

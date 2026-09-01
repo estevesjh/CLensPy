@@ -29,7 +29,6 @@ def test_sigma_prj_prebuilt_grid_profile(capsys):
         n_M=8,
         n_u_inside=6,
         n_u_outside=16,
-        los_window="hard",
         los_depth=50.0,
     )
     pk = PkGrid(cosmo=cosmo, nonlinear=True)

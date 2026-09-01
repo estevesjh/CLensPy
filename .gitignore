@@ -228,11 +228,15 @@ docs/*.pdf
 *.djvu
 docs/Slice_*.md
 # papers/ holds untracked reference PDFs -- except the projection-lensing
-# report SOURCES (tex/scripts/Makefile); its build/ and data/ stay generated
+# and validations report SOURCES (tex/scripts/Makefile); their build/ and
+# data/ stay generated
 /papers/*
 !/papers/projection_lensing/
 /papers/projection_lensing/build/
 /papers/projection_lensing/data/
+!/papers/validations/
+/papers/validations/build/
+/papers/validations/data/
 
 
 # Example script output

@@ -1,0 +1,103 @@
+\documentclass[a4paper, 11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[left=18mm, right=18mm, top=22mm, bottom=22mm]{geometry}
+
+\usepackage{amsmath,amsfonts,amssymb,bm}
+\usepackage[english]{babel}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{multirow}
+
+% Preferred style -----------------------------------------------------
+\definecolor{harvardcrimson}{HTML}{8C1D40}
+\definecolor{softgrey}{HTML}{F3F3F3}
+\definecolor{kwcol}{HTML}{1F4E79}
+\definecolor{datablockcol}{HTML}{4B644A}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=harvardcrimson,
+  citecolor=harvardcrimson,
+  urlcolor=harvardcrimson,
+  hypertexnames=false,
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textcolor{harvardcrimson}{\textbf{Selection-bias validation in CLensPy}}}
+\lhead{\textcolor{harvardcrimson}{\textbf{J.\,H.\,Esteves}}}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+\setlength{\headheight}{14pt}
+\renewcommand{\baselinestretch}{1.12}
+
+% Pretty-printers -------------------------------------------------------
+\newcommand{\modname}[1]{\textcolor{kwcol}{\texttt{#1}}}
+\newcommand{\blk}[1]{\textcolor{datablockcol}{\texttt{#1}}}
+\newcommand{\pyfile}[1]{{\small\texttt{#1}}}
+
+% Math macros ------------------------------------------------------------
+\newcommand{\lob}{\lambda^{\rm ob}}
+\newcommand{\ltr}{\lambda^{\rm tr}}
+\newcommand{\zob}{z^{\rm ob}}
+\newcommand{\hMpc}{h^{-1}\,\mathrm{Mpc}}
+\newcommand{\hMsun}{h^{-1}\,M_{\odot}}
+\newcommand{\Sprj}{\Sigma^{\rm prj}}
+\newcommand{\DSprj}{\Delta\Sigma^{\rm prj}}
+\newcommand{\bsel}{b_{\rm sel}}
+\newcommand{\beff}{b_{\rm eff}}
+\newcommand{\bsmall}{b_{\rm small}}
+\newcommand{\blarge}{b_{\rm large}}
+\newcommand{\Asel}{A_s}
+\newcommand{\DRND}{\Delta_{\rm RND}}
+\newcommand{\xinl}{\xi_{\rm NL}}
+\newcommand{\Rlam}{R_\lambda}
+
+% generated values --------------------------------------------------------
+\input{build/values.tex}
+
+\title{\vspace{-4ex}\huge \textbf{Selection-Bias Validation in CLensPy}\\[0.5ex]
+       \Large \textbf{The $\bsel(\theta)$ closure against Costanzi et al.\
+       (2026) and the Buzzard mock}}
+\author{J.\,H.\,Esteves\thanks{ORCID:
+  \href{https://orcid.org/0000-0003-4373-2386}{0000-0003-4373-2386}}}
+\date{2026-08-31}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We validate \modname{CLensPy}'s selection-affected halo bias
+$\bsel(\theta)$ (\modname{SelBiasEngine}) against two independent
+references: Costanzi et al.\ (2026)'s own published Fig.~6 theory curve,
+digitized by hand ($\FigSixNPoints$ points, $\FigSixNPanels$
+richness/redshift panels), and the Buzzard mock catalogue used to build
+that figure. Against the digitized curve, the model's
+selected-to-random $\Sprj$ ratio agrees to a median $\FigSixMedianAbsResid$
+(worst $\FigSixMaxAbsResid$) --- down from a $\sim$50\% median before a
+closure fix derived this session. Against the mock, $\MockNPass$ of
+$\MockNBins$ $(\lob,z)$ bins pass in the two-halo regime ($R>3\,\hMpc$,
+max residual $\MockTwoHaloMinResid$--$\MockTwoHaloMaxResid$), and the
+closure's implied mean true richness $\langle\ltr\rangle$ agrees with the
+mock's directly stored value to a median $\MockLtrMedianResid$. We also
+report the closure's sensitivity to the HOD mass-richness slope $\alpha$
+and to $(\Omega_m,\sigma_8)$: the selected/RND ratio moves by at most
+$\CosmoMaxAbsRatioShift$ under a $\pm10\%$ cosmology shift, so the
+dominant systematic is the mass-observable relation, not cosmology.
+\end{abstract}
+
+\tableofcontents
+
+\input{sections/01_intro}
+\input{sections/02_fig6}
+\input{sections/03_mock}
+\input{sections/04_methods}
+\input{sections/05_alpha_sensitivity}
+\input{sections/06_cosmo_sensitivity}
+
+\end{document}

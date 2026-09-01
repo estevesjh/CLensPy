@@ -14,6 +14,19 @@
 
 \begin{figure*}[t]
   \centering
+  \includegraphics[width=\textwidth]{fig_paper6.pdf}
+  \caption{Reproduction of Costanzi et al. (2026)'s Fig.~6: the
+  selected-to-RND-sel ratio of Fig.~\ref{fig:ratio}, replotted one panel
+  per $\lob$ bin with $z$ color-coded within each panel (\textit{solid}
+  lines and mock $1\sigma$ bands), together with the model's
+  $\bsel(R)/\beff$ (\textit{dashed}) --- the same $\bsel(\theta)$
+  sigmoid evaluated on the mass-map's $R$ grid via
+  $\theta = R/\chi(\zob)$.}
+  \label{fig:paper6}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
   \includegraphics[width=\textwidth]{fig_one2one.pdf}
   \caption{One-to-one comparison of the absolute mass-map column
   $\langle\Stot\rangle$ in all \NBins{} bins: mock ($1\sigma$ band)
@@ -90,6 +103,19 @@ $\langle\lob - \ltr\rangle$ to \DeltaPrjAgreeMin--\DeltaPrjAgreeMax{}
 across all \NBins{} bins (Table~\ref{tab:bins}). The operator machinery
 of the selection model is therefore validated independently of the
 $b_{\rm small}$ calibration.
+
+The agreement is not uniform across the bin grid, and the
+$\DeltaPrjAgreeMax{}$ worst case is not scattered noise: it is concentrated
+in the four bins at $z \in [0.20, 0.35)$, where $\Delta^{\rm prj}_{\rm RND}$
+runs 10--33\% above the mock (rising with $\lob$ within that redshift row),
+against 1--7\% agreement in the eight bins at $z \ge 0.35$. The same
+low-redshift bins are also the ones that fail the two-halo ratio test
+(Table~\ref{tab:bins}) and show the largest unscored inner residual, so
+this reads as one shared cause rather than two independent ones ---
+plausibly the photo-z window or the volume element evaluated near the
+low-$z$ edge, not yet isolated. Open issue: the target is
+$\Delta^{\rm prj}_{\rm RND}$ agreement everywhere below the
+$\sim 5\%$ covariance floor, which the $z < 0.35$ row does not yet meet.
 
 \subsection{The inner region: closure equivalence and the
 marginalisation bracket}

@@ -35,7 +35,7 @@ from ..kernels.photoz import (
 from ..utils.integrate import gl_nodes, mass_nodes, pk_to_xi_fftlog
 from ..utils.los_integrals import LosGeometry, field_integrand, integrate_los
 from .geometry import area_overlap, r_excl, r_lambda, sigmoid_theta, theta_lambda
-from .richness_kernel import EmgParams, richness_pdf
+from .richness_kernel import EmgParams, richness_bin_probability, richness_pdf
 
 __all__ = [
     "SigmoidBias",
@@ -74,7 +74,13 @@ class SigmoidBias:
 @dataclass
 class SelectionBiasTable:
     """b_sel plateaus per (richness bin, z_ob) row — 2 scalars per row,
-    matching the y3_cluster_cpp wall contract (no theta grid stored)."""
+    matching the y3_cluster_cpp wall contract (no theta grid stored).
+
+    ``damping``/``theta0_frac`` are one pair for the whole table (the
+    engine that built it has one value each, not one per bin) -- kept
+    here so `row()` reconstructs the exact `SigmoidBias` the engine
+    produced, rather than silently falling back to that class's own
+    defaults."""
 
     lam_min: np.ndarray
     lam_max: np.ndarray
@@ -85,6 +91,8 @@ class SelectionBiasTable:
     theta_lambda: np.ndarray
     b_small: np.ndarray
     b_large: np.ndarray
+    damping: float = 2.5
+    theta0_frac: float = 0.5
 
     @property
     def n_rows(self) -> int:
@@ -97,6 +105,8 @@ class SelectionBiasTable:
             theta_lambda=float(self.theta_lambda[i]),
             b_small=float(self.b_small[i]),
             b_large=float(self.b_large[i]),
+            damping=self.damping,
+            theta0_frac=self.theta0_frac,
         )
 
     def to_file(self, path: str | Path) -> None:
@@ -105,13 +115,16 @@ class SelectionBiasTable:
             **{k: getattr(self, k) for k in (
                 "lam_min", "lam_max", "zo_low", "zo_high",
                 "lob", "zob", "theta_lambda", "b_small", "b_large",
+                "damping", "theta0_frac",
             )},
         )
 
     @classmethod
     def from_file(cls, path: str | Path) -> "SelectionBiasTable":
+        scalars = {"damping", "theta0_frac"}
         with np.load(path) as f:
-            return cls(**{k: f[k] for k in f.files})
+            return cls(**{k: (float(f[k]) if k in scalars else f[k])
+                         for k in f.files})
 
 
 class XiNL:
@@ -209,11 +222,18 @@ class SelBiasEngine:
         scaling_relation` (e.g. `HodMor`/`LogNormalMor`) -- wrapped in
         `PhysicalMassMor` here, once, with the direction written down.
     plob_params : EmgParams, optional
-        P(lambda_ob | lambda_tr, z) for the lambda_tr marginalisation
-        (default: vendored DES Y3 fit).
+        P(lambda_ob | lambda_tr, z) (default: vendored DES Y3 fit), used
+        by `_ltr_weights`'s ``plob_mode="y3"``. Not read by the default
+        `b_small_large`/`excess_delta` closure path -- see
+        docs/plan-bsel-stable-closure.md for why that path no longer
+        marginalises over an externally calibrated P(lambda_ob|lambda_tr)
+        kernel at all; `_ltr_weights` is kept for direct callers (tests,
+        `papers/.../make_inner_study.py`'s historical comparison).
     n_z, n_M, n_theta, n_ltr, ltr_grid_size : int
         Quadrature orders (defaults: 96/48/96/90/24, all with margin over
-        their measured convergence floor). ``n_z`` is the Gauss-Legendre
+        their measured convergence floor). ``ltr_grid_size`` only sizes
+        `_ltr_weights`'s posterior grid (see ``plob_params`` above); it is
+        not used by the default closure path. ``n_z`` is the Gauss-Legendre
         order of the cosh-Abel ``u``-integral outside the exclusion
         sphere (`_operators`), not a redshift grid size.
         ``n_theta`` (not the paper's ``10``): with ``theta`` as the
@@ -232,6 +252,19 @@ class SelBiasEngine:
     min_mass, log10_M_max : float, optional
         Mass integration range in physical Msun; defaults are the
         RichnessSelection 1e13 - 10^15.5 Msun/h converted with h.
+
+        NOTE: this integral sums over every neighbour halo, not just
+        cluster-scale ones, so a physically motivated lower edge is a
+        galaxy/group-halo mass (about 1e12), not 1e13 -- tried and
+        reverted: at 1e12, P1 and I2 grow (the 1e12-1e13 decade adds a
+        lot of number density), pushing Delta_RND = P1 + b_eff*I2 up
+        enough that the closure's numerator goes negative for realistic
+        bins, rather than merely narrowing the gap it is supposed to
+        explain. That likely means HodMor's P(lambda_tr | M, z) is not
+        trustworthy that far below its own calibrated range (M_min is
+        about 3e12, inside [1e12, 1e13]) before it is fixed to
+        extrapolate sanely there -- widen this bound again only
+        alongside that fix, not on its own.
     """
 
     damping: float = 2.5
@@ -307,13 +340,21 @@ class SelBiasEngine:
 
     # -- the P operator ---------------------------------------------------
     def _operators(self, lob: float, zob: float, squared: bool = False):
-        r"""(P1, I1, I2, D) at one (lambda_ob, z_ob); ``D = I2 - I1 =
-        P[b xi (1-sigma)]``, computed as its own direct quadrature rather
-        than a subtraction of ``I2`` and ``I1`` -- see the module NOTE on
-        why that subtraction is the one place ``b_small`` goes unstable.
-        ``squared=True`` gives the variance operators of `operators_var`
-        (weights :math:`\lambda^2`, :math:`w_z^2`, :math:`f_A^2`; ``D``
-        is not needed there and is not returned meaningfully).
+        r"""(P1, I1, I2, D) at one (lambda_ob, z_ob). Only ``P1``, ``I2``
+        and ``D = I2 - I1 = P[b xi (1-sigma)]`` are theta-weighted
+        quadratures of the same per-(theta,M) array (differing only in
+        which theta-weight contracts it, ``1`` / ``1`` / ``(1-sigma)``);
+        ``I1`` is never quadratured on its own -- it is *derived* as
+        ``I2 - D``, subtracting a small ``D`` from a large ``I2``, never
+        two comparable numbers, so this derivation carries none of the
+        cancellation risk a direct ``I2 - I1`` subtraction would. (``D``
+        itself is not where ``b_small`` actually goes unstable -- that
+        turned out to be a x18-40 *gain* on the assumed mean
+        :math:`\lambda^{\rm tr}`, not a cancellation; see
+        {doc}`plan-bsel-stable-closure`.) ``squared=True`` gives the variance
+        operators of `operators_var` (weights :math:`\lambda^2`,
+        :math:`w_z^2`, :math:`f_A^2`; ``D`` is not needed there and is
+        not returned meaningfully).
 
         Same recipe as `clenspy.lensing.projection.SigmaPrj.n_los_integral`:
         one `_geometry` call, everything else -- the mass/theta/lambda
@@ -393,8 +434,13 @@ class SelBiasEngine:
 
         P1 = float(np.sum(w_theta * per_theta_P1))
         I2 = float(np.sum(w_theta * per_theta_bxi))
-        I1 = float(np.sum(w_theta * sig_theta * per_theta_bxi))
         D = float(np.sum(w_theta * (1.0 - sig_theta) * per_theta_bxi))
+        # I1 = I2 - D, derived rather than its own theta-weighted
+        # quadrature: D = P[b xi (1-sigma)] is computed directly for
+        # exactly this reason (see the module NOTE), and I2 - D here
+        # subtracts a *small* D from a *large* I2, never two comparable
+        # numbers, so no cancellation risk survives the derivation.
+        I1 = I2 - D
         return P1, I1, I2, D
 
     def operators(self, lob: float, zob: float) -> tuple[float, float, float]:
@@ -431,11 +477,69 @@ class SelBiasEngine:
         P1v, _, I2v = self.operators_var(lob, zob)
         return P1 + beff * I2, P1v + beff * I2v
 
+    def gamma_lambda(self, lob: float, zob: float, frac: float = 0.15) -> float:
+        r""":math:`-d\ln n(\lambda^{\rm tr})/d\lambda^{\rm tr}` at
+        :math:`\lambda^{\rm tr}=\lambda^{\rm ob}`, a two-point log-derivative
+        of the mass-marginalised richness function
+        (:math:`n(\lambda) \propto \int dM\,P(\lambda\mid M,z)\,n(M,z)`,
+        the same prior `_ltr_weights` builds). See
+        {doc}`plan-bsel-stable-closure` for why this drives the
+        excess-richness closure."""
+        m = np.logspace(np.log10(self.min_mass), self.log10_M_max, 60)
+        hm = self.hmf(m, zob)
+        nodes = np.array([lob * (1.0 - frac), lob * (1.0 + frac)])
+        p = self.mor.pdf(nodes[:, None], m[None, :], zob)
+        n = np.trapezoid(p * (hm * m)[None, :], np.log(m), axis=1)
+        return -float(np.log(n[1] / n[0]) / (nodes[1] - nodes[0]))
+
+    def excess_delta(self, lob: float, zob: float, b_eff: float) -> float:
+        r"""The closure's one physical input,
+        :math:`\delta = \langle\lambda^{\rm ob}-\lambda^{\rm tr}\rangle
+        /\Delta_{\rm RND} - 1`, from the model's own operators rather than
+        an externally calibrated :math:`P(\lambda^{\rm ob}\mid
+        \lambda^{\rm tr})` kernel: the Eddington tilt of the *correlated*
+        part of the projection variance,
+        :math:`\delta = \gamma\,b_{\rm eff} I_2^{(2)}/\Delta_{\rm RND}`
+        (derivation, mock validation: {doc}`plan-bsel-stable-closure`).
+
+        NOTE (open issue): gets the mean level right but not the
+        redshift shape -- at fixed lambda_ob this falls with zob while
+        the published Fig. 6 curve needs it to rise (confirmed
+        converged, not a quadrature issue). See
+        {doc}`plan-bsel-stable-closure` section 9.
+        """
+        P1, _, I2 = self.operators(lob, zob)
+        _, _, I2v = self.operators_var(lob, zob)
+        D_RND = P1 + b_eff * I2
+        return self.gamma_lambda(lob, zob) * b_eff * I2v / D_RND
+
     # -- b_eff ------------------------------------------------------------
     def b_eff(self, lob: float, zob: float) -> float:
-        r""":math:`b_{\rm eff} = \langle b(M, z^{\rm ob})\rangle_{P(M \mid
-        \lambda^{\rm ob})}` with weight :math:`n(M) P(\lambda^{\rm ob} \mid
-        M) M` in dlnM."""
+        r""":math:`b_{\rm eff}(\lambda^{\rm ob},z^{\rm ob}) = N[b]/N[1]`,
+        the same ``N[X]/N[1]`` bin-average pattern as
+        `clenspy.observables.ClusterCounts.average`, evaluated at a
+        point :math:`\lambda^{\rm ob}` rather than a bin:
+
+        .. math::
+            N[X](\lambda^{\rm ob},z^{\rm ob}) = \int dM\,X(M,z^{\rm ob})\,
+                n(M,z^{\rm ob})\,P_{\rm eff}(\lambda^{\rm ob}\mid M,z^{\rm ob}),
+            \qquad
+            P_{\rm eff}(\lambda^{\rm ob}\mid M,z^{\rm ob}) \equiv
+                \int d\lambda^{\rm tr}\,P(\lambda^{\rm ob}\mid
+                \lambda^{\rm tr},z^{\rm ob})\,P(\lambda^{\rm tr}\mid
+                M,z^{\rm ob}).
+
+        :math:`P_{\rm eff}` -- the HOD/MOR convolved with the
+        observational kernel over :math:`\lambda^{\rm tr}` -- is
+        computed **at fixed** :math:`M` here, so the mass integral is a
+        single ``N[b]/N[1]`` ratio (one division, matching
+        `ClusterCounts.average`'s own ``integrate(weight*X) /
+        integrate(weight)``), never an average of per-:math:`\lambda^{
+        \rm tr}` ratios: dividing once per :math:`\lambda^{\rm tr}` node
+        risks a small-denominator blowup wherever :math:`P(\lambda^{\rm
+        tr}\mid M,z^{\rm ob})`'s own mass integral is small, which a
+        single joint ratio never forms.
+        """
         key = ("b_eff", float(lob), float(zob))
         if key in self._cache:
             return self._cache[key]
@@ -443,13 +547,17 @@ class SelBiasEngine:
                                   self.n_M)
         n_m = self.hmf(Ms, zob)
         b_m = self.bias(Ms, zob)
-        P = self.mor.pdf(
-            np.array([float(lob)])[:, None], Ms[None, :], zob
-        ).ravel()
-        wt = M_weight * n_m * P
-        num = float(np.sum(wt * b_m))
-        den = float(np.sum(wt))
-        val = num / den if den > 0 else float("nan")
+
+        ltr, w_ltr = gl_nodes(1.0, float(lob), self.ltr_grid_size * 2)
+        p_lob_ltr = np.asarray(richness_pdf(float(lob), ltr, zob, self.plob),
+                               dtype=float)
+        p_ltr_M = self.mor.pdf(ltr[:, None], Ms[None, :], zob)   # (n_ltr, n_M)
+        p_eff = np.einsum("l,l,lm->m", w_ltr, p_lob_ltr, p_ltr_M)  # (n_M,)
+
+        weight = M_weight * n_m * p_eff
+        num = float(np.sum(weight * b_m))
+        den = float(np.sum(weight))
+        val = num / den if den > 0.0 else float("nan")
         self._cache[key] = val
         return val
 
@@ -458,12 +566,28 @@ class SelBiasEngine:
         r"""(delta_prj, b_small, b_large) on an ltr array.
 
         ``D``, when given, is the directly-quadratured :math:`I_2-I_1 =
-        P[b\,\xi_{\rm NL}(1-\sigma)]` (see `_operators`) used in place of
-        the float subtraction ``I2 - I1`` -- the one place this closure
-        can go unstable (module NOTE). ``None`` (the default, for direct
-        callers with hand-picked numbers) falls back to the subtraction.
+        P[b\,\xi_{\rm NL}(1-\sigma)]` (see `_operators`), used in place of
+        the float subtraction ``I2 - I1``. ``None`` (the default, for
+        direct callers with hand-picked numbers) falls back to the
+        subtraction. This algebra is exact and stable for any single
+        ``ltr``/``delta``; the caller (`b_small_large`) is what has to
+        get the *mean* :math:`\lambda^{\rm tr}` right -- see
+        {doc}`plan-bsel-stable-closure`.
         """
         ltr_vec = np.asarray(ltr_vec, dtype=float)
+        if np.any(ltr_vec > lob):
+            raise ValueError(
+                f"lambda_tr must not exceed lambda_ob={lob}, got max "
+                f"{float(np.max(ltr_vec))}")
+        # NOTE (open issue): D_RND = P1 + b_eff*I2 is Delta_RND-sel's halo
+        # -model prediction (eq. bsel_infty). validate_sigma_prj_mock.py's
+        # leg D cross-checks it against the mock's own measured mean
+        # boost per bin -- agrees to 1-7% for z >= 0.35 (8 of 12 bins),
+        # but runs 10-33% high for z < 0.35, worst at the highest-lambda
+        # bin there. Target: below the ~5% covariance floor, everywhere.
+        # Root cause not yet isolated; z<0.35 bins are also the ones that
+        # fail the density-profile test (see that script's inner max|dr|
+        # column), so this is likely one shared cause, not two.
         D_RND = P1 + b_eff * I2
         denom = (I2 - I1) if D is None else D
         delta = (lob - ltr_vec) / D_RND - 1.0
@@ -475,12 +599,25 @@ class SelBiasEngine:
         return delta, b_small, b_large
 
     def _ltr_weights(self, lob, zob, use_plob_ltr: bool = True,
-                     plob_mode: str = "y3", b_eff: float | None = None):
+                     plob_mode: str = "y3", b_eff: float | None = None,
+                     lambda_edges: tuple[float, float] | None = None):
         r"""(ltr nodes, normalised GL x P(ltr | lob, zob)) weights.
+
+        ``lambda_edges``: the observed-richness bin ``(lam_min, lam_max)``
+        that ``lob`` represents. When given, ``plob_mode="y3"`` uses the
+        **bin-integrated** kernel `richness_bin_probability` (the same
+        analytic edge-differenced :math:`\mathcal S_i` `SelectionFunction`
+        builds on) instead of the point density `richness_pdf` at
+        ``lob`` -- `SelectionFunction.S_i` itself cannot be reused here,
+        because it already contracts away the :math:`\lambda^{\rm tr}`
+        axis this closure needs. ``None`` (default) falls back to the
+        point density, for callers that only have a representative
+        ``lob`` and no bin.
 
         ``plob_mode``:
 
-        - ``"y3"`` — the vendored DES Y3 EMG kernel (`richness_pdf`).
+        - ``"y3"`` — the vendored DES Y3 EMG kernel (`richness_pdf` or,
+          with ``lambda_edges``, `richness_bin_probability`).
         - ``"self"`` — the **self-consistent** exponential kernel of the
           Costanzi notebook (``plob_ltr``): the model's own boost
           statistics from `delta_stats` set
@@ -498,7 +635,7 @@ class SelBiasEngine:
           overstates :math:`\langle\lambda^{\rm ob}-\lambda^{\rm tr}
           \rangle` against a mock and inflates the inner plateau.
         """
-        t_nodes, t_wts = gl_nodes(1.0, 3.0 * float(lob), self.ltr_grid_size * 2)
+        t_nodes, t_wts = gl_nodes(1.0, float(lob), self.ltr_grid_size * 2)
         m_grid = np.logspace(np.log10(self.min_mass), self.log10_M_max, 50)
         hmf_m = self.hmf(m_grid, zob)
 
@@ -512,7 +649,12 @@ class SelBiasEngine:
         if not use_plob_ltr:
             weight = t_wts * prior
         elif plob_mode == "y3":
-            p_lob_ltr = richness_pdf(float(lob), t_nodes, zob, self.plob)
+            if lambda_edges is not None:
+                edges = np.asarray(lambda_edges, dtype=float)
+                p_lob_ltr = richness_bin_probability(
+                    edges, t_nodes, zob, self.plob)[:, 0]
+            else:
+                p_lob_ltr = richness_pdf(float(lob), t_nodes, zob, self.plob)
             weight = t_wts * np.asarray(p_lob_ltr, dtype=float) * prior
         elif plob_mode == "self":
             mean_d, var_d = self.delta_stats(lob, zob, b_eff)
@@ -534,37 +676,61 @@ class SelBiasEngine:
         return t_nodes, (weight / den if den > 0 else np.full_like(weight, np.nan))
 
     def b_small_large(
-        self, lob: float, zob: float, use_plob_ltr: bool = True,
-        b_eff: float | None = None, plob_mode: str = "y3",
+        self, lob: float, zob: float,
+        b_eff: float | None = None, delta: float | None = None,
     ) -> tuple[float, float]:
-        """lambda_tr-marginalised (b_small, b_large) at one (lob, zob).
+        r"""(b_small, b_large) at one (lob, zob).
+
+        Both plateaus are affine in :math:`\lambda^{\rm tr}`, so a
+        :math:`\lambda^{\rm tr}`-posterior marginalisation would
+        contribute only its mean; this computes that limit directly
+        (derivation, mock validation: {doc}`plan-bsel-stable-closure`):
+
+        .. math::
+            b_{\rm large} = b_{\rm eff}(1+{\rm boost\_slope}\,\delta),
+            \qquad
+            b_{\rm small} = b_{\rm eff} + \delta A_s,
+            \qquad
+            A_s = \frac{\Delta_{\rm RND} - {\rm boost\_slope}\,
+            b_{\rm eff} I_1}{D},
+
+        with :math:`\Delta_{\rm RND}=P_1+b_{\rm eff}I_2` and
+        :math:`\delta=\langle\lambda^{\rm ob}-\lambda^{\rm tr}\rangle/
+        \Delta_{\rm RND}-1`. (This is algebraically identical to
+        `_closure` evaluated at the single ``ltr`` equivalent to
+        ``delta`` -- both forms were verified to agree to machine
+        precision -- but is written out explicitly here rather than
+        routed through `_closure`, so the formula actually being
+        evaluated matches the one derived and documented.)
 
         ``b_eff=None`` uses the engine's own fixed-lambda_ob average
         (`b_eff`); pass a float to use an externally computed value, e.g.
         the bin-averaged N[b]/N[1] from
-        `clenspy.observables.ClusterCounts.average`. ``plob_mode`` as in
-        `_ltr_weights`: ``"y3"`` (EMG table) or ``"self"`` (the model's
-        own boost statistics — the mock-consistent choice).
+        `clenspy.observables.ClusterCounts.average`. ``delta=None`` uses
+        `excess_delta` (the model's own Eddington-tilt estimate of
+        :math:`\delta`, computed from the operators alone); pass a float
+        to inject an independently measured excess (e.g. the mock's own
+        :math:`\langle\lambda^{\rm ob}-\lambda^{\rm tr}\rangle`) for
+        validation. No guard against :math:`D\to0`: if it happens, the
+        right response is a visible ``inf``/``nan``, not a silent
+        fallback (see `_closure`'s own guard, which direct callers of
+        that method still get).
         """
         P1, I1, I2 = self.operators(lob, zob)
         D = self._d_cache[("ops", float(lob), float(zob))]
         beff = self.b_eff(lob, zob) if b_eff is None else float(b_eff)
-        ltr, w_ltr = self._ltr_weights(lob, zob, use_plob_ltr,
-                                       plob_mode=plob_mode, b_eff=beff)
-        _, b_small_vec, b_large_vec = self._closure(
-            lob, P1, I1, I2, beff, ltr, D=D)
-        return float(np.sum(w_ltr * b_small_vec)), float(
-            np.sum(w_ltr * b_large_vec)
-        )
+        if delta is None:
+            delta = self.excess_delta(lob, zob, beff)
+        A_s = (P1 + beff * I2 - self.boost_slope * beff * I1) / D
+        return beff + delta * A_s, beff * (1.0 + self.boost_slope * delta)
 
     def marginalised_bias(self, lob: float, zob: float,
-                          use_plob_ltr: bool = True,
                           b_eff: float | None = None,
-                          plob_mode: str = "y3") -> SigmoidBias:
+                          delta: float | None = None,
+                          ) -> SigmoidBias:
         """The theta-callable b_sel(theta | lob, zob); ``b_eff`` and
-        ``plob_mode`` as in `b_small_large`."""
-        b_small, b_large = self.b_small_large(lob, zob, use_plob_ltr, b_eff,
-                                              plob_mode)
+        ``delta`` as in `b_small_large`."""
+        b_small, b_large = self.b_small_large(lob, zob, b_eff, delta)
         return SigmoidBias(
             lob=float(lob),
             zob=float(zob),
@@ -591,9 +757,7 @@ class SelBiasEngine:
                 for bd in bins
             ]
         rows = [
-            self.marginalised_bias(
-                lob, 0.5 * (bd.zob_min + bd.zob_max)
-            )
+            self.marginalised_bias(lob, 0.5 * (bd.zob_min + bd.zob_max))
             for bd, lob in zip(bins, lob_per_bin)
         ]
         return SelectionBiasTable(
@@ -606,6 +770,8 @@ class SelBiasEngine:
             theta_lambda=np.array([r.theta_lambda for r in rows]),
             b_small=np.array([r.b_small for r in rows]),
             b_large=np.array([r.b_large for r in rows]),
+            damping=self.damping,
+            theta0_frac=self.theta0_frac,
         )
 
 if __name__ == "__main__":
@@ -650,31 +816,10 @@ if __name__ == "__main__":
     print(f"\nb_eff = {b_eff:.5f}   (the unselected aggregate)")
 
     b_small, b_large = engine.b_small_large(lob, zob)
-    ltr_nodes, ltr_w = engine._ltr_weights(lob, zob)
-    delta, _, _ = engine._closure(lob, p1, i1, i2, b_eff, ltr_nodes)
-    delta_mean = float(np.sum(ltr_w * delta))
-    d_rnd = p1 + b_eff * i2
     print(f"b_small = {b_small:.5f}")
     print(f"b_large = {b_large:.5f}")
     print(f"  b_large/b_eff - 1 = {b_large / b_eff - 1:+.4%}  "
           "<- the 0.13 delta_prj boost")
-
-    print("\n*** b_small here is NOT physical, and the reason is worth")
-    print("    seeing, because it is the instability the module NOTE")
-    print("    warns about. ***")
-    print(f"  Delta_RND = P1 + b_eff I2 = {d_rnd:.5f}")
-    print(f"  mean (lob - ltr)          = "
-          f"{float(np.sum(ltr_w * (lob - ltr_nodes))):.5f}")
-    print(f"  so delta_prj = excess/Delta_RND - 1 = {delta_mean:+.4f}")
-    print("  A self-consistent halo model gives Delta_RND ~ the observed")
-    print("  richness excess, hence delta_prj ~ 0 and b_small ~ b_large ~")
-    print("  b_eff. HodMor.des_y1() is not calibrated against Tinker(2008)")
-    print("  + Tinker(2010) at this (lob, zob), so")
-    print(f"  Delta_RND under-predicts the excess ~{delta_mean + 1:.1f}x and the")
-    print(f"  linear inversion divides that by I2 - I1 = {i2 - i1:.2e},")
-    print("  which is what inflates b_small. The shape of b_sel(theta)")
-    print("  below is still correct; the amplitude needs a mutually")
-    print("  calibrated MOR (e.g. HodMor.from_lognormal()/.buzzard()).")
 
     profile = engine.marginalised_bias(lob, zob)
     print(f"\nb_sel(theta), from {profile!r}:")
@@ -687,25 +832,18 @@ if __name__ == "__main__":
     print("     and it tends to b_small inside the aperture and b_large")
     print("     well outside it.")
 
-    # the identity that makes the two-scalar table exact
-    print("\nthe lambda_tr marginalisation commutes with the sigmoid,")
-    print("because sigma(theta) carries no lambda_tr. So averaging the")
-    print("plateaus and then building the sigmoid equals building per-ltr")
-    print("sigmoids and averaging them:")
-    ltr, w = engine._ltr_weights(lob, zob)
-    _, bs_vec, bl_vec = engine._closure(
-        lob, p1, i1, i2, b_eff, ltr
-    )
-    for frac in (0.3, 1.0, 3.0):
-        th = frac * theta_lam
-        sig = sigmoid_theta(th, theta_lam)
-        averaged_then_built = profile(th)
-        built_then_averaged = float(np.sum(
-            w * (bs_vec + (bl_vec - bs_vec) * sig)
-        ))
-        print(f"  theta/theta_lam = {frac:4.1f}: "
-              f"{averaged_then_built:.10f} vs {built_then_averaged:.10f}  "
-              f"rel {abs(averaged_then_built / built_then_averaged - 1):.1e}")
+    # both plateaus are affine in lambda_tr, so a lambda_tr posterior
+    # would contribute only its mean -- delta is now the model's own
+    # Eddington-tilt estimate (excess_delta), not a marginalisation over
+    # an externally calibrated P(lob|ltr) kernel (see
+    # docs/plan-bsel-stable-closure.md). delta=0 is the closure's fixed
+    # point: an average line of sight has b_small = b_large = b_eff.
+    delta = engine.excess_delta(lob, zob, b_eff)
+    gamma = engine.gamma_lambda(lob, zob)
+    print(f"\ndelta = {delta:.4f}  (gamma_lambda = {gamma:.4f})")
+    bs0, bl0 = engine.b_small_large(lob, zob, b_eff=b_eff, delta=0.0)
+    print(f"  delta=0 fixed point: b_small={bs0:.5f} b_large={bl0:.5f} "
+          f"(both == b_eff)")
 
     print("\nthe photo-z window is the exact table, and asymmetric:")
     z_lo, z_hi = photoz_projection_support(zob, engine._window, n_sigma=1.0)

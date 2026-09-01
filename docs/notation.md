@@ -171,6 +171,41 @@ maps. Both stored on `self.rnd`/`self.cl`, served by `components()`.
 Validated against the Costanzi mock in
 `validation/validate_sigma_prj_mock.py`.
 
+## 6. Selection-affected bias b_sel (C26 §4.1) — `selection.bsel.SelBiasEngine`
+
+| Quantity | Symbol | Meaning | Units | Code | |
+|---|---|---|---|---|---|
+| Projection operator | $\mathcal P[X]$ | LOS/mass/$\lambda^{\rm tr}$/$\theta$ average of $X$ against the projection kernel (weight `common(z)`$\times$`n(M,z)`$\times P(\lambda\mid M,z)\times f_A(\theta,\lambda,z)$) at fixed $(\lambda^{\rm ob},z^{\rm ob})$ | — | `_operators` | ✅ |
+| Background operator | $P_1$ | $\mathcal P[1]$ | — | `operators` | ✅ |
+| Correlated operator | $I_2$ | $\mathcal P[b\,\xi_{\rm NL}]$ | — | `operators` | ✅ |
+| Small-scale correlated operator | $I_1$ | $\mathcal P[b\,\xi_{\rm NL}\,\sigma(\theta)]$; derived as $I_2-D$, never quadratured on its own | — | `operators` | ✅ |
+| Small-scale complement | $D$ | $I_2-I_1=\mathcal P[b\,\xi_{\rm NL}(1-\sigma)]$, quadratured directly (not by subtraction) | — | `_d_cache` | ✅ |
+| Variance operators | $P_1^{(2)}$, $I_2^{(2)}$ | Same as $P_1,I_2$ with squared weights ($\lambda^2,w_z^2,f_A^2$) | — | `operators_var` | ✅ |
+| Unselected bias | $b_{\rm eff}$ | $N[b]/N[1]$, mass-marginalised at fixed $\lambda^{\rm ob}$ (or externally, e.g. `ClusterCounts.average`'s bin-averaged $N[b]/N[1]$) | — | `b_eff` | ✅ |
+| Random-LOS excess | $\Delta_{\rm RND}$ | $P_1+b_{\rm eff}I_2$ — mean projected-richness boost for a *random* line of sight | richness | `delta_stats` | ✅ |
+| Excess richness | $\delta$ | $\langle\lambda^{\rm ob}-\lambda^{\rm tr}\rangle/\Delta_{\rm RND}-1$, the closure's one physical input | — | `excess_delta` | ✅ |
+| Richness log-slope | $\gamma$ | $-d\ln n(\lambda^{\rm tr})/d\lambda^{\rm tr}$ at $\lambda^{\rm tr}=\lambda^{\rm ob}$ (two-point log-derivative of the mass-marginalised richness function) | ${\rm richness}^{-1}$ | `gamma_lambda` | ✅ |
+| Boost slope | $s$ | $0.13$, Buzzard-calibrated, the one non-closed-form number | — | `boost_slope` | ✅ |
+| Small-scale gain | $A_s$ | $(\Delta_{\rm RND}-s\,b_{\rm eff}I_1)/D$ — $b_{\rm small}$'s sensitivity to $\delta$, typically 18–40 | — | (inline in `b_small_large`) | ✅ |
+| Small-scale plateau | $b_{\rm small}$ | $b_{\rm eff}+\delta A_s$ — the $\theta\to0$ limit of $b_{\rm sel}$ | — | `b_small_large` | ✅ |
+| Large-scale plateau | $b_{\rm large}$ | $b_{\rm eff}(1+s\,\delta)$ — the $\theta\to\infty$ limit of $b_{\rm sel}$ | — | `b_small_large` | ✅ |
+| Cluster aperture angle | $\theta_\lambda$ | $R_\lambda(\lambda^{\rm ob})(1+z^{\rm ob})/\chi(z^{\rm ob})$ | rad | `_theta_lob` | ✅ |
+| Sigmoid transition | $\sigma(\theta)$ | $[1+e^{-k(\theta-\theta_0)}]^{-1}$, $k=2.5/\theta_\lambda$, $\theta_0=\theta_\lambda/2$ | — | `sigmoid_theta` | ✅ |
+| Scale-dependent bias | $b_{\rm sel}(\theta)$ | $b_{\rm small}(1-\sigma)+b_{\rm large}\sigma$ | — | `SigmoidBias`, `marginalised_bias` | ✅ |
+
+> Both plateaus are affine in $\lambda^{\rm tr}$ (equivalently in $\delta$),
+> so a $\lambda^{\rm tr}$ posterior would contribute only its *mean* — no
+> quadrature over $\lambda^{\rm tr}$ changes either plateau. An earlier
+> version of `b_small_large` estimated that mean by marginalizing the
+> closure over an externally calibrated $P(\lambda^{\rm ob}\mid
+> \lambda^{\rm tr})$ kernel (`_ltr_weights`, kept for that direct-algebra
+> use but no longer the default path); `excess_delta` replaced it after
+> that kernel was found to overestimate $\langle\lambda^{\rm ob}-
+> \lambda^{\rm tr}\rangle$ by $1.5$–$2.2\times$ (an exponential-tilt
+> divergence against a steep richness function — see
+> {doc}`plan-bsel-stable-closure`), which the $18$–$40\times$ gain $A_s$
+> turned into a $3$–$4\times$ error on $b_{\rm small}$.
+
 ---
 
 ## Collisions to watch

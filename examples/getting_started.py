@@ -337,8 +337,7 @@ xi_real = XiNL(_PkGrid(cosmo=cosmo, nonlinear=True), clip=False)  # signed BAO t
 # booked in rnd -- and the default channel="cl" of deltasigma_prj below
 # would silently omit it.
 prj = SigmaPrj(cosmology=cosmo, xi_nl=xi_real, hmf=_tmf, bias=_bm,
-               config=SigmaPrjConfig(los_window="hard",
-                                     los_depth=71.4))  # Costanzi-mock window
+               config=SigmaPrjConfig(los_depth=71.4))  # Costanzi-mock window
 R_prj = np.array([0.5, 2.0, 8.0, 25.0])  # comoving Mpc
 # b_sel from the toy engine above: its SHAPE is right, its amplitude is
 # not (see docs/selection_bias.md); the mutually calibrated pipeline is

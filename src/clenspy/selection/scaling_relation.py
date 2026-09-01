@@ -303,61 +303,6 @@ class HodMor:
             z_pivot=0.4544,
         )
 
-    @classmethod
-    def from_lognormal(cls, mor=None, lnm_range=None, z_range=(0.20, 0.65),
-                       n=41):
-        r"""Fit the HOD form to a `LogNormalMor` (Costanzi et al. 2021).
-
-        Least squares of :math:`\ln\langle\lambda^{\rm sat}\rangle =
-        \ln(\langle\lambda\rangle_{\rm LN} - 1)` against the HOD's
-        :math:`\ln\lambda^{\rm sat}` on an (lnM, z) grid over the
-        calibrated range; ``sigma_intr`` is then set so the HOD variance
-        matches the log-normal variance of :math:`\lambda` at the pivot.
-
-        Parameters
-        ----------
-        mor : LogNormalMor, optional
-            Defaults to the published Costanzi et al. (2021) parameters.
-        lnm_range : (float, float), optional
-            ln M fit range [h^-1 Msun]; default ln(1e13) to ln(2e15).
-        z_range : (float, float), optional
-            Redshift fit range (default: the DES Y3 bin span).
-        n : int, optional
-            Grid points per axis.
-        """
-        from scipy.optimize import least_squares
-
-        mor = LogNormalMor() if mor is None else mor
-        if lnm_range is None:
-            lnm_range = (np.log(1.0e13), np.log(2.0e15))
-        lnm = np.linspace(*lnm_range, n)
-        zz = np.linspace(*z_range, n)
-        lnm_g, z_g = np.meshgrid(lnm, zz, indexing="ij")
-        target = np.log(mor.mean(lnm_g, z_g) - 1.0)   # satellites only
-
-        def ln_mu_sat(p):
-            log10_mmin, log10_m1, alpha, eps = p
-            above = np.exp(lnm_g) - 10.0**log10_mmin
-            frac = above / (10.0**log10_m1 - 10.0**log10_mmin)
-            return (alpha * np.log(frac)
-                    + eps * np.log((1.0 + z_g) / (1.0 + mor.z_pivot)))
-
-        fit = least_squares(
-            lambda p: (ln_mu_sat(p) - target).ravel(),
-            x0=[11.5, 12.7, 1.0, 0.3],
-            bounds=([10.0, 11.0, 0.3, -2.0], [13.0, 14.0, 2.0, 2.0]),
-        )
-        log10_mmin, log10_m1, alpha, eps = fit.x
-        # sigma_intr from the variance match at the pivot point
-        lnm_p = np.log(mor.m_pivot_hinv)
-        mu_sat = mor.mean(lnm_p, mor.z_pivot) - 1.0
-        var_ln = mor.var_ln_lambda(lnm_p, mor.z_pivot)
-        var_target = (mor.mean(lnm_p, mor.z_pivot) ** 2) * np.expm1(var_ln)
-        sigma_intr = np.sqrt(max(var_target - mu_sat, 0.0)) / mu_sat
-        return cls(log10_Mmin=float(log10_mmin), log10_M1=float(log10_m1),
-                   alpha=float(alpha), epsilon=float(eps),
-                   sigma_intr=float(sigma_intr), z_pivot=mor.z_pivot)
-
     def mu_sat(self, ln_mass, z):
         r""":math:`\langle\lambda^{\rm sat}\rangle(M,z)`, zero below M_min."""
         mass = np.exp(np.asarray(ln_mass, dtype=float))

@@ -13,10 +13,11 @@ closed-form alternative to calibrating on Buzzard light-cones.
 :align: center
 
 $b_{\rm sel}(\theta)$ from `SelBiasEngine`'s own toy `hmf`/`bias`/$\xi_{\rm
-NL}$ stand-ins — chosen to demonstrate the *shape*, not a calibrated
-amplitude (see the note below on why $b_{\rm small}$ is unphysically large
-here). The sigmoid sits halfway between the plateaus at
-$\theta=\theta_\lambda$ by construction.
+NL}$ stand-ins — chosen to demonstrate the *shape*; the amplitude here
+still runs a bit high because `HodMor.des_y1()` is not mutually calibrated
+against this toy halo model (see the note below), but it is no longer the
+order-of-magnitude blowup a naive closure gives. The sigmoid sits halfway
+between the plateaus at $\theta=\theta_\lambda$ by construction.
 ```
 
 ## Two plateaus and a sigmoid
@@ -36,42 +37,83 @@ outside it. Both come from a single **closure**: averaging any quantity
 $X$ against the line-of-sight projection kernel defines an operator
 $\mathcal P[X]$, specialized three ways —
 $P_1=\mathcal P[1]$, $I_2=\mathcal P[b\,\xi_{\rm NL}]$,
-$I_1=\mathcal P[b\,\xi_{\rm NL}\,\sigma(\theta)]$ — and then
+$I_1=\mathcal P[b\,\xi_{\rm NL}\,\sigma(\theta)]$, $D=I_2-I_1$ — plus the
+variance analogs $P_1^{(2)}$, $I_2^{(2)}$ (`operators_var`, squared
+weights). Writing $\Delta_{\rm RND}=P_1+b_{\rm eff}I_2$ (the mean
+projected-richness excess for a *random* line of sight) and
+$\delta=\langle\lambda^{\rm ob}-\lambda^{\rm tr}\rangle/\Delta_{\rm RND}-1$,
+the closure reduces exactly (`excess_delta`, `b_small_large`) to a
+one-parameter linear response:
 
 $$
-b_{\rm large} = b_{\rm eff}\big[1+0.13\,\delta^{\rm prj}\big], \qquad
-b_{\rm small} = \frac{(\lambda^{\rm ob}-\lambda^{\rm tr}) - P_1
-- b_{\rm large}I_1}{I_2-I_1},
+b_{\rm large} = b_{\rm eff}\big(1+0.13\,\delta\big), \qquad
+b_{\rm small} = b_{\rm eff} + \delta\, A_s, \qquad
+A_s = \frac{\Delta_{\rm RND} - 0.13\, b_{\rm eff} I_1}{D},
 $$
 
 with $b_{\rm eff}=\langle b(M,z)\rangle$ the unselected aggregate bias and
-$\delta^{\rm prj}$ the fractional excess of observed over true richness
-relative to the closure's own prediction $\Delta^{\rm prj}_{\rm RND}
-=P_1+b_{\rm eff}I_2$.
+$A_s$ the closure's **gain** — how strongly $b_{\rm small}$ responds to
+$\delta$ (typically 18–40; see {doc}`plan-bsel-stable-closure` for the
+derivation). The one physical input, $\delta$, is estimated from the
+model's own operators — a first-order Eddington tilt of the *correlated*
+part of the projection variance,
+
+$$
+\delta = \gamma\,\frac{b_{\rm eff}\,I_2^{(2)}}{\Delta_{\rm RND}}, \qquad
+\gamma = -\left.\frac{d\ln n(\lambda^{\rm tr})}{d\lambda^{\rm tr}}
+\right|_{\lambda^{\rm ob}}
+\quad\text{(`gamma_lambda`)},
+$$
+
+rather than marginalized over an externally calibrated
+$P(\lambda^{\rm ob}\mid\lambda^{\rm tr})$ kernel — see the note below for
+why that used to be the unstable part.
 
 ```{note}
-**The deliverable is two scalars per bin.** The $\lambda^{\rm tr}$
-marginalization commutes with the sigmoid — $\sigma(\theta)$ carries no
-$\lambda^{\rm tr}$ dependence — so averaging the plateaus first and
-building the sigmoid after is exact, not an approximation. `SelBiasEngine`
-never stores a $\theta$ grid; `SelectionBiasTable` is two columns wide,
-matching the `y3_cluster_cpp` wall contract.
+**The deliverable is two scalars per bin.** Both plateaus are affine in
+$\lambda^{\rm tr}$ (equivalently in $\delta$), so a $\lambda^{\rm tr}$
+posterior would contribute only its *mean* to either one — no quadrature
+over $\lambda^{\rm tr}$ is needed, or helps. `SelBiasEngine` never stores a
+$\theta$ grid; `SelectionBiasTable` is two columns wide, matching the
+`y3_cluster_cpp` wall contract.
 ```
 
 ```{note}
 **The 0.13 is the one non-closed-form number** — a Buzzard-calibrated
-amplitude, exposed as `SelBiasEngine.boost_slope` so it can be varied
-rather than hidden. $b_{\rm small}$ comes from a **linear inversion** and
-is the output that can go unstable: when $I_2\to I_1$ the denominator
-vanishes, and `_closure` falls back to $b_{\rm large}$ there — a named
-degradation, not a silent one. The figure's $b_{\rm small}\approx19$ is this
-instability made visible on purpose: `HodMor.des_y1()` is not calibrated
-against the demo's Tinker(2008)+Tinker(2010)+CAMB halo model at this
-$(\lambda^{\rm ob},z^{\rm ob})$, so $\Delta^{\rm prj}_{\rm RND}$ under-predicts the true
-richness excess and the division by the small $I_2-I_1$ inflates
-$b_{\rm small}$. The *shape* of $b_{\rm sel}(\theta)$ is still correct;
-only the amplitude needs a mutually calibrated MOR, e.g.
-`HodMor.from_lognormal()` or `HodMor.buzzard()`.
+amplitude, exposed as `SelBiasEngine.boost_slope`. $b_{\rm small}$ is a
+**gain of 18–40** on $\delta$ (`excess_delta`), not a fragile
+cancellation: $D=I_2-I_1$ is computed directly (never as a float
+subtraction) and is perfectly well-conditioned on its own. The gain lives
+in the $0.13$ itself — pinning $b_{\rm large}$ to move only 13% per unit
+$\delta$ forces the *entire* required change in the correlated-channel
+integral through the $(1-\sigma)$ (small-scale) piece, so $b_{\rm small}$
+is a residual bucket by construction. That gain means $\delta$ has to be
+right to a few percent for $b_{\rm small}$ to be right to tens of percent
+— an earlier version of this engine got $\delta$ from marginalizing
+`_closure` over an externally calibrated $P(\lambda^{\rm ob}\mid
+\lambda^{\rm tr})$ kernel, which turned out to overestimate
+$\langle\lambda^{\rm ob}-\lambda^{\rm tr}\rangle$ by $1.5$–$2.2\times$
+(an exponential-tilt divergence, not a calibration-choice problem — see
+{doc}`plan-bsel-stable-closure`) and inflated $b_{\rm small}$ by
+$3$–$4\times$ against Costanzi et al. (2026)'s own published curve. The
+figure's $b_{\rm small}\approx11$ (down from $\approx19$ under the old
+closure) is what is left once that bug is gone: `HodMor.des_y1()` still
+isn't calibrated against the demo's toy Tinker+CAMB halo model, so
+$\delta$ is not small here, but it no longer gets amplified by a second,
+spurious error on top. See {doc}`validation` for the calibrated
+(`HodMor.buzzard()`) amplitude against the mock and the published figure.
+```
+
+```{warning}
+**Open limitation: $\delta$'s redshift dependence has the wrong sign.**
+`excess_delta` gets the *mean* amplitude right (validated in
+{doc}`validation`), but at fixed richness its value *decreases* with
+$z^{\rm ob}$ while the published Fig. 6 curve needs it to *increase* —
+confirmed converged (not a quadrature issue) and traced to
+$I_2^{(2)}$'s own redshift evolution falling faster than $\Delta_{\rm
+RND}$ rises. Not fixed; see {doc}`plan-bsel-stable-closure` §9 for the
+full diagnostic. Treat any single-$z$-bin use of this closure as
+mean-level-correct but shape-uncertain across $z$.
 ```
 
 ## Units and numerics
@@ -99,11 +141,13 @@ interval boundary, never a mask or a per-$z$ grid split. One named
 approximation remains: $\xi_{\rm NL}$ is **clipped at zero**, discarding
 the BAO trough (measured at $O(10^{-4})$ in a $w_z$-suppressed region),
 which keeps $I_1,I_2$ positive so the closure cannot divide by a
-sign-indefinite denominator. $I_2-I_1$ itself — the $b_{\rm small}$
-denominator — is computed as its own direct quadrature
+sign-indefinite denominator. $D=I_2-I_1$ itself — the $b_{\rm small}$
+gain's denominator — is computed as its own direct quadrature
 ($\mathcal P[b\,\xi_{\rm NL}(1-\sigma)]$, by linearity) rather than a
-float subtraction of $I_2$ and $I_1$, removing the cancellation error at
-the one place this closure can go unstable.
+float subtraction of $I_2$ and $I_1$, removing the one real cancellation
+risk in this operator; it is *not*, however, where $b_{\rm small}$'s
+sensitivity actually comes from (see the note above and
+{doc}`plan-bsel-stable-closure`).
 
 ## Example
 
@@ -114,14 +158,17 @@ the one place this closure can go unstable.
 ```
 
 ```
-theta_lambda = 0.001073 rad, b_small = 18.666, b_large = 5.068
-theta/theta_lambda=0.00  b_sel=15.6376
-theta/theta_lambda=0.50  b_sel=11.8669
-theta/theta_lambda=1.00  b_sel=8.0962
-theta/theta_lambda=2.00  b_sel=5.3804
-theta/theta_lambda=5.00  b_sel=5.0681
+theta_lambda = 0.001073 rad, b_small = 11.005, b_large = 4.320
+theta/theta_lambda=0.00  b_sel=9.5167
+theta/theta_lambda=0.50  b_sel=7.6629
+theta/theta_lambda=1.00  b_sel=5.8091
+theta/theta_lambda=2.00  b_sel=4.4739
+theta/theta_lambda=5.00  b_sel=4.3204
 ```
 
 See also: {doc}`api/index` for the full `clenspy.selection` reference,
 {doc}`notation` for the symbol table, {doc}`selection_function` for the
-$S_i$ this same engine's richness marginalization builds on.
+$S_i$ this same engine's richness marginalization builds on, and
+{doc}`plan-bsel-stable-closure` for the closure's derivation and its
+validation against the mock and the published Costanzi et al. (2026)
+figure ({doc}`validation`).

@@ -26,15 +26,15 @@ C3 = [C4[3], C4[2], C4[1]]
 
 sns.set_theme(style="white", context="talk", font_scale=0.8)
 
-H, OMEGA_M = 0.6736, 0.3153  # Planck 2018 (assumed; the mock is DES Y3 data)
+H, OMEGA_M = 0.7, 0.286  # Buzzard v1.1, confirmed via costanzi_notebook/cosmology.py
 
 
-class PlanckCosmology(FlatLambdaCDM):
-    sigma8 = 0.8111
-    n_s = 0.9649
+class BuzzardCosmology(FlatLambdaCDM):
+    sigma8 = 0.82
+    n_s = 0.96
 
 
-COSMO = PlanckCosmology(H0=100.0 * H, Om0=OMEGA_M, Ob0=0.0493)
+COSMO = BuzzardCosmology(H0=100.0 * H, Om0=OMEGA_M, Ob0=0.046)
 
 
 def halo_model():
@@ -55,9 +55,9 @@ def fig_projection_lensing():
     # one built halo model, shared by SigmaPrj and SelBiasEngine
     prj = SigmaPrj(cosmology=COSMO, xi_nl=xi_nl, hmf=tmf, bias=bm,
                    config=SigmaPrjConfig(
-                       los_window="hard", los_depth=50.0 / H,
+                       los_depth=50.0 / H,
                        exclusion="ball", theta_perp_range=(1e-3, 60.0 / H)))
-    engine = SelBiasEngine(sigma_prj=prj, mor=HodMor.from_lognormal())
+    engine = SelBiasEngine(sigma_prj=prj, mor=HodMor.buzzard())
     bsel = engine.marginalised_bias(lob, zob, b_eff=b_eff)
 
     R = np.geomspace(0.1, 40.0, 32)  # comoving Mpc

@@ -155,9 +155,7 @@ def main():
     sigma_prj = SigmaPrj(cosmology=V.COSMO, hmf=hmf, bias=bias,
                         xi_nl=xi_nl).build()
     for label, mor in (
-        ("HodMor.from_lognormal() [current production MOR]",
-         HodMor.from_lognormal()),
-        ("HodMor.buzzard()", HodMor.buzzard()),
+        ("HodMor.buzzard() [current production MOR]", HodMor.buzzard()),
     ):
         print(f"=== MOR = {label} ===")
         engine = SelBiasEngine(sigma_prj=sigma_prj, mor=mor)
