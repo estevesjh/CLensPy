@@ -10,7 +10,6 @@ data/processed/fig6_panels.csv (per-panel summary).
 from __future__ import annotations
 
 import csv
-import os
 import sys
 from pathlib import Path
 

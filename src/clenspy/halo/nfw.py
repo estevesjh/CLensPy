@@ -484,7 +484,6 @@ __all__ = ["NfwProfile"]
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    import numpy as np
 
     from clenspy.halo.nfw import NfwProfile
 

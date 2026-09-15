@@ -532,7 +532,7 @@ class SigmaPrj:
                                   cfg.n_M)
         geometry = self._geometry(thetas, lob, zob)
 
-        ## master equation, background: common(z)/(dchi/dz) n(M,z) M dlnM
+        # master equation, background: common(z)/(dchi/dz) n(M,z) M dlnM
         n_rnd_integrand = field_integrand(
             self.distance, self.hmf, self.common,
             Ms, M_weight)

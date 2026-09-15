@@ -362,8 +362,6 @@ class BiasModel:
 
 
 if __name__ == "__main__":
-    import numpy as np
-
     # a smooth power-law P(k), so no Boltzmann solver is needed
     k = np.logspace(-4, 3, 800)
     P = 2e4 * k**-1.5 / (1.0 + (k / 0.2) ** 2)

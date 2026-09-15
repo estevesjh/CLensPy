@@ -259,8 +259,6 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    import numpy as np
-
     R = np.array([0.1, 0.3, 1.0, 3.0, 10.0])
     rs = 0.35  # Mpc, an NFW scale radius for M ~ 1e14
     print("boost factor B(R), McClintock et al. 2019 eq. 27")

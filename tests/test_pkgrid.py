@@ -38,6 +38,7 @@ class TestCallBroadcasting:
 
     @pytest.fixture(scope="class")
     def grid(self):
+        pytest.importorskip("pyccl")
         return make_pkgrid()
 
     def test_scalar_in_scalar_out(self, grid):
@@ -96,6 +97,7 @@ class TestCacheRoundTrip:
         )
 
     def test_cache_file_written(self, tmp_path, monkeypatch):
+        pytest.importorskip("pyccl")
         monkeypatch.setenv("CLENSPY_DATA", str(tmp_path))
         PkGrid(**self.spec_kwargs())
 
@@ -105,6 +107,7 @@ class TestCacheRoundTrip:
         assert len(npz_files) == 1
 
     def test_second_instance_loads_from_cache(self, tmp_path, monkeypatch):
+        pytest.importorskip("pyccl")
         monkeypatch.setenv("CLENSPY_DATA", str(tmp_path))
         first = PkGrid(**self.spec_kwargs())
 
@@ -123,6 +126,7 @@ class TestFileHelpers:
     """_dump_to_file / _load_from_file round-trip exactly."""
 
     def test_dump_and_load(self, tmp_path):
+        pytest.importorskip("pyccl")
         grid = make_pkgrid()
         path = tmp_path / "x.npz"
         grid._dump_to_file(path)
@@ -148,6 +152,7 @@ class TestRealBackendBuilds:
     """Tiny end-to-end grids from both real solvers."""
 
     def test_camb_grid_shape_and_values(self):
+        pytest.importorskip("camb")
         grid = PkGrid(
             backend="camb",
             cosmo=fiducial_cosmology(),
@@ -163,6 +168,7 @@ class TestRealBackendBuilds:
         assert np.all(grid.pk > 0)
 
     def test_pyccl_grid_shape_and_values(self):
+        pytest.importorskip("pyccl")
         grid = PkGrid(
             backend="pyccl",
             cosmo=fiducial_cosmology(),

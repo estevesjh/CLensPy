@@ -20,11 +20,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable, Sequence
+from typing import Sequence
 
 import numpy as np
 
-from ..cosmology.distances import ComovingDistance, comoving_volume_element
+from ..cosmology.distances import comoving_volume_element
 from ..cosmology.fiducial import fiducial_cosmology
 from ..kernels.photoz import (
     photoz_chi_bounds,
@@ -397,8 +397,8 @@ class SelBiasEngine:
 
         def weighted(with_bias_xi):
             def integrand(r, chi, theta_index):
-                ## n(M,z), optionally x b(M,z) xi_NL(r) -- the two bare
-                ## LOS/mass building blocks, shared with SigmaPrj
+                # n(M,z), optionally x b(M,z) xi_NL(r) -- the two bare
+                # LOS/mass building blocks, shared with SigmaPrj
                 base = n_field(r, chi, theta_index)         # (M, branch, u)
                 if with_bias_xi:
                     z_flat = self.distance.z_of_chi(chi).ravel()
@@ -407,7 +407,7 @@ class SelBiasEngine:
                     b_M = self.bias(Ms, z_flat).reshape(Ms.size, *r.shape)
                     base = base * b_M * xi[None, :, :]
 
-                ## the f_A(theta,lambda,z) piece, lambda-tr marginalised
+                # the f_A(theta,lambda,z) piece, lambda-tr marginalised
                 z = self.distance.z_of_chi(chi)              # (branch, u)
                 theta_lam = (r_lambda(lam, self.h)[:, None, None]
                             * (1.0 + z)[None, :, :] / chi[None, :, :])
@@ -426,7 +426,7 @@ class SelBiasEngine:
         bxi_los = integrate_los(geometry, weighted(True), self.n_z, "outside")
 
         def contract(los):
-            ## sum lambda (w_lam) and M (already M-weighted inside n_field)
+            # sum lambda (w_lam) and M (already M-weighted inside n_field)
             return np.einsum("tLM,L->t", los, w_lam)
 
         per_theta_P1 = contract(p1_los)
@@ -782,7 +782,6 @@ class SelBiasEngine:
         )
 
 if __name__ == "__main__":
-    from ..cosmology.fiducial import fiducial_cosmology
     from ..lensing.projection import SigmaPrj
     from .scaling_relation import HodMor
 

@@ -356,8 +356,6 @@ __all__ = ["TwoHaloTerm"]
 
 
 if __name__ == "__main__":
-    import numpy as np
-
     k = np.logspace(-3, 1, 64)
     Pk = 2e4 * k**-1.5          # a pure power law -> smooth, monotonic output
     z = 0.25

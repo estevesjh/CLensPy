@@ -170,8 +170,6 @@ __all__ = ["LogGridInterpolator", "make_log_interpolation"]
 
 
 if __name__ == "__main__":
-    import numpy as np
-
     x = np.logspace(-2, 1, 40)
     z = np.array([0.0, 0.5, 1.0])
     # a separable power law, so the log-log interpolant is exact

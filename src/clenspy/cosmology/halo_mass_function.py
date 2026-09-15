@@ -53,6 +53,7 @@ def _hash_arrays(*arrays) -> str:
         h.update(np.ascontiguousarray(a, dtype=float).tobytes())
     return h.hexdigest()
 
+
 #: Tinker et al. (2008) Table 2 -- ``Delta -> (A0, a0, b0, c)``, with
 #: :math:`\Delta` referred to the mean matter density. Interpolated
 #: linearly in :math:`\log_{10}\Delta`, as the paper prescribes.
