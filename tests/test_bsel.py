@@ -28,6 +28,8 @@ from clenspy.selection import (
 )
 from clenspy.selection.scaling_relation import HodMor
 
+pytest.importorskip("camb")
+
 COSMO = fiducial_cosmology()
 H = COSMO.h
 LOB, ZOB = 40.0, 0.4
