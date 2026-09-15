@@ -325,6 +325,7 @@ def make_figure(results, out):
     axes[0].legend(fontsize=13, loc="upper right")
     fig.tight_layout()
     fig.savefig(out, dpi=140)
+    plt.close(fig)
     print(f"\n  wrote {out}")
 
 

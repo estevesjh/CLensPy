@@ -3,10 +3,10 @@ r"""The selection-affected halo bias, :math:`b_{\rm sel}(\theta)`.
 The paper's Section 4.1. Most of these are structural rather than
 numerical, because the physical amplitude needs a self-consistent halo
 model and the point of the tests is the *machinery*: that the three
-operators are positive and ordered, that the closure inverts, that the
-:math:`\lambda^{\rm tr}` marginalisation commutes with the sigmoid (which
-is what makes a two-scalar table exact), and that the sigmoid has the
-shape the paper specifies.
+operators are positive and ordered, that the closure inverts, that both
+plateaus are affine in :math:`\lambda^{\rm tr}` (which is what makes a
+two-scalar table exact -- see docs/plan-bsel-stable-closure.md), and that
+the sigmoid has the shape the paper specifies.
 """
 
 from types import SimpleNamespace
@@ -14,7 +14,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from clenspy.cosmology import TinkerMassFunction
+from clenspy.cosmology.bias import BiasModel
 from clenspy.cosmology.fiducial import fiducial_cosmology
+from clenspy.cosmology.pkgrid import PkGrid
+from clenspy.lensing import SigmaPrj
 from clenspy.selection import (
     PhysicalMassMor,
     SelBiasEngine,
@@ -22,34 +26,33 @@ from clenspy.selection import (
     SigmoidBias,
     XiNL,
 )
-from clenspy.selection.geometry import r_lambda, sigmoid_theta
 from clenspy.selection.scaling_relation import HodMor
 
 COSMO = fiducial_cosmology()
 H = COSMO.h
 LOB, ZOB = 40.0, 0.4
 
-
-def _hmf(mass, z):
-    m, zz = np.broadcast_arrays(np.asarray(mass, float),
-                                np.asarray(z, float))
-    return 1e-19 * (m / 1e14) ** -2.0 * np.exp(-m / 5e14) / (1.0 + zz)
-
-
-def _bias(mass, z):
-    m, zz = np.broadcast_arrays(np.asarray(mass, float),
-                                np.asarray(z, float))
-    return 1.0 + 0.9 * (m / 3e14) ** 0.3 * (1.0 + zz) ** 0.5
-
-
-def _xi(r, zob):
-    r = np.asarray(r, dtype=float)
-    return np.maximum((np.maximum(r, 1e-3) / 5.0) ** -1.8, 0.0)
+# the real halo model, once -- CAMB is disk-cached, so this is one real
+# build shared by every test, not a toy stand-in (matches the "no toy
+# stand-ins" convention of tests/test_projection.py)
+_MGRID = np.geomspace(1.0e12, 1.0e16, 128)
+_ZGRID = np.linspace(0.0, 1.0, 21)
+_HMF = TinkerMassFunction(cosmo=COSMO, mvec=_MGRID, zvec=_ZGRID)
+_BIAS_MODEL = BiasModel(cosmo=COSMO, mvec=_MGRID, zvec=_ZGRID)
+_XI_NL = XiNL(PkGrid(cosmo=COSMO, nonlinear=True), clip=False)
+_SIGMA_PRJ = SigmaPrj(cosmology=COSMO, hmf=_HMF, bias=_BIAS_MODEL,
+                      xi_nl=_XI_NL).build()
 
 
 def _engine(**kw):
-    kwargs = dict(cosmology=COSMO, xi_nl=_xi, hmf=_hmf, bias=_bias,
-                  mor=PhysicalMassMor(HodMor.des_y1(), H),
+    """SelBiasEngine sharing the module's built SigmaPrj; ``xi_nl=``
+    (only) rebuilds a fresh SigmaPrj with that override -- hmf/bias stay
+    the already-built grid models, so no CAMB re-run."""
+    xi_override = kw.pop("xi_nl", None)
+    sigma_prj = (_SIGMA_PRJ if xi_override is None else
+                 SigmaPrj(cosmology=COSMO, hmf=_HMF, bias=_BIAS_MODEL,
+                          xi_nl=xi_override).build())
+    kwargs = dict(sigma_prj=sigma_prj, mor=HodMor.des_y1(),
                   n_z=24, n_M=12, n_theta=6, n_ltr=30, ltr_grid_size=8)
     kwargs.update(kw)
     return SelBiasEngine(**kwargs)
@@ -179,48 +182,20 @@ def test_b_eff_is_a_bias_weighted_average_within_range():
     engine = _engine()
     b_eff = engine.b_eff(LOB, ZOB)
     masses = np.array([engine.min_mass, 10.0**engine.log10_M_max])
-    assert _bias(masses, ZOB).min() < b_eff < _bias(masses, ZOB).max()
+    b_vals = engine.bias(masses, ZOB)
+    assert b_vals.min() < b_eff < b_vals.max()
 
 
-def test_z_grid_drops_the_outer_fg_side_when_the_exclusion_ball_engulfs_it():
-    r"""``_outer``'s ``R_excl >= dis_max`` guard.
-
-    Shrinking the foreground window until its whole comoving span sits
-    inside the exclusion ball leaves nothing for the log-spaced outer
-    quadrature to sample, so that side must come back empty rather than
-    erroring on ``log(dis_max) < log(R_excl)``.
-    """
-    engine = _engine()
-    lob, zob = 200.0, 0.4
-    R_excl = float(r_lambda(lob, engine.h) * (1.0 + zob))
-    chi_o = float(engine.chi(zob))
-
-    # a foreground boundary whose distance from chi_o is half of R_excl:
-    # dis_fg_max < R_excl, so the fg branch must return empty arrays.
-    from scipy.optimize import brentq
-
-    target = 0.5 * R_excl
-    z_fg_lo = brentq(lambda z: (chi_o - float(engine.chi(z))) - target,
-                     1e-4, zob)
-    z_bg_hi = zob + 0.4          # generous background side: not triggered
-
-    zs_narrow, wzs_narrow = engine._z_grid(lob, zob, z_fg_lo, z_bg_hi)
-    zs_wide, wzs_wide = engine._z_grid(lob, zob, 1e-4, z_bg_hi)
-
-    # the wide call keeps its fg outer nodes, the narrow one drops them
-    assert zs_narrow.size < zs_wide.size
-    assert np.all(np.isfinite(zs_narrow)) and np.all(np.isfinite(wzs_narrow))
-    assert zs_narrow.min() >= z_fg_lo - 1e-9
-
-
-def test_operators_skip_z_nodes_whose_exclusion_angle_exceeds_theta_max():
-    r"""``if th_lo >= theta_max or wz_kern[iz] == 0.0: continue``.
-
-    Shrinking ``theta_lob`` (independent of the exclusion geometry, which
-    is driven by ``R_excl``) pushes ``theta_max`` below the exclusion
-    angle at some line-of-sight nodes, so the loop must skip them without
-    crashing and still return a finite, non-negative result built from the
-    surviving ones.
+def test_operators_stay_finite_when_exclusion_dominates_the_aperture():
+    r"""The old mechanism was a per-`z` Python skip when
+    ``theta_excl(z)`` exceeded ``theta_max``; the new one is
+    `clenspy.utils.los_integrals.LosGeometry`'s ``u_split`` collapsing
+    the "outside" interval smoothly to (near-)empty. Shrinking
+    ``theta_lob`` (independent of the exclusion geometry, driven by
+    ``R_excl``) pushes the exclusion angle above ``theta_max`` at some
+    line-of-sight nodes; `operators` must still return finite,
+    non-negative numbers built from the surviving ones, not NaN or a
+    crash.
     """
     engine = _engine()
     natural_theta_lob = engine._theta_lob(LOB, ZOB)
@@ -228,7 +203,7 @@ def test_operators_skip_z_nodes_whose_exclusion_angle_exceeds_theta_max():
     p1, i1, i2 = engine.operators(LOB, ZOB)
     assert np.all(np.isfinite([p1, i1, i2]))
     assert p1 >= 0.0 and i1 >= 0.0 and i2 >= 0.0
-    # some z-nodes did contribute -- this is a partial skip, not a wipeout
+    # some nodes did contribute -- this is a partial skip, not a wipeout
     assert p1 > 0.0
 
 
@@ -267,33 +242,75 @@ def test_a_degenerate_denominator_falls_back_rather_than_diverging():
     np.testing.assert_allclose(b_small, b_large, rtol=0.0)
 
 
+def test_the_stable_D_matches_the_subtraction_away_from_degeneracy():
+    r"""``D`` (`_operators`'s directly-quadratured :math:`I_2-I_1`) and the
+    plain float subtraction agree wherever there is no cancellation to
+    protect against -- i.e. this is the same number, computed two ways."""
+    engine = _engine()
+    p1, i1, i2 = engine.operators(LOB, ZOB)
+    D = engine._d_cache[("ops", float(LOB), float(ZOB))]
+    assert D == pytest.approx(i2 - i1, rel=1e-6)
+
+
 # -- the marginalisation, and why the table is two columns wide ------------
 
 
-def test_the_marginalisation_commutes_with_the_sigmoid():
-    r"""The identity that makes a two-scalar table **exact**.
-
-    :math:`\sigma(\theta)` carries no :math:`\lambda^{\rm tr}`, so
-    averaging the plateaus and then building the sigmoid equals building a
-    sigmoid per :math:`\lambda^{\rm tr}` and averaging. Without this the
-    table would have to store a whole :math:`\theta` grid per bin.
+def test_b_small_large_matches_the_closure_at_the_injected_delta():
+    r"""`b_small_large` is `_closure`'s own algebra, evaluated at a single
+    ``ltr`` equivalent to ``delta`` -- both plateaus are affine in
+    :math:`\lambda^{\rm tr}`, so a posterior would contribute only its
+    mean (docs/plan-bsel-stable-closure.md), and this is that mean
+    evaluated directly rather than quadratured and averaged.
     """
     engine = _engine()
-    p1, i1, i2 = engine.operators(LOB, ZOB)
+    P1, I1, I2 = engine.operators(LOB, ZOB)
+    D = engine._d_cache[("ops", float(LOB), float(ZOB))]
     b_eff = engine.b_eff(LOB, ZOB)
-    ltr, weights = engine._ltr_weights(LOB, ZOB)
-    _, b_small_vec, b_large_vec = engine._closure(
-        LOB, p1, i1, i2, b_eff, ltr)
-    profile = engine.marginalised_bias(LOB, ZOB)
-    theta_lam = profile.theta_lambda
+    delta = 0.3
+    D_RND = P1 + b_eff * I2
+    ltr_equiv = np.array([LOB - D_RND * (1.0 + delta)])
+    _, bs_expected, bl_expected = engine._closure(
+        LOB, P1, I1, I2, b_eff, ltr_equiv, D=D)
 
-    for fraction in (0.1, 0.5, 1.0, 3.0):
-        theta = fraction * theta_lam
-        sigma = sigmoid_theta(theta, theta_lam)
-        built_then_averaged = float(np.sum(
-            weights * (b_small_vec + (b_large_vec - b_small_vec) * sigma)))
-        assert profile(theta) == pytest.approx(built_then_averaged,
-                                              rel=1e-12), fraction
+    bs, bl = engine.b_small_large(LOB, ZOB, b_eff=b_eff, delta=delta)
+    assert bs == pytest.approx(float(bs_expected[0]), rel=1e-12)
+    assert bl == pytest.approx(float(bl_expected[0]), rel=1e-12)
+
+
+def test_b_small_large_at_zero_delta_is_the_fixed_point():
+    """delta=0 (an average line of sight) collapses both plateaus to
+    b_eff exactly -- the closure's own fixed point."""
+    engine = _engine()
+    b_eff = engine.b_eff(LOB, ZOB)
+    bs, bl = engine.b_small_large(LOB, ZOB, b_eff=b_eff, delta=0.0)
+    assert bs == pytest.approx(b_eff, rel=1e-10)
+    assert bl == pytest.approx(b_eff, rel=1e-14)
+
+
+def test_b_small_large_accept_an_external_b_eff():
+    r"""The ``b_eff=`` override: `ClusterCounts.average` computes the
+    bin-averaged :math:`N[b]/N[1]` and feeds it here in place of the
+    engine's own fixed-:math:`\lambda^{\rm ob}` average. ``None``
+    reproduces the internal value exactly; a passed value threads into
+    both plateaus (:math:`b_{\rm large} = b_{\rm eff}(1 +
+    0.13\delta^{\rm prj})` directly, :math:`b_{\rm small}` through the
+    closure)."""
+    engine = _engine()
+    internal = engine.b_small_large(LOB, ZOB)
+    explicit = engine.b_small_large(LOB, ZOB, b_eff=engine.b_eff(LOB, ZOB))
+    assert explicit == pytest.approx(internal, rel=1e-14)
+
+    b_small_2, b_large_2 = engine.b_small_large(LOB, ZOB, b_eff=2.0)
+    b_small_3, b_large_3 = engine.b_small_large(LOB, ZOB, b_eff=3.0)
+    assert b_small_2 != b_small_3 and b_large_2 != b_large_3
+    # b_large follows the closure formula at the passed b_eff exactly
+    # (delta itself depends on b_eff through Delta_RND = P1 + b_eff I2,
+    # and through excess_delta's own b_eff factor)
+    delta = engine.excess_delta(LOB, ZOB, 2.0)
+    expected = 2.0 * (1.0 + engine.boost_slope * delta)
+    assert b_large_2 == pytest.approx(expected, rel=1e-12)
+    profile = engine.marginalised_bias(LOB, ZOB, b_eff=2.0)
+    assert profile.b_large == pytest.approx(b_large_2, rel=1e-14)
 
 
 def test_the_ltr_weights_are_normalised():
@@ -396,6 +413,14 @@ def test_physical_mass_mor_repr_names_itself():
     text = repr(adapter)
     assert isinstance(text, str)
     assert "PhysicalMassMor" in text
+
+
+def test_engine_wraps_the_raw_mor_itself():
+    r"""``SelBiasEngine(mor=...)`` takes the raw h-scaled MOR and wraps it
+    in `PhysicalMassMor` internally -- the caller never constructs that
+    adapter by hand."""
+    engine = _engine()
+    assert isinstance(engine.mor, PhysicalMassMor)
 
 
 def test_the_default_mass_range_is_the_richness_selection_one():

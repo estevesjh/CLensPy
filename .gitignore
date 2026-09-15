@@ -211,6 +211,7 @@ Temporary Items
 *.hdf5
 *.h5
 data/
+!validation/data/
 output/
 plots/
 results/
@@ -227,7 +228,17 @@ docs/*.pdf
 # Reference material kept locally, not part of the package
 *.djvu
 docs/Slice_*.md
-/papers/
+# papers/ holds untracked reference PDFs -- except the projection-lensing
+# and validations report SOURCES (tex/scripts/Makefile); their build/ and
+# data/ stay generated
+/papers/*
+!/papers/projection_lensing/
+/papers/projection_lensing/build/
+/papers/projection_lensing/data/
+!/papers/validations/
+/papers/validations/build/
+/papers/validations/data/
+
 
 # Example script output
 examples/*.png

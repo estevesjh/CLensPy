@@ -100,9 +100,10 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 | Source density | $n_{\rm src}$ | Effective sources per unit sky area. **The one non-Mpc unit in the package** | ${\rm arcmin}^{-2}$ | `n_src_arcmin` | `survey` | ✅ |
 | Lens / cluster redshift | $z_l$, $z_{\rm cls}$ | | — | `z_cluster` | `lensing.profile` | ✅ |
 
-> 🔶 `TwoHaloTerm` implements the linear-bias $b(M)\rho_m\xi(r)$ form, **not** the
-> full $\Sigma^{\rm prj}$ of E26 eq. `Sprj` (no $\bar b_{\rm sel}$, no exclusion,
-> no $\theta$ integral). See §5 and `refactor-plan.md` errata E.3.
+> 🔶 `TwoHaloTerm` implements the linear-bias $b(M)\rho_m\xi(r)$ form; the
+> full $\Sigma^{\rm prj}$ of E26 eq. `Sprj` (with $\bar b_{\rm sel}$, exclusion,
+> and the exact $\theta$ integral) is `lensing.projection.SigmaPrj` — see §5,
+> {doc}`projection_lensing`, and `refactor-plan.md` errata E.3.
 >
 > 🔶 `selection.miscentering` computes the azimuthal average at **one fixed
 > offset** $R_{\rm mis}$. The Gamma-distributed offset population and the
@@ -146,21 +147,64 @@ $\rho_c(z)$ in its place folds in $E^2(z)$ and overstates it by 34% at $z=0.25$.
 | Miscentering scale | $\tau_{\rm mis}$ | $0.17\pm0.04$; $p(R_{\rm mis})=\frac{R_{\rm mis}}{(\tau R_\lambda)^2}e^{-R_{\rm mis}/(\tau R_\lambda)}$. **Not the EMG $\tau$** | — | ⬜ | `selection` | ⬜ |
 | Boost factor | $\mathcal B(R)$ | Member dilution of the source sample (McC19) | — | `boost_factor_nfw` | `selection.boost` | ✅ |
 
-## 5. Projection two-halo (E26 §4.1) — not yet implemented
+## 5. Projection two-halo (E26 §4.1) — `lensing.projection.SigmaPrj`
 
-| Quantity | Symbol | Meaning | Units | |
-|---|---|---|---|---|
-| Angular separation | $\theta$ | LOS neighbour angular offset. Measure is $2\pi\sin\theta\,d\theta$ — spherical, **no Limber** | rad | ⬜ |
-| Projected offset | $R_\theta=\theta D_A(z^{\rm ob})$ | Neighbour transverse separation | Mpc | ⬜ |
-| Selection bias | $\bar b_{\rm sel}(\lambda^{\rm ob},z^{\rm ob},\theta)$ | $\bar b_{\rm small}[1-\sigma(\theta)]+\bar b_{\rm large}\sigma(\theta)$; multiplies the **correlated channel only** | — | ⬜ |
-| LOS separation | $d\chi$ | $\sqrt{\chi_z^2+\chi_o^2-2\chi_z\chi_o\cos\theta}$ — law of cosines | Mpc | ⬜ |
-| Exclusion angle | $\theta_{\rm excl}(z)$ | Law of cosines from $R_\lambda$; masks $\theta\le\theta_{\rm excl}$ | rad | ⬜ |
-| Random channel | $w_{\rm rnd}(M)$ | $\int dz\,{\rm common}(z)\,n(M,z)$ | | ⬜ |
-| Correlated channel | $w_{\rm cl}(\theta,M)$ | $\int dz\,{\rm common}(z)\,\xi_{\rm NL}\,n\,b\,\mathbb 1[\theta>\theta_{\rm excl}]$ | | ⬜ |
-| Common weight | ${\rm common}(z)$ | $\frac{dV}{d\Omega dz}w_{pz}(z;z^{\rm ob})w_z^{\rm GL}$ — **no $\Omega(z)$** | | ⬜ |
+| Quantity | Symbol | Meaning | Units | Code | |
+|---|---|---|---|---|---|
+| Projected surface density | $\Sigma_{\rm prj}(R)$ | E26 eq. 13, comoving, h-free | $M_\odot\,{\rm Mpc}^{-2}$ | `SigmaPrj.sigma_prj` | ✅ |
+| Excess surface density | $\Delta\Sigma_{\rm prj}(R)$ | The **kernel swap** $\Sigma_{\rm mis}\to\Delta\Sigma_{\rm mis}$ inside the same operator — never reconstructed from $\Sigma_{\rm prj}$ | $M_\odot\,{\rm Mpc}^{-2}$ | `SigmaPrj.deltasigma_prj` | ✅ |
+| Angular separation | $\theta$ | LOS neighbour angular offset. Measure is $2\pi\sin\theta\,d\theta$ — spherical, **no Limber**; integrated as **exact per-cell annulus masses** (the $\Sigma_{\rm mis}$ ring at $\theta\chi_o\approx R$ defeats pointwise rules) | rad | `theta_grid`, `theta_edges` | ✅ |
+| Projected offset | $R_\theta=\theta \chi(z^{\rm ob})$ | Neighbour transverse comoving separation ($=\theta D_A$ physical) | Mpc | `kernel` | ✅ |
+| Selection bias | $\bar b_{\rm sel}(\lambda^{\rm ob},z^{\rm ob},\theta)$ | $\bar b_{\rm small}[1-\sigma(\theta)]+\bar b_{\rm large}\sigma(\theta)$; multiplies the **correlated channel only** | — | `SigmoidBias`, per-bin argument | ✅ |
+| LOS separation | $d\chi$ | $\sqrt{\chi_z^2+\chi_o^2-2\chi_z\chi_o\cos\theta}$ — law of cosines | Mpc | `dchi` | ✅ |
+| Exclusion radius | $R_{\rm excl}$ | $R_\lambda(\lambda^{\rm ob})(1+z^{\rm ob})$ comoving; `"counter"` (default: $-1$ counter term in the ball, background uniform), `"cl"` slab (E.3), `"ball"` | Mpc | `r_excl`, `exclusion=` | ✅ |
+| Random channel | $w_{\rm rnd}(\theta,M)$ | $\int dz\,{\rm common}(z)\,n(M,z)\,m_{\rm rnd}$ | | `_channel_weights` | ✅ |
+| Correlated channel | $w_{\rm cl}(\theta,M)$ | $\int dz\,{\rm common}(z)\,\xi_{\rm NL}\,n\,b\,m_{\rm cl}$ | | `_channel_weights` | ✅ |
+| Common weight | ${\rm common}(z)$ | $\frac{dV}{d\Omega dz}w_{pz}(z;z^{\rm ob})$ — **no $\Omega(z)$**; `los_window="hard"` replaces $w_{pz}$ by a top-hat in $\chi$ (the Costanzi mock) | | `common`, `los_window=` | ✅ |
 
-Keep `rnd` and `cl` stored separately and sum at the end; the scientific
-argument is about which dominates where.
+**The two-halo term carries no background**: $\Sigma_{\rm prj}$ is the
+correlated excess $b\,\bar b_{\rm sel}\,\xi_{\rm NL}$ integral alone
+(cluster_toolkit $\Sigma_{2h}$ convention; `channel="cl"`, the default).
+The mean background column (the `1` of the halo-model bracket) is the
+separate `rnd` channel, added via `channel="sum"` only against raw mass
+maps. Both stored on `self.rnd`/`self.cl`, served by `components()`.
+Validated against the Costanzi mock in
+`validation/validate_sigma_prj_mock.py`.
+
+## 6. Selection-affected bias b_sel (C26 §4.1) — `selection.bsel.SelBiasEngine`
+
+| Quantity | Symbol | Meaning | Units | Code | |
+|---|---|---|---|---|---|
+| Projection operator | $\mathcal P[X]$ | LOS/mass/$\lambda^{\rm tr}$/$\theta$ average of $X$ against the projection kernel (weight `common(z)`$\times$`n(M,z)`$\times P(\lambda\mid M,z)\times f_A(\theta,\lambda,z)$) at fixed $(\lambda^{\rm ob},z^{\rm ob})$ | — | `_operators` | ✅ |
+| Background operator | $P_1$ | $\mathcal P[1]$ | — | `operators` | ✅ |
+| Correlated operator | $I_2$ | $\mathcal P[b\,\xi_{\rm NL}]$ | — | `operators` | ✅ |
+| Small-scale correlated operator | $I_1$ | $\mathcal P[b\,\xi_{\rm NL}\,\sigma(\theta)]$; derived as $I_2-D$, never quadratured on its own | — | `operators` | ✅ |
+| Small-scale complement | $D$ | $I_2-I_1=\mathcal P[b\,\xi_{\rm NL}(1-\sigma)]$, quadratured directly (not by subtraction) | — | `_d_cache` | ✅ |
+| Variance operators | $P_1^{(2)}$, $I_2^{(2)}$ | Same as $P_1,I_2$ with squared weights ($\lambda^2,w_z^2,f_A^2$) | — | `operators_var` | ✅ |
+| Unselected bias | $b_{\rm eff}$ | $N[b]/N[1]$, mass-marginalised at fixed $\lambda^{\rm ob}$ (or externally, e.g. `ClusterCounts.average`'s bin-averaged $N[b]/N[1]$) | — | `b_eff` | ✅ |
+| Random-LOS excess | $\Delta_{\rm RND}$ | $P_1+b_{\rm eff}I_2$ — mean projected-richness boost for a *random* line of sight | richness | `delta_stats` | ✅ |
+| Excess richness | $\delta$ | $\langle\lambda^{\rm ob}-\lambda^{\rm tr}\rangle/\Delta_{\rm RND}-1$, the closure's one physical input | — | `excess_delta` | ✅ |
+| Richness log-slope | $\gamma$ | $-d\ln n(\lambda^{\rm tr})/d\lambda^{\rm tr}$ at $\lambda^{\rm tr}=\lambda^{\rm ob}$ (two-point log-derivative of the mass-marginalised richness function) | ${\rm richness}^{-1}$ | `gamma_lambda` | ✅ |
+| Boost slope | $s$ | $0.13$, Buzzard-calibrated, the one non-closed-form number | — | `boost_slope` | ✅ |
+| Small-scale gain | $A_s$ | $(\Delta_{\rm RND}-s\,b_{\rm eff}I_1)/D$ — $b_{\rm small}$'s sensitivity to $\delta$, typically 18–40 | — | (inline in `b_small_large`) | ✅ |
+| Small-scale plateau | $b_{\rm small}$ | $b_{\rm eff}+\delta A_s$ — the $\theta\to0$ limit of $b_{\rm sel}$ | — | `b_small_large` | ✅ |
+| Large-scale plateau | $b_{\rm large}$ | $b_{\rm eff}(1+s\,\delta)$ — the $\theta\to\infty$ limit of $b_{\rm sel}$ | — | `b_small_large` | ✅ |
+| Cluster aperture angle | $\theta_\lambda$ | $R_\lambda(\lambda^{\rm ob})(1+z^{\rm ob})/\chi(z^{\rm ob})$ | rad | `_theta_lob` | ✅ |
+| Sigmoid transition | $\sigma(\theta)$ | $[1+e^{-k(\theta-\theta_0)}]^{-1}$, $k=2.5/\theta_\lambda$, $\theta_0=\theta_\lambda/2$ | — | `sigmoid_theta` | ✅ |
+| Scale-dependent bias | $b_{\rm sel}(\theta)$ | $b_{\rm small}(1-\sigma)+b_{\rm large}\sigma$ | — | `SigmoidBias`, `marginalised_bias` | ✅ |
+
+> Both plateaus are affine in $\lambda^{\rm tr}$ (equivalently in $\delta$),
+> so a $\lambda^{\rm tr}$ posterior would contribute only its *mean* — no
+> quadrature over $\lambda^{\rm tr}$ changes either plateau. An earlier
+> version of `b_small_large` estimated that mean by marginalizing the
+> closure over an externally calibrated $P(\lambda^{\rm ob}\mid
+> \lambda^{\rm tr})$ kernel (`_ltr_weights`, kept for that direct-algebra
+> use but no longer the default path); `excess_delta` replaced it after
+> that kernel was found to overestimate $\langle\lambda^{\rm ob}-
+> \lambda^{\rm tr}\rangle$ by $1.5$–$2.2\times$ (an exponential-tilt
+> divergence against a steep richness function — see
+> {doc}`_archive/plan-bsel-stable-closure`), which the $18$–$40\times$ gain $A_s$
+> turned into a $3$–$4\times$ error on $b_{\rm small}$.
 
 ---
 

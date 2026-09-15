@@ -147,7 +147,8 @@ class DeltaSigmaHaloToHaloCovariance:
             c200=(c_median[:, None] * self._c_shift[None, :]).ravel(),
             rho_ref=self.rho_m0,
         )
-        self._bias_of_mass = np.asarray(self.bias.bias(masses), dtype=float)
+        self._bias_of_mass = np.asarray(self.bias.bias(masses, z=0.0),
+                                        dtype=float)
 
     def _masses_hfree(self):
         r"""The abundance's mass nodes in **h-free** :math:`M_\odot`.

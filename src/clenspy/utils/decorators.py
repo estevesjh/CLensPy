@@ -140,8 +140,6 @@ def time_method(func):
 
 
 if __name__ == "__main__":
-    import numpy as np
-
     class Demo:
         """A stand-in showing what each decorator changes."""
 

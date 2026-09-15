@@ -19,17 +19,19 @@ from .concentration import (
     scatter,
 )
 from .distances import (
+    ComovingDistance,
     comoving_to_theta,
     comoving_volume_element,
     theta_to_comoving,
 )
 from .fiducial import fiducial_cosmology, mean_matter_density
 from .growth import growth_factor, growth_unnormalised
-from .halo_mass_function import TinkerMassFunction, consumed_mask
+from .halo_mass_function import TinkerMassFunction
 from .pkgrid import PkGrid
-from .sigma import LinearPk, SigmaGrid, lnr_grid
+from .sigma import SigmaGrid, lnr_grid
 
 __all__ = [
+    "ComovingDistance",
     "comoving_to_theta",
     "theta_to_comoving",
     "PkGrid",
@@ -37,15 +39,15 @@ __all__ = [
     "mean_matter_density",
     "child18",
     "child18_powerlaw",
+    "delta_c",
     "duffy08",
+    "scatter",
     "m_star_hinv",
     "growth_factor",
     "growth_unnormalised",
-    "LinearPk",
     "SigmaGrid",
     "lnr_grid",
     "TinkerMassFunction",
-    "consumed_mask",
     "comoving_volume_element",
     "BiasModel",
 ]

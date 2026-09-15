@@ -20,8 +20,7 @@ L\sigma_{\rm eff}]`, clipped at zero.
 
 **The HOD law.** The exact Poisson-plus-scatter distribution has no closed
 form. Costanzi et al. (2019b) used a lookup-table skew-normal; this module
-uses the continuous shifted-Poisson form (priv. comm. M. Costanzi) that
-``y3_cluster_cpp/src/models/mor_hod_t.hh`` implements:
+uses the continuous shifted-Poisson form (priv. comm. M. Costanzi):
 
 .. math::
     P(\lambda^{\rm tr}\mid M,z) = \exp\!\left[
@@ -30,8 +29,25 @@ uses the continuous shifted-Poisson form (priv. comm. M. Costanzi) that
     \begin{aligned}
     \delta &= (\sigma_{\rm intr}\langle\lambda^{\rm sat}\rangle)^2 \\
     \nu &= \langle\lambda^{\rm sat}\rangle + \delta \\
-    x &= \lambda^{\rm tr} - \lambda^{\rm cen} + \delta
+    x &= \lambda^{\rm tr} + \delta
     \end{aligned}
+
+NOTE: **no explicit** :math:`-\lambda^{\rm cen}` **in** :math:`x`. An
+earlier version of this module carried ``x = lambda_true - lambda_central +
+delta``, ported from ``y3_cluster_cpp/src/models/mor_hod_t.hh``. That C++
+form's own cited derivation
+(``RichnessSelection/docs/richness_selection_function.tex``, eq.
+``cont_poisson_shifted``) has **no** central term either -- the family's own
+:math:`+1` (below) already stands for the central galaxy, exactly as the
+Costanzi SelectionBias notebook's own likelihood (``pltr_M``, cell 10 of
+*Analytical modeling optical selection effects on cluster density
+profile.ipynb*) uses it. Subtracting :math:`\lambda^{\rm cen}` a second time
+double-counted the central; verified numerically in
+``validation/validate_mor_notebook.py`` (issue #5): the old form's own pdf
+first moment sat **exactly +1.000 richness unit** above `HodMor.mean` (and
+above the actual mock's Monte Carlo draw) at every mass tested, which is
+what `SelBiasEngine.operators()` integrates against for
+:math:`\Delta^{\rm prj}_{\rm RND}`.
 
 It is closed-form, differentiable in :math:`(M,z)`, extends smoothly to the
 non-integer richness the quadrature needs, and matches the exact law in the
@@ -307,24 +323,11 @@ class HodMor:
         r""":math:`\langle\lambda^{\rm tr}\rangle = \lambda^{\rm cen}
         + \langle\lambda^{\rm sat}\rangle`.
 
-        NOTE: this is the **model's** mean occupation -- the calibrated
-        quantity, central plus mean satellites. It is *not* the first
-        moment of `pdf`, which comes out about **1 richness unit higher**:
-        exactly :math:`+1.0000` when :math:`\sigma_{\rm intr} = 0`, and
-        more as :math:`\sigma_{\rm intr}` grows (:math:`+3.5` at
-        :math:`\sigma_{\rm intr} = 0.5`, :math:`M = 10^{15}`).
-
-        That gap is an artifact of the continuous shifted-Poisson
-        *interpolation* of a discrete law, not a bug in either: the density
-        is built to match the discrete probabilities at integer richness and
-        to extend smoothly between them, and its continuous first moment is
-        not obliged to equal the discrete one.
-
-        The consequence for callers: use this for **bracket placement**,
-        where an offset of 1 is irrelevant beside :math:`L\sigma_{\rm eff}`
-        with :math:`L = 8`, and do not use it as a prediction of the mean
-        observed richness. `LogNormalMor.mean` has no such offset -- it
-        reproduces its own density's first moment to 1e-14.
+        NOTE: this is also `pdf`'s own first moment, to sub-percent, once
+        :math:`x = \lambda^{\rm tr} + \delta` (module docstring) -- the
+        family's built-in :math:`+1` already accounts for the central
+        galaxy, so it is not added again here. `LogNormalMor.mean` matches
+        its density's first moment to 1e-14 for the same reason.
         """
         return self.lambda_central(ln_mass) + self.mu_sat(ln_mass, z)
 
@@ -342,10 +345,12 @@ class HodMor:
         central = self.lambda_central(ln_mass)
         mu_sat = self.mu_sat(ln_mass, z)
 
-        # the intrinsic scatter shifts BOTH the Poisson mean and the argument
+        # the intrinsic scatter shifts BOTH the Poisson mean and the
+        # argument; no "- central" here -- the family's own +1 (module
+        # docstring) already represents the central galaxy
         delta = (self.sigma_intr * mu_sat) ** 2
         nu = mu_sat + delta
-        x = lambda_true - central + delta
+        x = lambda_true + delta
 
         support = (lambda_true >= central) & (x > 0.0)
         safe_x = np.where(support, x, 1.0)

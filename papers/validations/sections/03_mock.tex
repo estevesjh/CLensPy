@@ -1,0 +1,82 @@
+\section{Validation against the Buzzard mock catalogue}
+\label{sec:mock}
+
+\textbf{Script:} \pyfile{scripts/make\_mock.py} (reuses
+\pyfile{validation/validate\_sigma\_prj\_mock.py}'s production chain).
+\textbf{Reference:} \pyfile{mock\_lob\_sigma\_catalog.fits} under
+\texttt{\$SELECTION\_BIAS\_DIR} --- 3{,}009{,}025 halos of an octant
+light-cone dressed with untruncated NFW profiles and a synthetic
+redMaPPer richness, storing both \texttt{LAMBDA\_TR\_LOB} and
+\texttt{LAMBDA\_OB\_LOB} per halo, and the target-removed $\Sprj(R)$ on
+20 log annuli (recipe: \pyfile{MOCK\_RECIPE.md} in the same directory).
+Cosmology: Buzzard v1.1 ($\Omega_m=0.286$, $h=0.7$, $\sigma_8=0.82$,
+$n_s=0.96$), confirmed --- not assumed --- via
+\pyfile{costanzi\_notebook/cosmology.py}, a verbatim transcription of the
+mock-generation notebook's own cosmology cell.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{fig_mock_ratio.png}
+\caption{The selection-bias observable
+$\langle\Sprj\rangle_\lambda/\langle\Sprj\rangle_{\rm RND}$ in the 12
+$(\lob,z)$ bins; shaded band is the mock's shot noise, solid line the
+model. Random stack is Hao-Yi Wu's mass-and-redshift weighted estimator.}
+\label{fig:mock-ratio}
+\end{figure}
+
+Scored: the two-halo regime, $R>3\,\hMpc$, where the per-bin maximum
+residual of the ratio is $\MockTwoHaloMinResid$--$\MockTwoHaloMaxResid$
+--- $\MockNPass$ of $\MockNBins$ bins pass; the absolute
+$\langle\Sprj\rangle$ at $(\lob\approx\MockLegCLob,z=\MockLegCZob)$ agrees
+to $\MockLegCMaxDev$.
+
+\begin{table}[H]
+\centering
+\scriptsize
+\begin{tabular}{llrrrrrrrrl}
+\toprule
+$\lambda$ bin & $z$ bin & $n$ & $\lob$ & $\beff$ & $\bsmall$ & $\blarge$ &
+$\langle\lob{-}\ltr\rangle_{\rm mock}$ & $\DRND$ & max resid. & status \\
+\midrule
+\input{table_mock.tex}
+\bottomrule
+\end{tabular}
+\caption{Leg D, all 12 $(\lambda^{\rm ob},z)$ bins.
+$\langle\lob-\ltr\rangle_{\rm mock}$ is the mock's directly measured mean
+richness boost; $\DRND=P_1+\beff I_2$ is the closure's parameter-free
+prediction of the same quantity, agreeing to
+$\MockDeltaRndMinResid$--$\MockDeltaRndMaxResid$ across the 12 bins
+(worst at $z<0.35$, the same open issue noted in \S\ref{sec:fig6}).}
+\label{tab:mock}
+\end{table}
+
+\paragraph{The $\langle\ltr\rangle$ cross-check.} Unscored and reported:
+the inner aperture, $R\lesssim2\Rlam$, is Poisson-starved in the mock and
+dominated by $\bsmall$, which this comparison does not have the
+statistics to score tightly. A tighter, model-agnostic check is available
+instead: the closure's own implied mean true richness,
+$\langle\ltr\rangle=\lob-\DRND(1+\delta)$, can be compared directly to
+the mock's stored \texttt{LAMBDA\_TR\_LOB} mean --- no $\Sprj$ profile, no
+digitized figure, and no bias model in the way. It agrees to a median
+$\MockLtrMedianResid$ (worst $\MockLtrMaxResid$) across the 6
+cross-checked bins, the tightest test in this report, because it probes
+the closure's one physical input before the closure's own $\times$18--40
+gain $A_s$ (\pyfile{docs/plan-bsel-stable-closure.md}) amplifies whatever
+error is in it.
+
+\paragraph{Leg E: two-halo limit (unscored diagnostic).} The correlated
+channel at $\bsel=1$ against $\rho_m\Sigma_{2h}$ from an independent
+\modname{TwoHaloTerm} on the same $P(k)$:
+
+\begin{center}
+\begin{tabular}{rrrr}
+\toprule
+$R\;[{\rm cMpc}]$ & cl channel ($\bsel{=}1$) & $\rho_m\Sigma_{2h}$ & ratio \\
+\midrule
+\input{table_legE.tex}
+\bottomrule
+\end{tabular}
+\end{center}
+
+The residual here is the NFW-wing convolution and the finite line-of-sight
+window, not an error in $\bsel$ or the operator machinery.

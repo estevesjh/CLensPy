@@ -7,9 +7,8 @@ Most of these are identities rather than tolerances, because a power-law
 an independent implementation (`pyccl`, `cluster_toolkit`) or a finite
 difference of the very quantity being differentiated.
 
-The remaining tests guard the transcription traps this port carries: the
-two different :math:`\delta_c`, the :math:`\Omega_m` in the mass axis, the
-:math:`k \le 20/R` truncation, and the Leibniz boundary term.
+The remaining tests guard the :math:`kR \le 20` truncation and the Leibniz
+boundary term.
 """
 
 import numpy as np
@@ -18,12 +17,8 @@ import pytest
 from clenspy.cosmology.fiducial import fiducial_cosmology
 from clenspy.cosmology.growth import growth_factor, growth_unnormalised
 from clenspy.cosmology.halo_mass_function import (
-    DELTA_C_TINKER,
-    PI_FORTRAN,
-    RHO_FACT,
     TINKER08_TABLE2,
     TinkerMassFunction,
-    consumed_mask,
 )
 from clenspy.cosmology.sigma import (
     KCUT_COEF,
@@ -31,7 +26,6 @@ from clenspy.cosmology.sigma import (
     LNR2,
     NR,
     STEP,
-    LinearPk,
     SigmaGrid,
     lnr_grid,
 )
@@ -44,17 +38,17 @@ N_SPEC = -1.5
 
 
 def power_law_grid(n=N_SPEC):
-    return SigmaGrid(LinearPk(K, 2.0e4 * K**n))
+    return SigmaGrid(K, 2.0e4 * K**n)
 
 
 def power_law_kpk(n=N_SPEC):
-    """``(k_h, pk_h3)`` for `TinkerMassFunction`, which builds its own grid."""
+    """``(k, pk)`` for `TinkerMassFunction`, which builds its own grid."""
     return K, 2.0e4 * K**n
 
 
 def tinker_mf(n=N_SPEC, **kwargs):
-    k_h, pk_h3 = power_law_kpk(n)
-    return TinkerMassFunction(k_h=k_h, pk_h3=pk_h3, **kwargs)
+    k, pk = power_law_kpk(n)
+    return TinkerMassFunction(k=k, pk=pk, **kwargs)
 
 
 # -- the top-hat window -----------------------------------------------------
@@ -157,8 +151,8 @@ def test_sigma2_slope_is_minus_three_plus_n_for_a_power_law():
 
 
 def test_sigma2_amplitude_scales_linearly_with_pk():
-    grid_a = SigmaGrid(LinearPk(K, 1.0e4 * K**N_SPEC))
-    grid_b = SigmaGrid(LinearPk(K, 3.0e4 * K**N_SPEC))
+    grid_a = SigmaGrid(K, 1.0e4 * K**N_SPEC)
+    grid_b = SigmaGrid(K, 3.0e4 * K**N_SPEC)
     assert grid_b.sigma2(8.0) / grid_a.sigma2(8.0) == pytest.approx(3.0)
 
 
@@ -183,8 +177,8 @@ def test_derivative_under_the_integral_matches_finite_differences():
 
 def test_the_quadrature_is_converged_in_panel_order():
     """24 vs 48 points per panel must not move the answer."""
-    pk = LinearPk(K, 2.0e4 * K**N_SPEC)
-    a, b = SigmaGrid(pk, nquad=24), SigmaGrid(pk, nquad=48)
+    pk = 2.0e4 * K**N_SPEC
+    a, b = SigmaGrid(K, pk, nquad=24), SigmaGrid(K, pk, nquad=48)
     for r in (0.1, 1.0, 8.0):
         assert a.sigma2(r) == pytest.approx(b.sigma2(r), rel=1e-12)
 
@@ -193,7 +187,7 @@ def test_sigma2_agrees_with_cluster_toolkit():
     """An independent implementation of the same untruncated integral."""
     ct = pytest.importorskip("cluster_toolkit")
     pk_vals = 2.0e4 * K**N_SPEC
-    grid = SigmaGrid(LinearPk(K, pk_vals))
+    grid = SigmaGrid(K, pk_vals)
     for r in (0.5, 2.0, 8.0):
         theirs = ct.peak_height.sigma2_at_R(r, K, pk_vals)
         mine = grid.sigma2(r, truncate=False)
@@ -337,27 +331,6 @@ def test_f_sigma_matches_pyccl():
             ), (z, sigma)
 
 
-def test_multiplicity_is_half_of_f_sigma():
-    """The reference's 1/2, kept explicit rather than folded into A."""
-    hmf = tinker_mf()
-    sigma = 1.3
-    ln_nu = 2.0 * np.log(DELTA_C_TINKER) - 2.0 * np.log(sigma)
-    assert hmf.multiplicity(ln_nu, 0.0) == pytest.approx(
-        0.5 * hmf.f_sigma(sigma, 0.0)
-    )
-
-
-def test_dndlnm_is_a_third_of_dndlnr():
-    """The identity lives in `outputs` now -- `dndlnm` returns dndlnM only."""
-    hmf = tinker_mf()
-    r = np.array([1.0, 8.0])
-    ln_sigma2 = np.array([np.log(hmf.sigma_grid.sigma2(ri)) for ri in r])
-    dln_sigma2 = np.array([hmf.sigma_grid.dlnsigma2_dlnr(ri) for ri in r])
-    out = hmf.outputs(np.log(r), ln_sigma2, dln_sigma2, 0.0)
-    np.testing.assert_allclose(out["dndlnmh"], out["dndlnrh"] / 3.0,
-                               rtol=1e-14)
-
-
 def test_dndlnm_falls_steeply_with_mass():
     hmf = tinker_mf()
     m = hmf.mass_of_radius(np.logspace(-0.5, 1.3, 15))
@@ -367,14 +340,15 @@ def test_dndlnm_falls_steeply_with_mass():
     assert dn[0] / dn[-1] > 1e3
 
 
-def test_mass_of_radius_carries_no_omega_m():
-    r"""The mass axis is in :math:`\Omega_m h^{-1}M_\odot`, by convention."""
+def test_mass_of_radius_is_the_physical_lagrangian_mass():
+    r""":math:`M(R) = \frac{4\pi}{3}\bar\rho_m R^3` in Msun, R in Mpc."""
+    from clenspy.cosmology.fiducial import mean_matter_density
+
     hmf = tinker_mf()
     r = 8.0
-    expected = (4.0 * PI_FORTRAN / 3.0) * RHO_FACT * r**3
+    expected = (4.0 * np.pi / 3.0) * mean_matter_density(hmf.cosmo) * r**3
     assert hmf.mass_of_radius(r) == pytest.approx(expected, rel=1e-14)
-    # explicitly: it is NOT the h-free Omega_m-weighted mass
-    assert hmf.mass_of_radius(r) != pytest.approx(expected * 0.3, rel=1e-3)
+    assert hmf.radius_of_mass(expected) == pytest.approx(r, rel=1e-14)
 
 
 def test_mass_scales_as_r_cubed():
@@ -384,24 +358,10 @@ def test_mass_scales_as_r_cubed():
     )
 
 
-def test_the_two_delta_c_are_different_and_both_kept():
-    """1.6865 in the mass function, 1.686 in the bias. Not unified."""
-    from clenspy.cosmology.concentration import DELTA_COLLAPSE
-
-    assert DELTA_C_TINKER == 1.6865
-    assert DELTA_COLLAPSE == 1.686
-    assert DELTA_C_TINKER != DELTA_COLLAPSE
-
-
-def test_the_fortran_pi_is_the_truncated_literal():
-    assert PI_FORTRAN == 3.1415926535
-    assert PI_FORTRAN != np.pi
-    assert abs(PI_FORTRAN / np.pi - 1.0) < 1e-10
-
-
-def test_dndlnm_matches_outputs_at_a_grid_point():
-    """dndlnm_grid is built from outputs(); querying exactly at a grid
-    node must reproduce it (linear interpolation is exact at a node).
+def test_dndlnm_matches_the_direct_formula_at_a_grid_point():
+    r"""Querying exactly at a grid node must reproduce
+    :math:`dn/d\ln M = -\frac{\bar\rho_m}{6M} f(\sigma)\,
+    d\ln\sigma^2/d\ln R` (linear interpolation is exact at a node).
 
     z0 = 0.7, not 0.0: D(0) = 1 trivially, so a z=0 check would not catch
     a regression that drops the growth-factor scaling from `dndlnm_grid`.
@@ -410,12 +370,12 @@ def test_dndlnm_matches_outputs_at_a_grid_point():
     z0 = float(hmf.zvec[0])
     m0 = float(hmf.mval[100])
     r0 = hmf.radius_of_mass(m0)
-    ln_sigma2 = (np.log(hmf.sigma_grid.sigma2(r0))
-                 + 2.0 * np.log(growth_factor(z0, hmf.cosmo)))
+    sigma_z = (np.sqrt(hmf.sigma_grid.sigma2(r0))
+               * growth_factor(z0, hmf.cosmo))
     dln_sigma2 = hmf.sigma_grid.dlnsigma2_dlnr(r0)
-    direct = hmf.outputs(np.log(r0), ln_sigma2, dln_sigma2, z0)["dndlnmh"]
-    assert hmf.dndlnm(m0, z=z0) == pytest.approx(float(np.ravel(direct)[0]),
-                                                 rel=1e-10)
+    direct = (-hmf.rhom / (6.0 * m0) * hmf.f_sigma(sigma_z, z0)
+              * dln_sigma2)
+    assert hmf.dndlnm(m0, z=z0) == pytest.approx(float(direct), rel=1e-10)
 
 
 def test_growth_scaling_of_pk_matches_growth_scaling_of_sigma2():
@@ -428,8 +388,8 @@ def test_growth_scaling_of_pk_matches_growth_scaling_of_sigma2():
     hmf = tinker_mf()
     d_z = growth_factor(z, hmf.cosmo)
 
-    k_h, pk_h3 = power_law_kpk()
-    hmf_scaled = TinkerMassFunction(k_h=k_h, pk_h3=pk_h3 * d_z**2)
+    k, pk = power_law_kpk()
+    hmf_scaled = TinkerMassFunction(k=k, pk=pk * d_z**2)
     sigma2_from_scaled_pk = hmf_scaled.sigma_grid.sigma2(r0)
     sigma2_scaled_by_hand = hmf.sigma_grid.sigma2(r0) * d_z**2
     assert sigma2_from_scaled_pk == pytest.approx(sigma2_scaled_by_hand,
@@ -437,11 +397,11 @@ def test_growth_scaling_of_pk_matches_growth_scaling_of_sigma2():
 
 
 def test_rejects_delta_outside_the_calibration():
-    k_h, pk_h3 = power_law_kpk()
+    k, pk = power_law_kpk()
     with pytest.raises(ValueError, match="calibrated"):
-        TinkerMassFunction(k_h=k_h, pk_h3=pk_h3, delta=100.0)
+        TinkerMassFunction(k=k, pk=pk, delta=100.0)
     with pytest.raises(ValueError, match="calibrated"):
-        TinkerMassFunction(k_h=k_h, pk_h3=pk_h3, delta=5000.0)
+        TinkerMassFunction(k=k, pk=pk, delta=5000.0)
 
 
 def test_f_sigma_rejects_non_positive_sigma():
@@ -457,10 +417,15 @@ def test_tinker_mass_function_repr_contains_the_class_name():
     assert "TinkerMassFunction" in repr(hmf)
 
 
-def test_sigma_grid_refuses_a_bare_array():
-    """The LinearPk input policy is part of sigma^2's definition."""
-    with pytest.raises(TypeError, match="LinearPk"):
-        SigmaGrid(K)
+def test_sigma_grid_validates_its_input():
+    """The spline-and-zero-outside input policy is part of sigma^2's
+    definition, so bad tables are refused at construction."""
+    with pytest.raises(ValueError, match="ascending"):
+        SigmaGrid(K[::-1], 2.0e4 * K**N_SPEC)
+    with pytest.raises(ValueError, match="positive"):
+        SigmaGrid(K, np.zeros_like(K))
+    with pytest.raises(ValueError, match="same shape"):
+        SigmaGrid(K, K[:-1])
 
 
 def test_sigma2_rejects_non_positive_r():
@@ -498,15 +463,10 @@ def test_fftlog_refuses_a_non_positive_variance():
     k = np.logspace(-3, 3, 40)
     pk_vals = np.full_like(k, 1e-12)
     pk_vals[20] = 1e12  # a narrow spike, to force FFTLog ringing
-    grid = SigmaGrid(LinearPk(k, pk_vals))
+    grid = SigmaGrid(k, pk_vals)
     lnr = np.log(np.logspace(-3, 3, 20))
     with pytest.raises(RuntimeError, match="non-positive"):
         grid.sigma2_fftlog(lnr, n_fine=128, pad_decades=0.05)
-
-
-def test_linear_pk_repr_contains_the_class_name():
-    pk = LinearPk(K, 2.0e4 * K**N_SPEC)
-    assert "LinearPk" in repr(pk)
 
 
 def test_sigma_grid_repr_contains_the_class_name():
@@ -514,41 +474,11 @@ def test_sigma_grid_repr_contains_the_class_name():
     assert "SigmaGrid" in repr(grid)
 
 
-def test_linear_pk_is_zero_outside_the_table():
-    pk = LinearPk(K, 2.0e4 * K**N_SPEC)
-    assert pk(np.log(K[0] * 0.5)).item() == 0.0
-    assert pk(np.log(K[-1] * 2.0)).item() == 0.0
-    assert pk(np.log(K[len(K) // 2])).item() > 0.0
-
-
-def test_linear_pk_validates_its_input():
-    with pytest.raises(ValueError, match="ascending"):
-        LinearPk(K[::-1], 2.0e4 * K**N_SPEC)
-    with pytest.raises(ValueError, match="positive"):
-        LinearPk(K, np.zeros_like(K))
-    with pytest.raises(ValueError, match="same shape"):
-        LinearPk(K, K[:-1])
-
-
-# -- the consumed-mass mask -----------------------------------------------
-
-
-def test_consumed_mask_selects_an_interior_band():
-    hmf = tinker_mf()
-    m_h = hmf.mass_of_radius(np.exp(lnr_grid()))
-    mask = consumed_mask(m_h, 0.3)
-    assert mask.any() and not mask.all()
-    # it must be a contiguous band, not scattered points
-    idx = np.flatnonzero(mask)
-    assert np.all(np.diff(idx) == 1)
-
-
-def test_consumed_mask_shifts_with_omega_m():
-    hmf = tinker_mf()
-    m_h = hmf.mass_of_radius(np.exp(lnr_grid()))
-    lo = np.flatnonzero(consumed_mask(m_h, 0.2))[0]
-    hi = np.flatnonzero(consumed_mask(m_h, 0.4))[0]
-    assert hi > lo
+def test_pk_is_zero_outside_the_table():
+    grid = power_law_grid()
+    assert grid.pk(np.log(K[0] * 0.5)).item() == 0.0
+    assert grid.pk(np.log(K[-1] * 2.0)).item() == 0.0
+    assert grid.pk(np.log(K[len(K) // 2])).item() > 0.0
 
 
 # -- the shared sigma grid (step 13b) --------------------------------------
@@ -579,12 +509,12 @@ def test_bias_no_longer_caches_nu_across_different_masses():
     from clenspy.cosmology.bias import BiasModel
 
     model = BiasModel(K, 2.0e4 * K**N_SPEC)
-    b_small = model.bias(1.0e13)
-    b_large = model.bias(1.0e15)
+    b_small = model.bias(1.0e13, z=0.0)
+    b_large = model.bias(1.0e15, z=0.0)
     # and now the other order, on a fresh object, to show order-independence
     model2 = BiasModel(K, 2.0e4 * K**N_SPEC)
-    assert model2.bias(1.0e15) == pytest.approx(b_large)
-    assert model2.bias(1.0e13) == pytest.approx(b_small)
+    assert model2.bias(1.0e15, z=0.0) == pytest.approx(b_large)
+    assert model2.bias(1.0e13, z=0.0) == pytest.approx(b_small)
     assert b_large > b_small
 
 
@@ -616,9 +546,9 @@ def test_sigma_grid_is_unit_agnostic_only_above_the_fixed_lower_limit():
     # entirely above 1e-4 in both scalings, so LNK_LO never binds
     k_hi = np.logspace(-3.0, 4.0, 900)
     pk_vals = 2.0e4 * k_hi**N_SPEC
-    a = SigmaGrid(LinearPk(k_hi, pk_vals))
+    a = SigmaGrid(k_hi, pk_vals)
     # k -> k/h  (h/Mpc -> 1/Mpc),  P -> P*h^3,  R -> R*h
-    b = SigmaGrid(LinearPk(k_hi / h, pk_vals * h**3))
+    b = SigmaGrid(k_hi / h, pk_vals * h**3)
     for r in (0.5, 2.0, 8.0):
         assert b.sigma2(r * h, truncate=False) == pytest.approx(
             a.sigma2(r, truncate=False), rel=1e-10
@@ -630,8 +560,8 @@ def test_the_fixed_lower_limit_breaks_unit_invariance_when_it_binds():
     h = 0.7
     k_lo = np.logspace(-6.0, 4.0, 900)      # extends below LNK_LO = 1e-4
     pk_vals = 2.0e4 * k_lo**N_SPEC
-    a = SigmaGrid(LinearPk(k_lo, pk_vals))
-    b = SigmaGrid(LinearPk(k_lo / h, pk_vals * h**3))
+    a = SigmaGrid(k_lo, pk_vals)
+    b = SigmaGrid(k_lo / h, pk_vals * h**3)
     # the same 1e-4 cut now removes a different physical range in each
     assert b.sigma2(8.0 * h, truncate=False) != pytest.approx(
         a.sigma2(8.0, truncate=False), rel=1e-9
@@ -642,8 +572,8 @@ def test_the_truncation_breaks_that_unit_invariance():
     """Which is exactly why the bias must not use truncate=True."""
     h = 0.7
     pk_vals = 2.0e4 * K**N_SPEC
-    a = SigmaGrid(LinearPk(K, pk_vals))
-    b = SigmaGrid(LinearPk(K / h, pk_vals * h**3))
+    a = SigmaGrid(K, pk_vals)
+    b = SigmaGrid(K / h, pk_vals * h**3)
     # 20/R is a dimensionful cut, so rescaling changes what it removes
     assert b.sigma2(8.0 * h, truncate=True) != pytest.approx(
         a.sigma2(8.0, truncate=True), rel=1e-6

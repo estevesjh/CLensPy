@@ -195,7 +195,7 @@ See {doc}`../lensing_profile`, {doc}`../miscentering`.
 
 ## `clenspy.observables`
 
-See {doc}`../observables`.
+See {doc}`../number_counts` and {doc}`../stacked_shear`.
 
 ```{eval-rst}
 .. currentmodule:: clenspy.observables.number_counts

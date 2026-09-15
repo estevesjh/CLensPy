@@ -1,0 +1,40 @@
+\section{Sensitivity of $\Sprj$ to $\Omega_m$, $\sigma_8$}
+\label{sec:cosmo}
+
+\textbf{Script:} \pyfile{scripts/make\_cosmo\_sensitivity.py}. The
+selected/RND ratio --- the observable scored in \S\ref{sec:mock} --- at
+fixed $\beff$, varying $\Omega_m$ and $\sigma_8$ independently by
+$\pm5\%,\pm10\%$ around the Buzzard fiducial, at $R\in\{1,3,10,20\}\,\hMpc$
+in two representative bins ($\lambda[20,30)$ and $\lambda[60,500)$,
+$z\approx0.5$):
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{fig_cosmo_sensitivity.pdf}
+\caption{Fractional change in the selected/RND ratio relative to the
+Buzzard fiducial, vs.\ $\Omega_m$ (left) and $\sigma_8$ (right), at each
+$R$ tested.}
+\label{fig:cosmo}
+\end{figure}
+
+The ratio is remarkably insensitive to cosmology: across every $R$,
+richness bin, and parameter tested, the maximum fractional shift under a
+$\pm10\%$ cosmology change is $\CosmoMaxAbsRatioShift$. $\sigma_8$
+dominates over $\Omega_m$ (more clustering amplitude strengthens the
+correlated channel the boost model responds to); $\Omega_m$'s effect is
+smaller and sign-mixed. Both are largest near the aperture ($R=1$) and
+decay toward the two-halo regime, since the \emph{ratio} cancels most of
+the direct $P(k)$ dependence between its numerator and denominator,
+leaving only the residual from $\bsel(\theta)$'s own cosmology dependence
+through $\beff$/$\DRND$.
+
+This means the systematic-uncertainty budget for the selected/RND
+observable is dominated by the mass-observable relation
+(\S\ref{sec:alpha}) and the closure's $\delta$ estimate
+(\S\ref{sec:methods}), not by cosmological parameter uncertainty ---
+consistent with \S\ref{sec:methods}'s note that the Planck-vs-Buzzard
+cosmology bug fixed this session was not, on its own, the source of the
+residuals in \S\ref{sec:fig6}. \emph{Scope:} $\beff$ was held fixed
+across the cosmology grid; letting it respond self-consistently to
+$(\Omega_m,\sigma_8)$ could add a comparable secondary effect not
+captured here.
