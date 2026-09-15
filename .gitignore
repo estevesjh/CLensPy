@@ -212,6 +212,14 @@ Temporary Items
 *.h5
 data/
 !validation/data/
+# src/clenspy/data/ ships required package data (nfw_miscentering.npz,
+# prj_params_*.txt, z_kernel_*.txt, per [tool.setuptools.package-data]) --
+# only its cache subdirectories are regenerated on demand and should stay
+# untracked.
+!src/clenspy/data/
+src/clenspy/data/pk_cache/
+src/clenspy/data/bias_cache/
+src/clenspy/data/hmf_cache/
 output/
 plots/
 results/

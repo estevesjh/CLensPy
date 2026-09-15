@@ -3,15 +3,15 @@
 ## Running the tests
 
 ```bash
-pip install -e ".[dev]"
-pytest tests/
+uv sync --extra dev
+uv run pytest tests/
 ```
 
-A few tests validate CLensPy's halo profiles and two-halo term against
-independent codes (`pyccl`, `cluster_toolkit`, `CLMM`, `camb`). They skip
-automatically if those packages aren't installed; see
-{doc}`installation` (the `compare` extra, plus the manual `cluster_toolkit`
-install) to run them for real.
+`camb` (the default `PkGrid` backend) is in the `dev` extra, so the real
+halo-model tests run for real, not skipped. A few tests additionally
+cross-validate against `pyccl`/`cluster_toolkit`/`CLMM` (the `compare`
+extra, plus the manual `cluster_toolkit` install — see {doc}`installation`);
+those skip automatically if not installed.
 
 ## Linting
 
@@ -21,6 +21,25 @@ formatting (configured in `pyproject.toml`):
 ```bash
 ruff check .
 ruff format .
+```
+
+CI's actual build-breaking gate is narrower — `flake8` checking only for
+syntax errors and undefined names (`E9,F63,F7,F82`) — which the pre-push
+hook below also runs, so a `ruff check` warning won't block a push but a
+real syntax/undefined-name error will.
+
+## Before you push
+
+A `pre-push` git hook (`.githooks/pre-push`) mirrors
+`.github/workflows/tests.yml` exactly: it builds a clean `git worktree` of
+what's about to be pushed (not your working tree, so gitignored-but-present
+local files can't hide a missing-from-git bug), runs `uv sync --locked`
+(fails if `uv.lock` has drifted from `pyproject.toml`), the same `flake8`
+gate CI uses, `ruff check` (advisory), and `pytest`. Enable it once per
+clone:
+
+```bash
+git config core.hooksPath .githooks
 ```
 
 ## Building the documentation locally

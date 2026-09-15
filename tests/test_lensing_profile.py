@@ -162,6 +162,7 @@ def real_profile():
     `bias_model` -> `bias`. PyCCL with `PkGrid`'s default grid is
     sub-second, so this is cheap enough to share across the module.
     """
+    pytest.importorskip("pyccl")
     return LensingProfile(z_cluster=0.3, m200=1e14, backend_2halo="pyccl")
 
 
@@ -199,6 +200,7 @@ def test_pkvec_two_halo_bias_are_built_from_a_real_pk(real_profile):
 def test_bias_cached_property_does_not_recompute():
     """A second access must not touch `bias_model` again -- poison it after
     the first access and confirm the cached value survives untouched."""
+    pytest.importorskip("pyccl")
     lp = LensingProfile(z_cluster=0.3, m200=1e14, backend_2halo="pyccl")
     b1 = lp.bias
     assert "bias" in lp.__dict__
