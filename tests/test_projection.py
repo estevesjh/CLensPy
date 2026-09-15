@@ -22,6 +22,8 @@ from clenspy.selection import SigmoidBias, XiNL
 from clenspy.selection.geometry import r_excl
 from clenspy.utils.integrate import mass_nodes
 
+pytest.importorskip("camb")
+
 
 class BuzzardCosmology(FlatLambdaCDM):
     """Buzzard v1.1; class attrs are what PkGrid reads via getattr."""

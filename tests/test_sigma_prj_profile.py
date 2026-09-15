@@ -13,6 +13,7 @@ import io
 import pstats
 
 import numpy as np
+import pytest
 
 from clenspy.cosmology.bias import BiasModel
 from clenspy.cosmology.fiducial import fiducial_cosmology
@@ -20,6 +21,8 @@ from clenspy.cosmology.halo_mass_function import TinkerMassFunction
 from clenspy.cosmology.pkgrid import PkGrid
 from clenspy.halo.twohalo import TwoHaloTerm
 from clenspy.lensing import SigmaPrj, SigmaPrjConfig
+
+pytest.importorskip("camb")
 
 
 def test_sigma_prj_prebuilt_grid_profile(capsys):

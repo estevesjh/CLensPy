@@ -488,11 +488,11 @@ all = [
     { name = "sphinx-wagtail-theme" },
 ]
 compare = [
-    { name = "camb" },
     { name = "clmm" },
     { name = "pyccl" },
 ]
 dev = [
+    { name = "camb" },
     { name = "flake8" },
     { name = "pytest" },
     { name = "pytest-benchmark" },
@@ -522,7 +522,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "astropy", specifier = ">=7.0" },
-    { name = "camb", marker = "extra == 'compare'", specifier = ">=1.5" },
+    { name = "camb", marker = "extra == 'dev'", specifier = ">=1.5" },
     { name = "clenspy", extras = ["dev", "mcmc", "docs", "compare"], marker = "extra == 'all'" },
     { name = "clmm", marker = "extra == 'compare'", specifier = ">=1.16" },
     { name = "corner", marker = "extra == 'mcmc'", specifier = ">=2.2.0" },
@@ -2059,7 +2059,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess" },
+    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
