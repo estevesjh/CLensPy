@@ -1,5 +1,18 @@
 """
-A class that holds the integration methods for cluster lensing observables.
+The integration methods for cluster lensing observables.
+
+The package's quadrature toolbox -- use these instead of hand-rolled
+``np.trapz`` on linspace grids:
+
+- `pk_to_xi_fftlog`: the oscillatory P(k) -> xi(r) transform, via FFTLog.
+- `compute_sigma_grid` (-> `compute_sigma_leggauss` /
+  `compute_sigma_trapz_vectorized` / `compute_sigma_quadvec`): the
+  line-of-sight Abel projection xi(r, z) -> Sigma(R, z), on a
+  cosh-substituted grid, never a naive linear-r grid.
+- `gl_nodes` / `gl_nodes_batched` / `mass_nodes`: cached Gauss-Legendre
+  rules for smooth window/selection integrals.
+- `sigma_to_deltasigma_cumtrapz`: cumulative Sigma-bar(<R) post-processing
+  of an already-tabulated Sigma grid (see its accuracy caveats).
 """
 
 from __future__ import annotations
@@ -31,6 +44,14 @@ def compute_sigma_grid(
     """
     Dispatch and run the chosen integration method for Sigma(R, z).
     Returns grid of shape (nR, nz).
+
+    The single entry point for the line-of-sight Abel projection of
+    xi(r, z): "leggauss" (Gauss-Legendre, the fast smooth-integrand
+    choice), "trapz" (vectorized trapezoid on the cosh-substituted grid,
+    the robust default), or "quad_vec" (adaptive, the accuracy reference).
+    All three integrate in the substituted variable t = u/(1+u),
+    r = R cosh(u) -- do not replace this with np.trapz over a linear
+    r grid, which under-resolves the integrable 1/sqrt(r^2 - R^2) edge.
     """
     method = method.lower()
     if method == "leggauss":
@@ -93,8 +114,13 @@ def pk_to_xi_fftlog(
     lowring: bool = True,
     **mcfit_kwargs,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
+    r"""
     Compute xi(r) from P(k) using FFTLog via mcfit.
+
+    WARNING: the integrand :math:`k^2 P(k)\sin(kr)/(kr)` is oscillatory;
+    FFTLog is the correct machinery for it. Do not replace this with
+    trapezoidal (or any fixed-grid) integration of the oscillatory
+    integrand -- that is the failure mode this function exists to prevent.
 
     Parameters
     ----------
@@ -111,10 +137,9 @@ def pk_to_xi_fftlog(
 
     Returns
     -------
-    r_fftlog : np.ndarray
-        Radial grid output by mcfit (may differ from rvals).
     xi_r : np.ndarray
-        xi(r) evaluated at r_fftlog.
+        xi(r) evaluated at ``rvals`` (the FFTLog output is computed on
+        mcfit's own r grid and log-interpolated onto ``rvals``).
     """
     r_fftlog, xi_r = mcfit.P2xi(kvec, lowring=lowring, **mcfit_kwargs)(Pk)
     interp = make_log_interpolation(r_fftlog, xi_r)

@@ -62,7 +62,12 @@ class NfwProfile:
 
     Notes
     -----
-    All methods are vectorized for (n_halo, ...) broadcasting.
+    All methods are vectorized -- pass whole ``r``/``R``/``k`` arrays,
+    never loop element-by-element. Observed shapes: with a scalar halo,
+    scalar in gives a Python float and ``(N,)`` in gives ``(N,)`` out;
+    with a vector of halos ``(n_halo,)``, array input gives
+    ``(n_halo, N)`` and scalar input gives ``(n_halo, 1)`` (`fourier`
+    squeezes the k axis, giving ``(n_halo,)``).
     """
 
     def __init__(

@@ -65,6 +65,12 @@ class PkGrid:
     Wraps `camb` or `pyccl` and interpolates the result, so a caller that
     needs P(k) at many (k, z) pays the Boltzmann solver once.
 
+    NOTE: this class is the package's only Boltzmann-solver boundary --
+    consumers configure the astropy ``cosmo`` object and let this class
+    drive CAMB/pyccl internally; never ``import camb`` and call it
+    directly alongside CLensPy (you would bypass the h-unit conversion,
+    the sigma8 renormalisation, and the disk cache below).
+
     NOTE: units are h-free absolute -- wavenumbers in 1/Mpc and P(k) in
     Mpc^3. Both backends work internally in h/Mpc and (Mpc/h)^3 and are
     converted at the boundary; that conversion is the one thing to check if
@@ -162,6 +168,16 @@ class PkGrid:
             * (N,) and scalar  ➜  (N,) out
             * scalar and (M,)  ➜  (M,) out
             * (N,M) & (M,) etc. obey NumPy broadcasting rules
+
+        Examples
+        --------
+        NumPy broadcasting, **not** an outer grid (executed, halofit,
+        ``fiducial_cosmology(H0=70, Om0=0.286)``)::
+
+            pk(0.1, 0.3)              # 7550.217 (float)
+            pk(kvec4, 0.3)            # (4,)
+            pk(kvec4, zvec3)          # raises ValueError: (4,) vs (3,)
+            pk(kvec4[:, None], zvec3) # (4, 3) grid
         """
         # --- build spline once -------------------------------------------
         if self._spline is None:

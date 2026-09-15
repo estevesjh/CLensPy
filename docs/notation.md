@@ -203,7 +203,7 @@ Validated against the Costanzi mock in
 > that kernel was found to overestimate $\langle\lambda^{\rm ob}-
 > \lambda^{\rm tr}\rangle$ by $1.5$–$2.2\times$ (an exponential-tilt
 > divergence against a steep richness function — see
-> {doc}`plan-bsel-stable-closure`), which the $18$–$40\times$ gain $A_s$
+> {doc}`_archive/plan-bsel-stable-closure`), which the $18$–$40\times$ gain $A_s$
 > turned into a $3$–$4\times$ error on $b_{\rm small}$.
 
 ---

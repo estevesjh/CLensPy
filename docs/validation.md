@@ -269,7 +269,7 @@ by-parts reduction below it are in {doc}`miscentering_math` section 9.
 The chain under test: `ClusterCounts.average` supplies the bin
 $b_{\rm eff}=N[b]/N[1]$; `SelBiasEngine.marginalised_bias(..., b_eff=...)`
 supplies $b_{\rm sel}(\theta)$ from the closure described in
-{doc}`selection_bias` and derived in {doc}`plan-bsel-stable-closure`;
+{doc}`selection_bias` and derived in {doc}`_archive/plan-bsel-stable-closure`;
 `SigmaPrj` folds $b_{\rm sel}(\theta)$ into the correlated channel. Two
 independent references are used below — a published theory curve with no
 sampling noise (a), and a synthetic mock with real shot noise but an
@@ -307,7 +307,7 @@ parameters).
 | $\lambda[60,500)\;z[0.50,0.65)$ | -0.089 | -0.147 |
 | **overall (184 points)** | **0.102** | **0.205** |
 
-Before the fix derived in {doc}`plan-bsel-stable-closure`, this same
+Before the fix derived in {doc}`_archive/plan-bsel-stable-closure`, this same
 comparison ran at median 0.51, worst-case 1.10 (the $\lambda[20,30)$
 panels were 66–110% high). What is left is a genuinely mixed pattern, not
 one uniform offset, and it is now precisely attributed (not merely
@@ -317,7 +317,7 @@ $z^{\rm ob}$ while the digitized curve needs it to *rise*, confirmed
 converged (a $\times1.7$ finer quadrature changes $\delta$ by <0.05%) and
 traced to $I_2^{(2)}$ (the correlated-structure second moment) declining
 faster with $z$ than $\Delta_{\rm RND}$ grows — see
-{doc}`plan-bsel-stable-closure` §9 for the full factor breakdown. This
+{doc}`_archive/plan-bsel-stable-closure` §9 for the full factor breakdown. This
 alone explains the $\lambda[20,30)$ trend (worst at the lowest $z$,
 0.142, tapering to $\sim$0.075) once combined with the closure's
 already-known $\Delta_{\rm RND}$ mismatch below $z=0.35$ (`_closure`'s
@@ -326,7 +326,7 @@ lowest $z$, turning negative to $-0.106$ at higher $z$) is a second,
 separate effect: a $\sim$20–40% low-richness $b_{\rm eff}$ normalisation
 offset visible in the closed-form fit (inverting the digitized curve
 through the $b_{\rm large}$ side gives an impossible negative $\delta$ in
-$\lambda[20,30)$ — {doc}`plan-bsel-stable-closure` §9), independent of
+$\lambda[20,30)$ — {doc}`_archive/plan-bsel-stable-closure` §9), independent of
 $\delta$'s own $z$-shape problem.
 
 ### b. The Costanzi mock catalogue
@@ -372,7 +372,7 @@ model's own implied $\langle\lambda^{\rm tr}\rangle=\lambda^{\rm ob}-
 better than 3% in all 6 cross-checked bins (median 0.5%) — the tightest
 test available, since it probes the closure's one physical input before
 the $\times(18\text{–}40)$ gain $A_s$ touches it (see
-{doc}`plan-bsel-stable-closure` §6.1).
+{doc}`_archive/plan-bsel-stable-closure` §6.1).
 
 ### c. Numerical methods
 
@@ -388,7 +388,7 @@ so the operators stay sign-definite. $D=I_2-I_1$ is quadratured directly,
 never by float subtraction — real, but not where the closure's
 sensitivity actually lives; that derivation, and why the fix is a
 different mean-$\lambda^{\rm tr}$ estimator rather than a numerical
-patch, is in {doc}`plan-bsel-stable-closure`.
+patch, is in {doc}`_archive/plan-bsel-stable-closure`.
 
 ### d. Sensitivity of $b_{\rm sel}$ to the MOR slope $\alpha$
 
@@ -451,7 +451,7 @@ dependence between its numerator and denominator, leaving only the
 residual from $b_{\rm sel}(\theta)$'s own cosmology dependence through
 $b_{\rm eff}$/$\Delta_{\rm RND}$. This means the systematic uncertainty
 budget for this observable is dominated by the MOR and the closure's
-$\delta$ estimate (d, and {doc}`plan-bsel-stable-closure`), not by
+$\delta$ estimate (d, and {doc}`_archive/plan-bsel-stable-closure`), not by
 cosmological parameter uncertainty. (Scope: $b_{\rm eff}$ was held fixed
 across the cosmology grid; letting it respond self-consistently could add
 a comparable secondary effect not captured here.)

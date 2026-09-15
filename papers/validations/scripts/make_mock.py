@@ -67,9 +67,7 @@ def main() -> int:
         cosmology=V.COSMO, pk=pk_prj, hmf=hmf_prj, two_halo=two_halo_prj,
         bias=bias_prj,
         config=SigmaPrjConfig(
-            n_theta=128, theta_perp_range=(1e-3, 2.0 * V.APERTURE_HINV / V.H),
             los_depth=V.LOS_HALF_DEPTH_HINV / V.H, exclusion="counter",
-            r_trunc=V.APERTURE_HINV / V.H,
         ),
     )
 

@@ -23,18 +23,18 @@ $W_{ij}$ a second time.
 ## What Σ_prj is
 
 Every neighbour halo of mass $M$ at angular offset $\theta$ contributes
-its own mass shell $M_\theta(R \mid M)$ — its projected mass inside
-radius $R$, offset by the real transverse separation
+its own azimuthally-averaged offset profile $\Sigma_{\rm mis}(R \mid M,
+\theta)$ — evaluated at the real transverse separation
 $R_\theta = \theta\chi_o$ — weighted by the correlated excess
 $n_{\rm cl}(\theta, M)$ of finding such a neighbour there over the
 uncorrelated background rate $n_{\rm rnd}(\theta, M)$:
 
 $$
 \Sigma_{\rm prj}(R) = \int d\theta\, 2\pi\sin\theta \int dM\;
-  n_{\rm cl}(\theta, M)\, M_\theta(R \mid M),
+  n_{\rm cl}(\theta, M)\, \Sigma_{\rm mis}(R, \theta\chi_o \mid M),
 $$
 
-with $\Delta\Sigma_{\rm prj}$ the same sum with the mass shell swapped
+with $\Delta\Sigma_{\rm prj}$ the same sum with $\Sigma_{\rm mis}$ swapped
 for its signed excess. A halo within the exclusion radius
 $R_{\rm excl} = R_\lambda(\lambda^{\rm ob})(1+z^{\rm ob})$ *is* the
 cluster, so there $n_{\rm cl} = -n_{\rm rnd}$ rather than carrying any

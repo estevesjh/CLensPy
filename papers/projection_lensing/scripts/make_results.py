@@ -30,8 +30,7 @@ OUT = Path(__file__).resolve().parents[1] / "data" / "processed"
 
 CONFIG = dict(
     los_half_depth_hinv=V.LOS_HALF_DEPTH_HINV,
-    exclusion="counter", r_trunc_hinv=V.APERTURE_HINV, n_theta=128,
-    theta_perp_max_hinv=2 * V.APERTURE_HINV, xi_clip=False,
+    exclusion="counter", xi_clip=False,
     hod="buzzard",
     cosmology=(f"Buzzard v1.1 (Om={V.OMEGA_M}, h={V.H}, "
                f"s8={V.COSMO.sigma8})"),
@@ -75,12 +74,8 @@ def main() -> int:
                    two_halo=two_halo_prj,
                    bias=bias_prj,
                    config=SigmaPrjConfig(
-                       n_theta=CONFIG["n_theta"],
-                       theta_perp_range=(1e-3,
-                                         CONFIG["theta_perp_max_hinv"] / V.H),
                        los_depth=CONFIG["los_half_depth_hinv"] / V.H,
                        exclusion="counter",
-                       r_trunc=CONFIG["r_trunc_hinv"] / V.H,
                    ))
     b_eff_ij, n_ij, lam_ij, zrep_ij = V.b_eff_table()
 

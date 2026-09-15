@@ -502,11 +502,17 @@ class SelBiasEngine:
         :math:`\delta = \gamma\,b_{\rm eff} I_2^{(2)}/\Delta_{\rm RND}`
         (derivation, mock validation: {doc}`plan-bsel-stable-closure`).
 
-        NOTE (open issue): gets the mean level right but not the
-        redshift shape -- at fixed lambda_ob this falls with zob while
-        the published Fig. 6 curve needs it to rise (confirmed
-        converged, not a quadrature issue). See
-        {doc}`plan-bsel-stable-closure` section 9.
+        NOTE (open issue): neither the mean level nor the redshift shape
+        survive a direct mock check, and a mock-fit calibration of delta
+        was tried and reverted -- see GitHub issue "bsel does not match
+        Costanzi et al. 2026" (2026-09-01). A direct, integral-free
+        comparison of b_sel(theta)/b_eff against Matteo's own reference
+        curve shows the bug is not delta at all: b_large already matches
+        Matteo's curve to a few percent, while b_small is the one
+        genuinely wrong, off by a large, z-growing factor no single
+        delta (through this closure's A_s inversion) can produce from a
+        b_large-matching starting point. See {doc}`plan-bsel-stable-closure`
+        section 9 and the linked issue for the full trail.
         """
         P1, _, I2 = self.operators(lob, zob)
         _, _, I2v = self.operators_var(lob, zob)
@@ -708,8 +714,9 @@ class SelBiasEngine:
         the bin-averaged N[b]/N[1] from
         `clenspy.observables.ClusterCounts.average`. ``delta=None`` uses
         `excess_delta` (the model's own Eddington-tilt estimate of
-        :math:`\delta`, computed from the operators alone); pass a float
-        to inject an independently measured excess (e.g. the mock's own
+        :math:`\delta`, computed from the operators alone -- see that
+        method's NOTE for its known, open issues); pass a float to
+        inject an independently measured excess (e.g. the mock's own
         :math:`\langle\lambda^{\rm ob}-\lambda^{\rm tr}\rangle`) for
         validation. No guard against :math:`D\to0`: if it happens, the
         right response is a visible ``inf``/``nan``, not a silent

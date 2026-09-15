@@ -56,7 +56,7 @@ def fig_projection_lensing():
     prj = SigmaPrj(cosmology=COSMO, xi_nl=xi_nl, hmf=tmf, bias=bm,
                    config=SigmaPrjConfig(
                        los_depth=50.0 / H,
-                       exclusion="ball", theta_perp_range=(1e-3, 60.0 / H)))
+                       exclusion="ball"))
     engine = SelBiasEngine(sigma_prj=prj, mor=HodMor.buzzard())
     bsel = engine.marginalised_bias(lob, zob, b_eff=b_eff)
 

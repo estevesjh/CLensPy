@@ -25,7 +25,7 @@ from clenspy.lensing import SigmaPrj, SigmaPrjConfig
 def test_sigma_prj_prebuilt_grid_profile(capsys):
     cosmo = fiducial_cosmology()
     config = SigmaPrjConfig(
-        n_theta=16,
+        n_theta_per_seg=16,
         n_M=8,
         n_u_inside=6,
         n_u_outside=16,
@@ -51,7 +51,7 @@ def test_sigma_prj_prebuilt_grid_profile(capsys):
         config=config,
     )
     n_rnd_in, n_rnd_out, n_lss = prj.n_los_integral(
-        10.0, 0.3, lambda theta: np.ones_like(theta))
+        10.0, 0.3, lambda theta: np.ones_like(theta), np.array([1.0]))
     rnd, exc = prj.k_exc.channels(n_rnd_in, n_rnd_out, n_lss)
     profiler.disable()
 

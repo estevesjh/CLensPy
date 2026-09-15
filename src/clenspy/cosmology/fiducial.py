@@ -26,7 +26,10 @@ def fiducial_cosmology(H0=70.0, Om0=0.3):
     Returns
     -------
     astropy.cosmology.FlatLambdaCDM
-        A fresh instance on every call.
+        A fresh instance on every call. This object is the single
+        cosmology input every CLensPy layer takes (`PkGrid`,
+        `TinkerMassFunction`, `BiasModel`, ...); CAMB is driven
+        internally from it -- consumers never call ``camb`` themselves.
     """
     return FlatLambdaCDM(H0=H0, Om0=Om0)
 

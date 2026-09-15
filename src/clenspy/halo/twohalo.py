@@ -30,6 +30,13 @@ class TwoHaloTerm:
     NOTE: units are h-free absolute -- wavenumbers in 1/Mpc, P(k) in
     Mpc^3, radii in Mpc. `xi` is dimensionless.
 
+    NOTE: `xi`, `sigma` and `deltasigma` are vectorized grid queries:
+    vector ``R_vals`` + vector ``z`` return the outer ``(nR, nz)`` grid,
+    vector + scalar returns ``(nR,)``. Pass whole arrays; do not loop
+    element-by-element. Internally P(k) -> xi(r) goes through FFTLog and
+    Sigma through the `~clenspy.utils.integrate` quadratures -- never
+    re-derive either with naive trapezoids.
+
     NOTE: `sigma` and `deltasigma` are **unnormalised**. They are the pure
     projections of ξ(r, z) with no density factor, so they carry units of
     length (Mpc), not Msun/Mpc^2. The caller multiplies by :math:`\rho_m`
@@ -150,6 +157,13 @@ class TwoHaloTerm:
         .. math::
             \xi(r, z) = \frac{1}{2\pi^2} \int dk\, k^2 P(k, z)\,
             \frac{\sin(kr)}{kr}
+
+        WARNING: the transform runs through FFTLog
+        (`~clenspy.utils.integrate.pk_to_xi_fftlog`) because the
+        :math:`\sin(kr)` integrand is oscillatory -- never re-derive
+        xi(r) by trapezoidal integration of P(k). Vectorized: pass the
+        whole ``R_vals`` array (vector R + vector z returns the outer
+        ``(nR, nz)`` grid); do not loop element-by-element.
 
         Parameters
         ----------

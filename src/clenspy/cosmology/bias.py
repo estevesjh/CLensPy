@@ -218,6 +218,8 @@ class BiasModel:
 
         ``bias(1e14, z=0.3)`` is a float; ``bias(Mvec, z=0.3)`` has shape
         ``(nM,)``; ``bias(Mvec, zvec)`` returns the outer grid ``(nM, nz)``.
+        Vectorized over array input -- pass the whole mass array, do not
+        loop element-by-element.
 
         Parameters
         ----------

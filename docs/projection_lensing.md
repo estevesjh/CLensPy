@@ -29,25 +29,20 @@ The two-halo term is the correlated excess *above* the mean matter column
 — there is no background in it. This is cluster_toolkit's $\Sigma_{2h}$
 convention, and it is what a random-point-subtracted measurement contains.
 Around a cluster observed at $(\lambda^{\rm ob}, z^{\rm ob})$, every
-neighbour halo of mass $M$ at angular offset $\theta$ contributes its own
-**mass shell** $M_\theta(R \mid M)$ — *not* an aperture mass "inside $R$":
-$R$ is the fixed point where the surface density is evaluated, and
-$M_\theta$ is a shell in the neighbour's own offset
-$R_\theta=\theta\chi_o$, converted from a mass into a density,
+neighbour halo of mass $M$ at angular offset $\theta$ contributes
+Costanzi et al. (2026) Eq. 13's $\Sigma_{\rm mis}(R\mid M,\theta,z^{\rm
+ob})$ — *not* an aperture mass "inside $R$": $R$ is the fixed point
+where the surface density is evaluated, and $\Sigma_{\rm mis}$ is the
+neighbour's own azimuthally-averaged offset profile at its offset
+$s\equiv\theta\chi_o$,
 $$
-M_\theta(R\mid M) = \frac{\sin\bar\theta/\bar\theta}{\chi_o^2}
-  \int_{\theta\text{-shell}} 2\pi s\,\Sigma_{\rm mis}(R,s\mid M)\,ds,
-\qquad s\equiv\theta\chi_o,
+\Sigma_{\rm mis}(R, s\mid M) = \frac{1}{2\pi}\int_0^{2\pi}
+  \Sigma\left(\sqrt{R^2+s^2-2Rs\cos\varphi}\,\Big|\,M\right)\,d\varphi,
 $$
-using the single-offset kernel of {doc}`miscentering` (the offset now a
-physical separation rather than a centring error). The $1/\chi_o^2$ turns
-the raw shell mass (Msun) into a density (Msun/Mpc$^2$) — required for
-the master equation below to come out in the right units, since
-$n_{\rm cl}(\theta,M)$ is a number per unit mass, not per unit area — and
-$\sin\bar\theta/\bar\theta$ corrects the shell (built on the flat
-$\theta$ measure via `theta_edges`/`theta_grid`) to the exact
-$2\pi\sin\theta\,d\theta$ measure used below. See "Numerics" for the
-shell-mass integral itself. That weight, $n_{\rm cl}(\theta, M)$,
+read directly off the single-offset kernel of {doc}`miscentering` (the
+offset now a physical separation rather than a centring error) — see
+"Numerics" for how the $\theta$ integral below is done in practice. That
+weight, $n_{\rm cl}(\theta, M)$,
 is the correlated excess above the uncorrelated background rate
 $n_{\rm rnd}(\theta, M) = \int dz\;{\rm common}(z)\, n(M, z)$
 ($n$ the mass function, ${\rm common}(z) = \tfrac{dV}{d\Omega\,dz}$ —
@@ -73,12 +68,13 @@ orders of magnitude. A halo inside the exclusion ball, $|d\chi| \le
 R_{\rm excl}$, *is* the cluster: its entire neighbour count must vanish,
 not merely its clustering excess, so there $n_{\rm cl}(\theta, M) =
 -n_{\rm rnd}(\theta, M)$ — certainty of absence, carrying no bias and no
-$b_{\rm sel}$ (see "Exclusion" below). The master equation sums the mass
-shell against the correlated weight over every offset and neighbour mass,
+$b_{\rm sel}$ (see "Exclusion" below). The master equation sums
+$\Sigma_{\rm mis}$ against the correlated weight over every offset and
+neighbour mass,
 
 $$
 \Sigma_{\rm prj}(R) = \int d\theta\, 2\pi\sin\theta \int dM\;
-  n_{\rm cl}(\theta, M)\, M_\theta(R \mid M).
+  n_{\rm cl}(\theta, M)\, \Sigma_{\rm mis}(R, \theta\chi_o \mid M).
 $$
 
 A raw projected *mass map* — the Costanzi mock's per-halo columns, or any
@@ -89,7 +85,7 @@ channel,
 
 $$
 \Sigma_{\rm bkg}(R) = \int d\theta\, 2\pi\sin\theta \int dM\;
-  n_{\rm rnd}(\theta, M)\, M_\theta(R \mid M),
+  n_{\rm rnd}(\theta, M)\, \Sigma_{\rm mis}(R, \theta\chi_o \mid M),
 $$
 
 near-uniform in $R$ and blind to the selection. `sigma_prj` and
@@ -116,12 +112,12 @@ $(\theta, M)$ integral, and
 
 $$
 \Delta\Sigma_{\rm prj}(R) = \int d\theta\, 2\pi\sin\theta \int dM\;
-  n_{\rm cl}(\theta, M)\, \Delta M_\theta(R \mid M)
+  n_{\rm cl}(\theta, M)\, \Delta\Sigma_{\rm mis}(R, \theta\chi_o \mid M)
 $$
 
-is the *same* master equation with the mass shell swapped for its signed
-excess, $M_\theta \to \Delta M_\theta$ — never a numerical reconstruction from a
-tabulated $\Sigma_{\rm prj}$. The signed negative lobe of
+is the *same* master equation with $\Sigma_{\rm mis}$ swapped for its
+signed excess $\Delta\Sigma_{\rm mis}$ — never a numerical reconstruction
+from a tabulated $\Sigma_{\rm prj}$. The signed negative lobe of
 $\Delta\Sigma_{\rm mis}$ at $R_\theta > R$ ({doc}`miscentering`) is
 load-bearing here: mass conservation of the azimuthal average makes
 $\int d^2s\, \Delta\Sigma_{\rm mis}(R, s) = 0$ exactly, so the excess
@@ -155,41 +151,30 @@ of the neighbour count itself ($\lesssim 0.6\%$ of the summed profile at
 $R \to 0$, gone by $R \approx 2$ cMpc). Switching is a config change, not
 a code change.
 
-## Numerics: each θ shell is integrated exactly
+## Numerics: the θ integral is Gauss-Legendre per grid cell
 
 The code separates the master equation into two factors and contracts
 them at the end: the line-of-sight integrals (`SigmaPrj.n_los_integral`,
 three plain integrand closures handed to `integrate_los` on a
 `LosGeometry` chord), the exclusion bookkeeping (`Exclusion.channels`),
-and the mass shell (`MassShells`, below); `sigma_prj` /
+and the neighbour term (`SigmaMisKernel`, below); `sigma_prj` /
 `deltasigma_prj` sum $\sum_{\theta}\sum_M n_{\rm channel}(\theta, M)\,
-M_\theta(R \mid M)$.
+\Sigma_{\rm mis}(R,\theta\chi_o\mid M)$ over the shared log-spaced
+$\theta$ grid (`theta_edges`/`theta_grid`).
 
-$\Sigma_{\rm mis}(R, s)$ as a function of the offset $s$ is a ring of
-width $\sim r_s$ at $s \approx R$, and no affordable pointwise $\theta$
-rule resolves it. `MassShells` therefore integrates each
-log-spaced $\theta$ shell **exactly**: the azimuthal average is symmetric,
-$\Sigma_{\rm mis}(R, s) = \Sigma_{\rm mis}(s, R)$, so the shell mass is
-an enclosed-mass difference of the halo offset by $R$,
-
-$$
-\int_{s_1}^{s_2} 2\pi s\,\Sigma_{\rm mis}(R, s)\, ds
-= \pi\Sigma_0\Big[s^2\, \hat m\big(s/r_s,\, R/r_s\big)\Big]_{s_1}^{s_2},
-\qquad \hat m = \hat\Sigma_{\rm mis} + \widehat{\Delta\Sigma}_{\rm mis},
-$$
-
-a genuine mass (Msun), $s_1,s_2$ the edges of one $\theta$-cell times
-$\chi_o$. `MassShells.__call__` then applies the $1/\chi_o^2$ and
-$\sin\bar\theta/\bar\theta$ factors of "The master equation" above to
-turn this shell mass into the $M_\theta(R\mid M)$ that equation actually
-uses — the boxed identity above is the mass, not yet the master
-equation's density-valued object. $\hat m$ — the mean enclosed surface
-density per $\Sigma_0$, `MassShells.mean_sigma` — is read from the
-packaged miscentering table. The
-$\Delta\Sigma_{\rm mis}$ shell splits into a smooth aperture-mean term
-(per-shell Gauss–Legendre nodes) minus the same exact shell mass. Two
-thin-window approximations make the factorisation possible: the profile
-offset is evaluated at the cluster's
+`SigmaMisKernel` reads $\Sigma_{\rm mis}$ straight off the packaged
+miscentering table — `mis_table.sigma_hat` ($\hat\Sigma_{\rm mis}$) or
+`mis_table.ds_hat` ($\widehat{\Delta\Sigma}_{\rm mis}$, the `which="ds"`
+case) — in its natural argument order (query radius, halo offset), and
+integrates each $\theta$ grid cell with Gauss-Legendre nodes against the
+exact angular measure $2\pi\sin\theta\,d\theta$: no enclosed-mass
+identity, no argument swap, no flat-disc-then-correct measure. A few GL
+nodes per cell (`n_gl`, default 16) rather than one point evaluation:
+$\Sigma_{\rm mis}(R, s)$ as a function of $s$ is a ring of width
+$\sim r_s$ at $s\approx R$, so a single-point rule under-resolves
+exactly the cell that matters most for evaluating $\Sigma_{\rm prj}$ at
+$R$. Two thin-window approximations still apply: the profile offset is
+evaluated at the cluster's
 distance $R_\theta = \theta\,\chi(z^{\rm ob})$ and pulled out of the $z$
 integral ($\chi$ varies by a few per cent across the support), and the
 neighbour concentration is evaluated at $z^{\rm ob}$
@@ -220,7 +205,7 @@ multiplication, never by re-deriving either side.
 **The rnd channel is the selected-halo background column, not the
 cosmological mean-matter column.** It is the mean column of the modelled
 halo population — mass-restricted to `min_mass`..`log10_M_max`, dressed
-with untruncated NFW wings unless `r_trunc` is set — so it carries only
+with untruncated NFW wings — so it carries only
 the halo-budget share of $\bar\rho_m \times 2\,{\rm depth}$ (≈ 0.2–0.4
 for the default mass cut). That is exactly the mock's background (mock
 matter *is* those halos); a full-matter closure is a separate,

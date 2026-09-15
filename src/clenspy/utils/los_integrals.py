@@ -19,31 +19,61 @@ from __future__ import annotations
 
 import numpy as np
 
-from .integrate import gl_nodes_batched
+from .integrate import gl_nodes, gl_nodes_batched
 
-__all__ = ["LosGeometry", "integrate_los", "field_integrand", "shell_masses",
-           "tail_masses", "theta_edges", "theta_grid"]
+__all__ = ["LosGeometry", "integrate_los", "field_integrand",
+           "theta_breakpoint_grid"]
 
 
-def theta_edges(chi_o, theta_range, n_theta, r_excl=0.0):
-    r""":math:`\theta` cell edges [rad] -- log-spaced, ``n_theta + 1``
-    without exclusion. With ``r_excl > 0`` the tangency angle
-    :math:`\arcsin(r_{\rm excl}/\chi_o)` is inserted as one extra edge (the
-    point where the inside interval shrinks to zero); the exclusion curve
-    itself is handled exactly by the cosh--Abel interval split."""
-    edges = np.geomspace(*theta_range, n_theta + 1) / chi_o
+def theta_breakpoint_grid(chi_o, theta_min, theta_max_factor, R, n_per_seg,
+                          r_excl=0.0):
+    r""":math:`\theta` quadrature nodes and weights [rad] for
+    :math:`\int f(\theta)\,d\theta`, log-Gauss-Legendre on segments split
+    at feature breakpoints rather than one uniform log grid.
+
+    :math:`\Sigma_{\rm mis}(R, s\mid M)` (:math:`s=\theta\chi_o`) peaks
+    sharply at :math:`s\approx R` -- a ring of width :math:`\sim r_s` --
+    and :math:`\xi_{\rm NL}` couples :math:`s` and the line-of-sight
+    position through the exact chord, so a naive uniform grid needs many
+    more nodes than a grid that simply puts one exactly where the
+    feature is. Lower bound ``theta_min`` is a fixed numerical floor;
+    the upper bound is ``theta_max_factor`` times the largest requested
+    :math:`\theta_R=R/\chi_o`, not a fixed angle or a fixed physical
+    radius -- it adapts to whatever ``R`` batch is actually being
+    queried, rather than blowing up the RND channel's untruncated-NFW
+    tail (unconverged all the way to a fixed cutoff, let alone to
+    :math:`\pi`) or clipping the CL channel's ring feature at small R.
+    Breakpoints: ``theta_min``, that upper bound, the exclusion tangency
+    :math:`\arcsin(r_{\rm excl}/\chi_o)` and twice that (the ``b_sel``
+    sigmoid's own transition scale), and :math:`\theta_R` for *every*
+    requested ``R`` -- one grid shared across the whole ``R`` batch, not
+    rebuilt per point. ``n_per_seg`` Gauss-Legendre nodes are laid on
+    each segment in :math:`\ln\theta` (so ``d\theta = \theta\,d\ln
+    \theta`` is folded into the returned weights already)."""
+    R = np.atleast_1d(np.asarray(R, dtype=float))
+    theta_R = R / chi_o
+    theta_lo, theta_hi = theta_min, theta_max_factor * float(np.max(theta_R))
+    breakpoints = {theta_lo, theta_hi}
+    breakpoints.update(theta_R.tolist())
     if 0.0 < r_excl < chi_o:
         theta_tan = np.arcsin(r_excl / chi_o)
-        if edges[0] < theta_tan < edges[-1]:
-            edges = np.sort(np.append(edges, theta_tan))
-    return edges
+        if theta_lo < theta_tan < theta_hi:
+            breakpoints.add(theta_tan)
+            breakpoints.add(min(2.0 * theta_tan, theta_hi))
+    breakpoints = sorted(b for b in breakpoints if theta_lo <= b <= theta_hi)
+    # dedupe breakpoints too close together for a well-conditioned segment
+    clean = [breakpoints[0]]
+    for b in breakpoints[1:]:
+        if b > clean[-1] * (1.0 + 1e-6):
+            clean.append(b)
 
-
-def theta_grid(edges):
-    r"""Cell centres (log-mean of the `theta_edges`) and the per-cell
-    spherical-measure correction :math:`\sin\bar\theta/\bar\theta`."""
-    centres = np.sqrt(edges[:-1] * edges[1:])
-    return centres, np.sin(centres) / centres
+    thetas, weights = [], []
+    for a, b in zip(clean[:-1], clean[1:]):
+        u, w_u = gl_nodes(np.log(a), np.log(b), n_per_seg)
+        th = np.exp(u)
+        thetas.append(th)
+        weights.append(w_u * th)
+    return np.concatenate(thetas), np.concatenate(weights)
 
 
 class LosGeometry:
@@ -152,81 +182,3 @@ def field_integrand(distance, hmf, common, Ms, M_weight):
     return integrand
 
 
-def shell_masses(R, s_edges, rs, sigma0, mean_sigma, which, n_gl: int = 4):
-    r"""Mass of the offset profile in each shell of ``s_edges``, shape
-    ``(n_shell, n_halo, n_R)``.
-
-    Exact integration by parts: the enclosed mass of the halo offset
-    by ``R`` gives :math:`\int_{s_1}^{s_2} 2\pi s\,\Sigma_{\rm mis}\,ds =
-    \pi\Sigma_0[s^2\hat m]_{s_1}^{s_2}` (``which="sigma"``); for the
-    signed ``"ds"`` case the smooth aperture-mean term takes per-shell
-    Gauss--Legendre nodes and the same exact shell mass is subtracted.
-    ``mean_sigma(x, x_mis)`` is the dimensionless mean enclosed surface
-    density :math:`\bar\Sigma_{\rm mis}/\Sigma_0`, broadcasting over both
-    arguments.
-    """
-    from .integrate import gl_nodes
-
-    R = np.atleast_1d(np.asarray(R, dtype=float))
-    s_edges = np.asarray(s_edges, dtype=float)
-    n_t, n_m = s_edges.size - 1, rs.size
-    masses = np.empty((n_t, n_m, R.size))
-    x_gl, w_gl = gl_nodes(0.0, 1.0, n_gl)
-    width = np.diff(s_edges)
-    s_j = s_edges[:-1, None] + width[:, None] * x_gl[None, :]   # (n_t, n_gl)
-    for im in range(n_m):
-        # exact shell masses of the halo offset by R (symmetry)
-        m_edges = (s_edges[:, None] ** 2) * mean_sigma(
-            s_edges[:, None] / rs[im], R[None, :] / rs[im]
-        )
-        shell = np.pi * sigma0[im] * np.diff(m_edges, axis=0)
-        if which == "sigma":
-            masses[:, im, :] = shell
-        else:
-            # smooth term 2 pi s SigmaBar_mis(<R | s): curved on the r_s
-            # scale near s ~ R, so per-shell GL nodes rather than an edge
-            # trapezoid (-5% in DeltaSigma at R = 8 at test resolution)
-            mh = mean_sigma(R[None, None, :] / rs[im],
-                            s_j[:, :, None] / rs[im])           # (t, j, r)
-            smooth = (2.0 * np.pi * sigma0[im] * width[:, None]
-                      * np.einsum("tj,j,tjr->tr", s_j, w_gl, mh))
-            masses[:, im, :] = smooth - shell
-    return masses
-
-
-def tail_masses(R, s_edges, rs, sigma0, r_trunc, fhat, n_phi: int = 16):
-    r"""Per-cell mass of the profile **beyond** a halo-centric truncation
-    radius, to subtract from the untruncated exact cells.
-
-    The removed tail carries no cusp (:math:`r_{\rm trunc} \gg r_s`), so
-    its azimuthal average is smooth and ordinary quadrature converges:
-    with :math:`u^2 = R^2 + s^2 - 2Rs\cos\varphi` monotone in
-    :math:`\varphi`, the tail sits at :math:`\varphi > \varphi_t`,
-    :math:`\cos\varphi_t = (R^2 + s^2 - r_{\rm trunc}^2)/(2Rs)`.
-    ``fhat(x)`` is the dimensionless surface-density shape (e.g. the NFW
-    :math:`\hat f`). Returns ``(n_cell, n_halo, n_R)``.
-    """
-    from .integrate import gl_nodes
-
-    x_gl, w_gl = gl_nodes(0.0, 1.0, n_phi)
-    # phi_t at every (cell edge, R): 0 = all tail, pi = no tail
-    cos_t = ((R[None, :] ** 2 + s_edges[:, None] ** 2 - r_trunc**2)
-             / (2.0 * R[None, :] * s_edges[:, None]))
-    phi_t = np.arccos(np.clip(cos_t, -1.0, 1.0))           # (n_e, n_R)
-    span = np.pi - phi_t
-    phi = phi_t[..., None] + span[..., None] * x_gl        # (n_e,n_R,n_phi)
-    u = np.sqrt(np.maximum(
-        R[None, :, None] ** 2 + s_edges[:, None, None] ** 2
-        - 2.0 * R[None, :, None] * s_edges[:, None, None]
-        * np.cos(phi), 0.0,
-    ))
-    tail = np.zeros((s_edges.size - 1, rs.size, R.size))
-    for im in range(rs.size):
-        # azimuth-averaged tail: (1/pi) int_{phi_t}^pi. Weighting the arc
-        # length instead discards the cusp-concentrated ring mass.
-        sig_tail = (sigma0[im] / np.pi) * np.einsum(
-            "erp,p,er->er", fhat(u / rs[im]), w_gl, span)
-        g = 2.0 * np.pi * s_edges[:, None] * sig_tail      # (n_e, n_R)
-        tail[:, im, :] = (0.5 * (g[1:] + g[:-1])
-                          * np.diff(s_edges)[:, None])
-    return tail

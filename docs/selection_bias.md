@@ -53,7 +53,7 @@ $$
 
 with $b_{\rm eff}=\langle b(M,z)\rangle$ the unselected aggregate bias and
 $A_s$ the closure's **gain** — how strongly $b_{\rm small}$ responds to
-$\delta$ (typically 18–40; see {doc}`plan-bsel-stable-closure` for the
+$\delta$ (typically 18–40; see {doc}`_archive/plan-bsel-stable-closure` for the
 derivation). The one physical input, $\delta$, is estimated from the
 model's own operators — a first-order Eddington tilt of the *correlated*
 part of the projection variance,
@@ -94,7 +94,7 @@ right to a few percent for $b_{\rm small}$ to be right to tens of percent
 \lambda^{\rm tr})$ kernel, which turned out to overestimate
 $\langle\lambda^{\rm ob}-\lambda^{\rm tr}\rangle$ by $1.5$–$2.2\times$
 (an exponential-tilt divergence, not a calibration-choice problem — see
-{doc}`plan-bsel-stable-closure`) and inflated $b_{\rm small}$ by
+{doc}`_archive/plan-bsel-stable-closure`) and inflated $b_{\rm small}$ by
 $3$–$4\times$ against Costanzi et al. (2026)'s own published curve. The
 figure's $b_{\rm small}\approx11$ (down from $\approx19$ under the old
 closure) is what is left once that bug is gone: `HodMor.des_y1()` still
@@ -111,7 +111,7 @@ spurious error on top. See {doc}`validation` for the calibrated
 $z^{\rm ob}$ while the published Fig. 6 curve needs it to *increase* —
 confirmed converged (not a quadrature issue) and traced to
 $I_2^{(2)}$'s own redshift evolution falling faster than $\Delta_{\rm
-RND}$ rises. Not fixed; see {doc}`plan-bsel-stable-closure` §9 for the
+RND}$ rises. Not fixed; see {doc}`_archive/plan-bsel-stable-closure` §9 for the
 full diagnostic. Treat any single-$z$-bin use of this closure as
 mean-level-correct but shape-uncertain across $z$.
 ```
@@ -147,7 +147,7 @@ gain's denominator — is computed as its own direct quadrature
 float subtraction of $I_2$ and $I_1$, removing the one real cancellation
 risk in this operator; it is *not*, however, where $b_{\rm small}$'s
 sensitivity actually comes from (see the note above and
-{doc}`plan-bsel-stable-closure`).
+{doc}`_archive/plan-bsel-stable-closure`).
 
 ## Example
 
@@ -169,6 +169,6 @@ theta/theta_lambda=5.00  b_sel=4.3204
 See also: {doc}`api/index` for the full `clenspy.selection` reference,
 {doc}`notation` for the symbol table, {doc}`selection_function` for the
 $S_i$ this same engine's richness marginalization builds on, and
-{doc}`plan-bsel-stable-closure` for the closure's derivation and its
+{doc}`_archive/plan-bsel-stable-closure` for the closure's derivation and its
 validation against the mock and the published Costanzi et al. (2026)
 figure ({doc}`validation`).

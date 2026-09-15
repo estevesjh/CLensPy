@@ -59,6 +59,13 @@ class SigmaGrid:
     :math:`kR \le 20` truncation and its Leibniz term); `sigma2_fftlog`
     is the fast untruncated route -- compare it to ``truncate=False`` only.
 
+    NOTE: `sigma`, `sigma2`, `dsigma2_dlnr` and `dlnsigma2_dlnr` take a
+    **scalar** ``r`` by design (each R has its own panelled quadrature).
+    For many R at once, use the vectorized `sigma2_fftlog(lnr)`, or query
+    :math:`\sigma(M, z)` through `~clenspy.cosmology.BiasModel.sigma_tophat`
+    / `~clenspy.cosmology.TinkerMassFunction`, which are array-in,
+    array-out.
+
     Parameters
     ----------
     k : array-like
@@ -67,6 +74,15 @@ class SigmaGrid:
         Linear power spectrum at z=0 [Mpc^3], positive, same shape.
     nquad : int, optional
         Gauss--Legendre order per panel (default: 24).
+
+    Examples
+    --------
+    Executed with the linear CAMB spectrum of
+    ``fiducial_cosmology(H0=70, Om0=0.286)``::
+
+        grid.sigma(8.0)                       # 1.005278 (float)
+        grid.sigma(np.array([1.0, 8.0]))      # raises TypeError: scalar only
+        grid.sigma2_fftlog(np.log([1.0, 8.0, 20.0]))[0]  # (3,) ln sigma^2
     """
 
     #: default GL order per panel; 24 vs 48 agree to 1e-16
@@ -168,7 +184,8 @@ class SigmaGrid:
         return value
 
     def sigma(self, r, truncate: bool = True):
-        r""":math:`\sigma(R) = \sqrt{\sigma^2(R)}`, dimensionless."""
+        r""":math:`\sigma(R) = \sqrt{\sigma^2(R)}`, dimensionless.
+        ``r`` scalar -- see the class NOTE for the array route."""
         return np.sqrt(self.sigma2(r, truncate=truncate))
 
     def dlnsigma2_dlnr(self, r, truncate: bool = True):

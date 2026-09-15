@@ -3,11 +3,11 @@ r"""Projection lensing: :math:`\Sigma_{\rm prj}` and :math:`\Delta\Sigma_{\rm pr
 The two-halo projected surface density around a richness-selected cluster
 (Costanzi 2026 eq. 13): a sum over neighbour mass :math:`M` and offset
 angle :math:`\theta` of the correlated weight :math:`n_{\rm cl}(\theta,M)`
-against the mass shell :math:`M_\theta(R\mid M)` -- the neighbour halo's
-own offset profile (see `MassShells`), not an aperture mass "inside
-:math:`R`". :math:`\Delta\Sigma_{\rm prj}` is the same sum with the mass
-shell swapped for its signed excess, never a numerical reconstruction of
-a tabulated :math:`\Sigma_{\rm prj}`.
+against :math:`\Sigma_{\rm mis}(R\mid M,\theta)` -- the neighbour halo's
+own offset profile (see `SigmaMisKernel`), read off the packaged
+miscentering table. :math:`\Delta\Sigma_{\rm prj}` is the same sum with
+:math:`\Sigma_{\rm mis}` swapped for its signed excess, never a numerical
+reconstruction of a tabulated :math:`\Sigma_{\rm prj}`.
 
 NOTE: physical :math:`M_\odot`, comoving Mpc, h-free; :math:`\Sigma` in
 comoving :math:`M_\odot\,{\rm Mpc}^{-2}`. Full derivation, the master
@@ -34,16 +34,13 @@ from ..halo.twohalo import TwoHaloTerm
 from ..kernels.photoz import y3_photoz_window
 from ..selection.geometry import r_excl
 from ..selection.miscentering import load_nfw_miscentering_table
-from ..utils.integrate import mass_nodes
+from ..utils.integrate import gl_nodes, mass_nodes
 from ..utils.interpolate import LogGridInterpolator
 from ..utils.los_integrals import (
     LosGeometry,
     field_integrand,
     integrate_los,
-    shell_masses,
-    tail_masses,
-    theta_edges,
-    theta_grid,
+    theta_breakpoint_grid,
 )
 
 __all__ = ["SigmaPrj", "SigmaPrjConfig"]
@@ -57,22 +54,28 @@ class SigmaPrjConfig:
     ----------
     mis_table : NfwMiscenteringTable, optional
         Default: the packaged table.
-    n_theta, n_M : int
-        Quadrature sizes: log theta cells integrated exactly by the
-        profile kernel; Gauss-Legendre in ln M. Defaults 144/64: at
-        96/40, sigma_prj is 0.06-0.36% off a 192/80/10/28 reference
-        across R = 0.5-25 comoving Mpc; at 144/64 that tightens to
-        0.04-0.12%, both cheap (<0.1s/call), so the finer pair is the
-        default with margin to spare.
+    n_theta_per_seg, n_M : int
+        Quadrature sizes: log-Gauss-Legendre nodes per theta breakpoint
+        segment (see `theta_breakpoint_grid`); Gauss-Legendre in ln M.
+        Default 30/64, matching the validated `RichnessSelection`
+        recipe's `n_theta_per_seg`.
     n_u_inside, n_u_outside : int
         Cosh-Abel Gauss-Legendre orders inside and outside the exclusion
         sphere; the discontinuity is an interval boundary, never a mask.
         Defaults 8/24 (was 6/16, per the same convergence check above).
-    theta_perp_range : tuple of float
-        Transverse comoving span (Mpc) of the theta grid at z_ob. Lower
-        edge 1e-3: the 2 pi sin(theta) measure kills the integrand faster
-        than Sigma_mis grows; upper edge 90: the kernel tail at the
-        outermost mock radius with xi_NL already small.
+    theta_min : float
+        Lower edge [rad] of the theta grid -- a numerical floor (the
+        2 pi sin(theta) measure kills the integrand faster than
+        Sigma_mis grows well below arcsec scales), not a
+        physically-motivated cutoff. Default 1 arcsec.
+    theta_max_factor : float
+        Upper edge = ``theta_max_factor * max(R) / chi_o``, adaptive to
+        the requested R batch rather than a fixed angle or physical
+        radius -- a fixed cutoff either clips the CL channel's
+        Sigma_mis ring at small R or leaves the RND channel's
+        untruncated-NFW tail to keep growing at large R (unconverged
+        even out to pi). Default 3, matching the validated
+        `RichnessSelection` recipe's ``3 * theta_R_max`` fallback.
     min_mass, log10_M_max : float, optional
         Mass range, physical Msun; defaults 1e13 and 10^15.5 h^-1 Msun
         converted once with h (the RichnessSelection range) -- matches
@@ -104,25 +107,22 @@ class SigmaPrjConfig:
         is zeroed by subtracting the background weight from the
         correlated channel, background strictly uniform, hole booked
         in cl.
-    r_trunc : float, optional
-        Halo-centric truncation of the neighbour profile [comoving Mpc];
-        None = untruncated NFW (the mock passes 30/h).
     floor_one_plus_bxi : bool
         Floor 1 + b_sel b xi at zero pointwise (density positivity);
         couples the channels, floored excess reported in cl.
     """
 
     mis_table: object | None = None
-    n_theta: int = 144
+    n_theta_per_seg: int = 30
     n_M: int = 64
     n_u_inside: int = 8
     n_u_outside: int = 24
-    theta_perp_range: tuple[float, float] = (1e-3, 90.0)
+    theta_min: float = np.radians(1.0 / 3600.0)
+    theta_max_factor: float = 3.0
     min_mass: float | None = None
     log10_M_max: float | None = None
     los_depth: float | None = None
     exclusion: str = "counter"
-    r_trunc: float | None = None
     floor_one_plus_bxi: bool = False
 
 
@@ -180,23 +180,32 @@ class Exclusion:
         return n_rnd, n_lss                    # "cl" slab and "none"
 
 
-class MassShells:
-    r"""The mass shell :math:`M_\theta(R \mid M)`: mean projected mass of
-    a neighbour halo of mass :math:`M`, offset by
-    :math:`R_\theta = \theta\chi_o`, inside radius :math:`R`.
+class SigmaMisKernel:
+    r"""The neighbour term of Costanzi 2026 eq. 13,
+    :math:`\Sigma_{\rm mis}(R \mid M, \theta)` -- the halo's own
+    azimuthally-averaged offset profile, read directly off the packaged
+    miscentering table, integrated over :math:`\theta` with the exact
+    angular measure:
 
     .. math::
-        M_\theta(R \mid M) = \frac{\sin\bar\theta/\bar\theta}{\chi_o^2}
-            \int_{\rm shell} 2\pi s\, \Sigma_{\rm mis}(R, s \mid M)\, ds,
+        \int 2\pi\sin\theta\,\Sigma_{\rm mis}(R, \theta\chi_o \mid M)\,
+            d\theta,
 
-    with the signed :math:`\Delta\Sigma_{\rm mis}` in place of
-    :math:`\Sigma_{\rm mis}` under ``which="ds"``, integrated exactly by parts
-    (`clenspy.utils.los_integrals.shell_masses`) and corrected to the
-    spherical measure. Pure profile physics — independent of the
-    line-of-sight weights. Self-contained: owns the theta-shell grid and
-    the neighbour NFW profiles, so one call is ``shells(R, lob, zob)``.
-    One-entry cache: the shells are b_sel-independent, so repeated channel
-    evaluations at the same (R, lob, zob) reuse them.
+    with the signed :math:`\Delta\Sigma_{\rm mis}` (`mis_table.ds_hat`)
+    in place of :math:`\Sigma_{\rm mis}` (`mis_table.sigma_hat`) under
+    ``which="ds"``. Direct evaluation on the tabulated offset profile in
+    its natural argument order (query radius, halo offset) -- no
+    enclosed-mass identity, no argument swap. The :math:`\theta`
+    quadrature is `theta_breakpoint_grid`'s adaptive grid, not a uniform
+    one: :math:`\Sigma_{\rm mis}(R,s)` peaks sharply at :math:`s\approx
+    R` and :math:`\xi_{\rm NL}` couples :math:`s` to the line-of-sight
+    position, so the grid forces a node exactly at :math:`\theta_R=R/
+    \chi_o` for every requested ``R`` rather than hoping a uniform grid
+    lands near it. Pure profile physics — independent of the
+    line-of-sight weights. Self-contained: owns the theta grid and the
+    neighbour NFW profiles, so one call is ``sigma_mis(R, lob, zob)``.
+    One-entry cache: independent of b_sel, so repeated channel
+    evaluations at the same (R, lob, zob) reuse it.
 
     Parameters
     ----------
@@ -209,9 +218,7 @@ class MassShells:
         Comoving mean matter density [Msun/Mpc^3].
     h : float
     config : SigmaPrjConfig
-        Theta grid, n_M, exclusion mode, and the optional halo-centric
-        truncation ``r_trunc`` (the removed tail is subtracted per shell,
-        `tail_masses`; ``"sigma"`` only).
+        Theta range/resolution, n_M, and exclusion mode.
     min_mass, log10_M_max : float
         Mass range, physical Msun.
     """
@@ -228,17 +235,16 @@ class MassShells:
         self.log10_M_max = log10_M_max
         self._cache = None
 
-    def theta_shells(self, lob: float, zob: float):
-        r"""Shell edges [rad], centres, and the spherical-measure
-        correction :math:`\sin\bar\theta/\bar\theta` of the
-        :math:`\theta` grid at one cluster."""
+    def theta_grid_at(self, lob: float, zob: float, R):
+        r""":math:`\theta` quadrature nodes and weights [rad] shared by
+        the whole ``R`` batch, breakpoints forced at :math:`\theta_R=R/
+        \chi_o` for every ``R`` (see `theta_breakpoint_grid`)."""
         r_ex = (r_excl(lob, zob, self.h)
                 if self.config.exclusion != "none" else 0.0)
-        edges = theta_edges(float(self.distance.chi(zob)),
-                            self.config.theta_perp_range,
-                            self.config.n_theta, r_excl=r_ex)
-        thetas, sin_corr = theta_grid(edges)
-        return edges, thetas, sin_corr
+        chi_o = float(self.distance.chi(zob))
+        return theta_breakpoint_grid(
+            chi_o, self.config.theta_min, self.config.theta_max_factor, R,
+            self.config.n_theta_per_seg, r_excl=r_ex)
 
     def profiles(self, zob: float):
         r"""(r_s, Sigma_0 = 2 r_s rho_s) of the neighbour NFW population
@@ -252,41 +258,27 @@ class MassShells:
         sigma0 = 2.0 * rs * np.asarray(prof.rho_s, dtype=float)
         return rs, sigma0
 
-    def mean_sigma(self, x, x_mis):
-        r"""Mean enclosed surface density of the offset profile, per
-        :math:`\Sigma_0`: :math:`\bar\Sigma_{\rm mis}(<x r_s \mid
-        x_{\rm mis} r_s)/\Sigma_0 = \hat\Sigma_{\rm mis} +
-        \widehat{\Delta\Sigma}_{\rm mis}` (the doc's :math:`\hat m`).
-        A sigma, not a mass: :math:`\pi s^2 \Sigma_0` times it is the
-        enclosed projected mass, applied in `shell_masses`."""
-        return (self.mis_table.sigma_hat(x, x_mis)
-                + self.mis_table.ds_hat(x, x_mis))
-
     def __call__(self, R, lob: float, zob: float, which: str = "sigma"):
-        r"""The mass shell :math:`M_\theta(R \mid M)`, shape (n_theta,
-        n_M, n_R); see the class docstring."""
+        r"""Per-:math:`\theta`-node contribution to the master equation,
+        shape (n_theta, n_M, n_R); see the class docstring."""
         R = np.atleast_1d(np.asarray(R, dtype=float))
         key = (which, R.tobytes(), round(lob, 8), round(zob, 8))
         if self._cache is not None and self._cache[0] == key:
             return self._cache[1]
 
         chi_o = float(self.distance.chi(zob))
-        edges, _, sin_corr = self.theta_shells(lob, zob)
+        thetas, weights = self.theta_grid_at(lob, zob, R)
         rs, sigma0 = self.profiles(zob)
-        masses = shell_masses(R, edges * chi_o, rs, sigma0,
-                              self.mean_sigma, which)
-        if self.config.r_trunc is not None:
-            if which != "sigma":
-                raise NotImplementedError(
-                    "r_trunc is a mock-matching device for Sigma_prj; "
-                    "DeltaSigma_prj uses the untruncated profile"
-                )
-            masses -= tail_masses(R, edges * chi_o, rs, sigma0,
-                                  self.config.r_trunc, NfwProfile._fNfw)
-        # to the spherical measure, per shell
-        masses *= sin_corr[:, None, None] / chi_o**2
-        self._cache = (key, masses)
-        return masses
+        hat = self.mis_table.sigma_hat if which == "sigma" else self.mis_table.ds_hat
+        s = thetas * chi_o
+        angular = weights * 2.0 * np.pi * np.sin(thetas)   # (n_theta,)
+
+        contrib = np.empty((thetas.size, rs.size, R.size))
+        for im in range(rs.size):
+            vals = hat(R[None, :] / rs[im], s[:, None] / rs[im])  # (n_theta, n_R)
+            contrib[:, im, :] = angular[:, None] * sigma0[im] * vals
+        self._cache = (key, contrib)
+        return contrib
 
 
 class SigmaPrj:
@@ -381,7 +373,7 @@ class SigmaPrj:
         # never as a weight on the integrand
         self._window = y3_photoz_window()
         self.rho_m = mean_matter_density(self.cosmo)
-        self.shells = MassShells(
+        self.sigma_mis = SigmaMisKernel(
             mis_table=self.mis_table, distance=self.distance,
             concentration=self.concentration, rho_m=self.rho_m, h=self.h,
             config=cfg, min_mass=self.min_mass,
@@ -510,25 +502,28 @@ class SigmaPrj:
                 if self.config.exclusion != "none" else 0.0)
         return LosGeometry(thetas, chi_o, chi_min, chi_max, r_excl=r_ex)
 
-    def n_los_integral(self, lob: float, zob: float, b_sel: Callable):
+    def n_los_integral(self, lob: float, zob: float, b_sel: Callable, R):
         r"""The three cosh--Abel z integrals of the master equation, each
         (n_theta, n_M): the background weight :math:`n_{\rm rnd}` inside
         and outside the exclusion sphere, and the correlated weight
         :math:`n_{\rm lss} = b_{\rm sel}(\theta)\int dz\,{\rm common}\,
-        n\,b\,\xi_{\rm NL}` outside it — ``b_sel`` is applied here.
+        n\,b\,\xi_{\rm NL}` outside it — ``b_sel`` is applied here. The
+        theta grid depends on ``R`` (`SigmaMisKernel.theta_grid_at`'s
+        per-``R`` breakpoints), so this must share the same ``R`` batch
+        as the `sigma_mis` call it is later contracted against.
 
-        The b_sel-independent products are cached per (lob, zob); the
+        The b_sel-independent products are cached per (lob, zob, R); the
         positivity floor couples b_sel into the integrand nonlinearly and
         skips the cache (its n_lss is then the floored full bracket).
         """
         cfg = self.config
         if not self._built:
             self.build()
-        _, thetas, _ = self.shells.theta_shells(lob, zob)
+        thetas, _ = self.sigma_mis.theta_grid_at(lob, zob, R)
         b_sel_values = np.broadcast_to(
             np.asarray(b_sel(thetas), dtype=float), thetas.shape)
 
-        key = (round(lob, 8), round(zob, 8))
+        key = (round(lob, 8), round(zob, 8), np.asarray(R, float).tobytes())
         if not cfg.floor_one_plus_bxi and key in self._los_weight_cache:
             n_rnd_in, n_rnd_out, n_lss = self._los_weight_cache[key]
             return n_rnd_in, n_rnd_out, n_lss * b_sel_values[:, None]
@@ -584,12 +579,12 @@ class SigmaPrj:
             raise ValueError(
                 f"channel must be 'cl', 'sum' or 'rnd', got {channel!r}")
 
-        n_rnd_in, n_rnd_out, n_lss = self.n_los_integral(lob, zob, b_sel)
+        n_rnd_in, n_rnd_out, n_lss = self.n_los_integral(lob, zob, b_sel, R)
         n_rnd, n_cl = self.k_exc.channels(n_rnd_in, n_rnd_out, n_lss)
-        masses = self.shells(R, lob, zob, "sigma")
-        # master equation: sum over theta shells (t) and halo masses (m)
-        self.rnd = (n_rnd[:, :, None] * masses).sum(axis=(0, 1))
-        self.cl = (n_cl[:, :, None] * masses).sum(axis=(0, 1))
+        contrib = self.sigma_mis(R, lob, zob, "sigma")
+        # master equation: sum over theta cells (t) and halo masses (m)
+        self.rnd = (n_rnd[:, :, None] * contrib).sum(axis=(0, 1))
+        self.cl = (n_cl[:, :, None] * contrib).sum(axis=(0, 1))
         return {"cl": self.cl, "rnd": self.rnd,
                 "sum": self.rnd + self.cl}[channel]
 
@@ -604,11 +599,11 @@ class SigmaPrj:
             raise ValueError(
                 f"channel must be 'cl', 'sum' or 'rnd', got {channel!r}")
 
-        n_rnd_in, n_rnd_out, n_lss = self.n_los_integral(lob, zob, b_sel)
+        n_rnd_in, n_rnd_out, n_lss = self.n_los_integral(lob, zob, b_sel, R)
         n_rnd, n_cl = self.k_exc.channels(n_rnd_in, n_rnd_out, n_lss)
-        masses = self.shells(R, lob, zob, "ds")
-        self.rnd = (n_rnd[:, :, None] * masses).sum(axis=(0, 1))
-        self.cl = (n_cl[:, :, None] * masses).sum(axis=(0, 1))
+        contrib = self.sigma_mis(R, lob, zob, "ds")
+        self.rnd = (n_rnd[:, :, None] * contrib).sum(axis=(0, 1))
+        self.cl = (n_cl[:, :, None] * contrib).sum(axis=(0, 1))
         return {"cl": self.cl, "rnd": self.rnd,
                 "sum": self.rnd + self.cl}[channel]
 
@@ -616,6 +611,104 @@ class SigmaPrj:
         """The channels of the last projection (Estimator contract)."""
         return {"rnd": self.rnd, "cl": self.cl,
                 "sum": None if self.rnd is None else self.rnd + self.cl}
+
+    def sigma_prj_circ(self, R, lob: float, zob: float, b_sel: Callable, *,
+                       prj_depth: float | None = None,
+                       theta_max: float | None = None,
+                       n_dis: int = 64, n_theta: int = 64, n_phi: int = 48,
+                       n_M: int = 80):
+        r"""Literal port of Costanzi's exploratory notebook recipe
+        ("Analytical modeling optical selection effects on cluster
+        density profile.ipynb", ``Sigma_prj_lobsel_CIRC`` /
+        ``int_over_ThetaRs_lobsel_CIRC`` / ``int_over_M_lobsel_CIRC`` /
+        ``int_over_phi_lobsel_CIRC``) -- the code that actually produced
+        the digitized Fig. 6 curve, kept deliberately separate from
+        `sigma_prj`'s eq-13-literal integral because it is structurally
+        different: ``b_sel``/:math:`\xi_{\rm NL}` are evaluated at the
+        :math:`\varphi`-swept ring position
+        (:math:`\tilde R(\varphi)/\chi_o`, the angle of that ring point
+        *from the cluster*) rather than at the tracer's own fixed offset
+        :math:`\theta`, while the tracer's own profile density is held
+        fixed at its **centered** value :math:`\Sigma(\theta\chi(z_{\rm
+        tr})\mid M)` -- not the true offset-averaged :math:`\Sigma_{\rm
+        mis}(R,\theta\chi_o\mid M)` `sigma_prj` uses. That mismatch (an
+        :math:`R`-independent profile density term) looks like an
+        approximation or a bug in this exploratory notebook, not eq. 13
+        as written -- ported literally regardless, since matching the
+        digitized curve is the point. ``prj_depth``/``theta_max``
+        default to 50/30 cMpc/h (comoving Mpc, h removed once with
+        ``self.h``), matching the notebook's own hardcoded values --
+        only the notebook's own uniform-grid trapezoid rule is dropped,
+        replaced by Gauss-Legendre in every integral (LOS, theta, phi,
+        `mass_nodes` for mass) for the same accuracy at far fewer nodes;
+        the physics is unchanged.
+        """
+        if not self._built:
+            self.build()
+        R = np.atleast_1d(np.asarray(R, dtype=float))
+        chi_o = float(self.distance.chi(zob))
+        prj_depth = (50.0 / self.h) if prj_depth is None else prj_depth
+        theta_max_mpc = (30.0 / self.h) if theta_max is None else theta_max
+        r_ex = r_excl(lob, zob, self.h)
+
+        # LOS: GL in ln(dis) per branch, dz = d(dis) / (dchi/dz)
+        u_dis, w_dis = gl_nodes(np.log(1.0e-6 / self.h), np.log(prj_depth), n_dis)
+        dis = np.exp(u_dis)
+        w_dis = w_dis * dis
+        ztr_grid = np.concatenate([self.distance.z_of_chi(chi_o - dis),
+                                   self.distance.z_of_chi(chi_o + dis)])
+        w_ztr = np.tile(w_dis, 2) / self.distance.dchi_dz(ztr_grid)
+
+        # theta (tracer offset from cluster): GL in ln(theta)
+        u_th, w_th = gl_nodes(np.log(1.0e-6 / self.h / chi_o),
+                              np.log(theta_max_mpc / chi_o), n_theta)
+        theta_grid = np.exp(u_th)
+        w_theta = w_th * theta_grid * np.sin(theta_grid)
+
+        phi_grid, w_phi = gl_nodes(0.0, np.pi, n_phi)
+        Ms, M_weight = mass_nodes(self.min_mass, 10.0 ** self.log10_M_max, n_M)
+
+        per_ztr = np.empty((ztr_grid.size, R.size))
+        for iz, ztr in enumerate(ztr_grid):
+            chi_ztr = float(self.distance.chi(ztr))
+            cs = np.asarray(self.concentration(Ms, ztr), dtype=float).ravel()
+            n_mz = np.asarray(self.hmf(Ms, ztr), dtype=float).ravel()
+            b_mz = np.asarray(self.bias(Ms, ztr), dtype=float).ravel()
+            prof = NfwProfile(m200=Ms, c200=cs, rho_ref=self.rho_m)
+
+            per_theta = np.empty((theta_grid.size, R.size))
+            for it, th in enumerate(theta_grid):
+                r_local = th * chi_ztr
+                sigma_local = np.asarray(prof.sigma(r_local),
+                                         dtype=float).ravel()      # (n_M,)
+                if r_local > theta_max_mpc:
+                    sigma_local = np.zeros_like(sigma_local)
+
+                s = th * chi_o
+                Rtilde = np.sqrt(s ** 2 + R[:, None] ** 2
+                                 - 2.0 * s * R[:, None]
+                                 * np.cos(phi_grid)[None, :])       # (n_R, n_phi)
+                theta_Rtilde = Rtilde / chi_o
+                bsel_vals = np.asarray(b_sel(theta_Rtilde), dtype=float)
+                dist3d = np.sqrt(chi_ztr ** 2 + chi_o ** 2 - 2.0 * chi_ztr
+                                 * chi_o * np.cos(theta_Rtilde))
+                xi_vals = self.xi_nl(dist3d.ravel(), zob).reshape(dist3d.shape)
+
+                bracket = (b_mz[:, None, None] * bsel_vals[None, :, :]
+                          * xi_vals[None, :, :])                   # (n_M,n_R,n_phi)
+                bracket = np.where(dist3d[None, :, :] < r_ex, -1.0, bracket)
+                bracket = np.maximum(bracket, -1.0)
+                phi_integral = 2.0 * np.einsum("mrp,p->mr", 1.0 + bracket,
+                                               w_phi)               # (n_M, n_R)
+
+                m_integrand = (M_weight[:, None] * n_mz[:, None]
+                              * sigma_local[:, None] * phi_integral)
+                per_theta[it, :] = m_integrand.sum(axis=0)
+
+            per_ztr[iz, :] = np.einsum("t,tr->r", w_theta, per_theta)
+
+        per_ztr *= (self.common(ztr_grid) * w_ztr)[:, None]
+        return per_ztr.sum(axis=0)
 
 
 if __name__ == "__main__":

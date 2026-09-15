@@ -97,11 +97,8 @@ def main() -> int:
                    two_halo=two_halo_prj,
                    bias=bias_prj,
                    config=SigmaPrjConfig(
-                       n_theta=128,
-                       theta_perp_range=(1e-3, 60.0 / V.H),
                        los_depth=50.0 / V.H,
                        exclusion="counter",
-                       r_trunc=30.0 / V.H,
                    ))
 
     P1, I1, I2 = engine.operators(lob, zob)

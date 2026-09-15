@@ -267,7 +267,9 @@ class TinkerMassFunction:
         Parameters
         ----------
         M_vals : array-like, optional
-            Masses [Msun]. Defaults to `self.mval`.
+            Masses [Msun], shape ``(nM,)``. Defaults to `self.mval`.
+            Vectorized over array input -- pass the whole mass array,
+            do not loop element-by-element.
         z : float or array-like, optional
             Redshift(s). Defaults to `self.zvec`. Vector ``M_vals``
             and vector ``z`` always return the outer ``(nM, nz)`` grid.

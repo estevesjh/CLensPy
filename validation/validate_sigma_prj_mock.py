@@ -333,11 +333,7 @@ def main(argv=None):
                     choices=["counter", "ball", "cl", "none"])
     ap.add_argument("--xi-clip", action="store_true",
                     help="clip xi_NL at zero (the bsel engine convention)")
-    ap.add_argument("--r-trunc", type=float, default=APERTURE_HINV,
-                    help="halo-centric truncation [cMpc/h]; the mock "
-                         "samples each halo's particles to 30 cMpc/h. "
-                         "Pass 0 to disable.")
-    ap.add_argument("--n-theta", type=int, default=128)
+    ap.add_argument("--n-theta-per-seg", type=int, default=30)
     args = ap.parse_args(argv)
 
     mock_dir = Path(os.environ.get("SELECTION_BIAS_DIR",
@@ -383,11 +379,9 @@ def main(argv=None):
         two_halo=two_halo_prj,
         bias=bias_prj,
         config=SigmaPrjConfig(
-            n_theta=args.n_theta,
-            theta_perp_range=(1e-3, 2.0 * APERTURE_HINV / H),
+            n_theta_per_seg=args.n_theta_per_seg,
             los_depth=LOS_HALF_DEPTH_HINV / H,
             exclusion=args.exclusion,
-            r_trunc=(args.r_trunc / H if args.r_trunc > 0 else None),
         ),
     )
 

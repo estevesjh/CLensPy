@@ -85,6 +85,7 @@ For a detailed breakdown of every class and function, see the {doc}`api/index`.
 :caption: Getting Started
 
 installation
+LLM/agent quickstart <llm_quickstart>
 ```
 
 ```{toctree}
@@ -168,7 +169,15 @@ Einasto profile math <einasto_math>
 Einasto series investigation <einasto_series_investigation>
 Miscentering math <miscentering_math>
 Covariance FFTLog math <covariance_fftlog_math>
-Refactor plan <refactor-plan>
-P3 cleanup plan <plan-p3-cleanup>
-Projection rewrite plan <plan-projection-rewrite>
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Archive (session planning notes, not maintained)
+
+Refactor plan <_archive/refactor-plan>
+P3 cleanup plan <_archive/plan-p3-cleanup>
+Projection rewrite plan <_archive/plan-projection-rewrite>
+Fig. 6 validation plan <_archive/plan-fig6-validation>
+b_small closure derivation <_archive/plan-bsel-stable-closure>
 ```

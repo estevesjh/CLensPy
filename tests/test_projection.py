@@ -21,7 +21,6 @@ from clenspy.lensing import SigmaPrj, SigmaPrjConfig
 from clenspy.selection import SigmoidBias, XiNL
 from clenspy.selection.geometry import r_excl
 from clenspy.utils.integrate import mass_nodes
-from clenspy.utils.los_integrals import theta_edges, theta_grid
 
 
 class BuzzardCosmology(FlatLambdaCDM):
@@ -55,7 +54,7 @@ def _prj(model, **kw):
     """SigmaPrj on the shared fixture models; kwargs are SigmaPrjConfig
     fields, except ``xi_nl`` which overrides the injected callable."""
     xi_nl = kw.pop("xi_nl", model.xi_nl)
-    cfg = dict(n_theta=48, n_M=16, los_depth=50.0 / H, exclusion="cl")
+    cfg = dict(n_theta_per_seg=20, n_M=16, los_depth=50.0 / H, exclusion="cl")
     cfg.update(kw)
     return SigmaPrj(cosmology=COSMO, hmf=model.hmf, bias=model.bias,
                     xi_nl=xi_nl, config=SigmaPrjConfig(**cfg))
@@ -123,7 +122,10 @@ def test_exclusion_cl_keeps_rnd(model):
     prj_cl.sigma_prj(R, LOB, ZOB, b)
     rnd_cl, cl_cl = prj_cl.rnd.copy(), prj_cl.cl.copy()
     prj_none.sigma_prj(R, LOB, ZOB, b)
-    assert np.allclose(rnd_cl, prj_none.rnd)
+    # "cl" inserts an extra theta breakpoint at the exclusion tangency that
+    # "none" does not, so the two quadratures differ at the sub-quadrature
+    # level -- same physics, not bitwise-identical grids
+    assert np.allclose(rnd_cl, prj_none.rnd, rtol=1e-3)
     assert cl_cl[0] < prj_none.cl[0]
 
 
@@ -147,8 +149,7 @@ def test_chord_is_law_of_cosines_not_delta_chi(model):
     prj = _prj(model)
     prj.sigma_prj(R, LOB, ZOB, lambda th: 0.0)  # force build
     chi_o = float(prj.distance.chi(ZOB))
-    thetas, _ = theta_grid(theta_edges(
-        chi_o, prj.config.theta_perp_range, prj.config.n_theta))
+    thetas, _ = prj.sigma_mis.theta_grid_at(LOB, ZOB, R)
     geom = prj._geometry(thetas, LOB, ZOB)
     # at u = 0 the chord is the transverse leg R_perp, not zero
     r_at_u0 = geom.R_perp * np.cosh(0.0)
@@ -157,36 +158,28 @@ def test_chord_is_law_of_cosines_not_delta_chi(model):
     assert r_at_u0[thetas.size - 1] > 1.0  # transverse leg, comoving Mpc
 
 
-def test_kernel_cell_mass_matches_brute_force(model):
-    r"""The exact-cell trick: by the symmetry
-    :math:`\Sigma_{\rm mis}(R, s) = \Sigma_{\rm mis}(s, R)`, the cell
-    integral is an annulus-mass difference. Check one ring-crossing cell
-    against a dense pointwise quadrature of :math:`\Sigma_{\rm mis}` —
-    the thing the trick replaces."""
+def test_theta_integral_matches_brute_force_at_the_peak(model):
+    r"""``SigmaMisKernel``'s full :math:`\theta` quadrature -- breakpoint
+    grid forcing a node at :math:`\theta_R=R/\chi_o` -- against a dense
+    brute-force quadrature of the same 1-D integral, at :math:`R` exactly
+    on :math:`\Sigma_{\rm mis}(R,s)`'s peak :math:`s\approx R`: the
+    feature `theta_breakpoint_grid` is built to resolve."""
     prj = _prj(model)
     chi_o = float(prj.distance.chi(ZOB))
-    # the edges mass_shells actually uses: aligned with the per-z exclusion
-    # crossings when exclusion is active
-    s_edges = theta_edges(chi_o, prj.config.theta_perp_range,
-                          prj.config.n_theta,
-                          r_excl=r_excl(LOB, ZOB, H)) * chi_o
-    rs, sigma0 = prj.shells.profiles(ZOB)
+    rs, sigma0 = prj.sigma_mis.profiles(ZOB)
     im = rs.size // 2
     R0 = 5.0  # comoving Mpc
-    it = int(np.searchsorted(s_edges, R0)) - 1  # the ring-crossing cell
-    K = prj.shells(np.array([R0]), LOB, ZOB, "sigma")
-    # brute force on the same cell: 3000 nodes across the ring
-    s = np.linspace(s_edges[it], s_edges[it + 1], 3000)
-    sig_mis = sigma0[im] * prj.mis_table.sigma_hat(R0 / rs[im], 0.0) * 0.0
-    sig_mis = np.array([
-        sigma0[im] * prj.mis_table.sigma_hat(
-            np.array([R0 / rs[im]]), si / rs[im])[0]
-        for si in s
-    ])
-    brute = np.trapezoid(2.0 * np.pi * s * sig_mis, s) / chi_o**2
-    brute *= np.sin(np.sqrt(s_edges[it] * s_edges[it + 1]) / chi_o) / (
-        np.sqrt(s_edges[it] * s_edges[it + 1]) / chi_o)
-    assert K[it, im, 0] == pytest.approx(brute, rel=0.02)
+    K = prj.sigma_mis(np.array([R0]), LOB, ZOB, "sigma")
+    quadrature = K[:, im, 0].sum()
+
+    theta_lo = prj.config.theta_min
+    theta_hi = prj.config.theta_max_factor * R0 / chi_o
+    theta = np.geomspace(theta_lo, theta_hi, 200_000)
+    s = theta * chi_o
+    sig_mis = sigma0[im] * prj.mis_table.sigma_hat(
+        np.full_like(s, R0) / rs[im], s / rs[im])
+    brute = np.trapezoid(2.0 * np.pi * np.sin(theta) * sig_mis, theta)
+    assert quadrature == pytest.approx(brute, rel=0.02)
 
 
 # -- DeltaSigma: kernel swap, signedness, annihilation of constants -----------
@@ -216,11 +209,11 @@ def test_deltasigma_annihilates_a_uniform_sheet(model):
     assert np.allclose(ds, 0.0, atol=1e-10 * sig.max())
 
 
-def test_deltasigma_shells_are_signed(model):
+def test_deltasigma_kernel_is_signed(model):
     # the ds_hat lobe at R_theta > R is negative and must never be
     # clamped -- it is what makes DeltaSigma annihilate a uniform sheet
     prj = _prj(model)
-    K = prj.shells(np.array([0.3, 1.0]), LOB, ZOB, "ds")
+    K = prj.sigma_mis(np.array([0.3, 1.0]), LOB, ZOB, "ds")
     assert K.min() < 0.0
 
 
@@ -236,8 +229,13 @@ def test_deltasigma_rnd_channel_vanishes(model):
     negative lobe cancels the core exactly. Only the finite
     :math:`\theta_{\max}` truncation survives, so the rnd channel is a
     boundary term, small against the cl channel."""
-    prj = _prj(model, exclusion="none", n_theta=96,
-               theta_perp_range=(1e-3, 200.0))
+    # theta_max_factor=10: this test probes the mass-conservation identity
+    # itself, which is only asymptotically exact as the theta domain grows
+    # -- the production default (3) trades some of that margin for a
+    # tighter, more R-relevant grid, so widen it here rather than loosen
+    # the tolerance below.
+    prj = _prj(model, exclusion="none", n_theta_per_seg=40,
+               theta_max_factor=10.0)
     b = _bsel(prj)
     R_in = np.array([0.5, 2.0, 8.0])  # << theta_max span
     prj.deltasigma_prj(R_in, LOB, ZOB, b)
@@ -272,8 +270,7 @@ def test_two_halo_limit_wiring_with_flat_xi(model):
     against the independent closed form :math:`M_{2D} = \pi s_{\max}^2
     \bar\Sigma_{\rm NFW}(<s_{\max})`."""
     xi_c = 0.37
-    prj = _prj(model, exclusion="none", n_theta=96,
-               theta_perp_range=(1e-3, 200.0),
+    prj = _prj(model, exclusion="none", n_theta_per_seg=40,
                xi_nl=lambda r, zob: np.full_like(
                    np.asarray(r, float), xi_c))
     b_const = 2.0
@@ -295,7 +292,7 @@ def test_two_halo_limit_wiring_with_flat_xi(model):
     from clenspy.halo.nfw import NfwProfile
     prof = NfwProfile(m200=Ms, c200=prj.concentration(Ms, ZOB),
                       rho_ref=prj.rho_m)
-    s_max = prj.config.theta_perp_range[1]
+    s_max = prj.config.theta_max_factor * np.max(R_any)
     # closed form, independent of the miscentering table: for s_max >> R
     # the offset aperture mass is the centred one to O((R/s_max)^2)
     M2D = np.pi * s_max**2 * np.asarray(prof.mean_sigma(s_max)).ravel()
