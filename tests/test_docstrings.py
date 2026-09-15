@@ -29,7 +29,7 @@ UNIT_WORDS = ("unit", "Msun", "Mpc", "dimensionless")
 
 def docstrings(path):
     """Yield ``(name, lineno, source_text, is_raw)`` for every docstring."""
-    src = path.read_text()
+    src = path.read_text(encoding="utf-8")
     lines = src.splitlines()
     tree = ast.parse(src)
     for node in ast.walk(tree):
@@ -95,9 +95,9 @@ def description_line_count(doc):
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
 def test_module_headers_stay_short(path):
     """A module docstring is a summary, not a documentation page."""
-    doc = ast.get_docstring(ast.parse(path.read_text()))
+    doc = ast.get_docstring(ast.parse(path.read_text(encoding="utf-8")))
     n = 0 if doc is None else description_line_count(doc)
-    rel = str(path.relative_to(SRC))
+    rel = path.relative_to(SRC).as_posix()
     if rel in LONG_HEADER_BURNDOWN:
         if n <= MAX_MODULE_DOC_LINES:
             pytest.fail(f"{rel}: trimmed -- remove it from the burn-down list")
@@ -185,7 +185,7 @@ def test_every_class_declares_its_units(path):
     case: a pure-mechanism module with no physical units anywhere, whose
     demo needs some class to hang the decorators on.
     """
-    silent = silent_classes(path.read_text())
+    silent = silent_classes(path.read_text(encoding="utf-8"))
     assert not silent, (
         f"{path.name}: class(es) with no unit convention stated, in the "
         f"class or its module: {silent}"

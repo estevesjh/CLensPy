@@ -113,7 +113,7 @@ def test_protocols_are_not_imported_by_the_science_modules():
     import clenspy.halo.nfw as nfw
 
     for module in (nfw, einasto):
-        src = open(module.__file__).read()
+        src = open(module.__file__, encoding="utf-8").read()
         assert "from ..protocols" not in src
         assert "from clenspy.protocols" not in src
     # and conformance is by shape, not by inheritance
