@@ -87,8 +87,15 @@ def main(plot=False):
     # -- <Sigma_crit^-1>(z_l): 0.01 cut on both sides
     zl = snap["kz_zl"]
     mine = lk.mean_inverse_sigma_crit(zl)
-    dev = np.max(np.abs(mine * c2 / p_ratio / snap["kz_val"] - 1.0))
-    v.check("<Sc^-1>(z_l) on her grid", dev, TOL_MATCHED)
+    # her last node z_l = zs_max - 0.01 has an empty source range (both
+    # linspace ends at zs_max), so her value is exactly 0: compare the
+    # ratio where hers is nonzero and require ours to be exactly 0 there
+    nonzero = snap["kz_val"] != 0.0
+    dev = np.max(np.abs(mine[nonzero] * c2 / p_ratio / snap["kz_val"][nonzero]
+                        - 1.0))
+    v.check("<Sc^-1>(z_l) on her grid (nonzero nodes)", dev, TOL_MATCHED)
+    v.check("<Sc^-1>(z_l) where hers is exactly 0: max|ours|",
+            np.max(np.abs(mine[~nonzero]), initial=0.0), 0.0)
 
     # -- q_Sigma(z_l; z_h): dimensionless, c cancels
     for zh, row in zip(snap["ks_zh"], snap["ks_val"]):

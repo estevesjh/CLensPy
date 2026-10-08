@@ -246,7 +246,8 @@ combine to make them:
 So the spikes are a grid artifact of the upstream definition. They are not
 physical, and they are also not ours to smooth: clamping the integrand or
 re-keying the range changes the covariance. Recorded here so the shape is
-recognised rather than re-derived.
+recognised rather than re-derived. What the pole does to
+$C^{\Sigma\Sigma}$ is measured in the covariance ladder section below.
 
 ---
 
@@ -261,3 +262,100 @@ against the generator it was built from and against y3's own tables. Skips
 itself when `Y3_CLUSTER_CPP_DIR` is unset. The table design, the accuracy
 budget, and why `cluster_toolkit` is used above $x_{\rm mis} = 0.1$ and the
 by-parts reduction below it are in {doc}`miscentering_math` section 9.
+
+---
+
+## Covariance ladder (V0-V8)
+
+**Scripts:** `validation/make_clc_reference.py` (V0) and
+`validation/validate_cov_{kernels,spectra,noise,gaussian,anchors}.py`
+(V1-V4, V8)
+**Reference:** `cluster-lensing-cov` at commit `cddbb2a` (Wu et al. 2019),
+snapshotted once to `validation/data/clc_cddbb2a_reference.npz`
+
+The Gaussian covariance of the excess surface density $\Delta\Sigma$ is
+assembled in layers: source-averaged lensing kernels, Limber angular power
+spectra, two noise terms, and the bin-averaged $\ell$ integral. Each rung
+compares one layer with Wu's code while feeding it the layer below *from her
+snapshot*, so a disagreement is located rather than accumulated. V0 runs her
+code once at the pin; V8 needs no reference at all.
+
+| rung | what is compared | tolerance | result |
+|---|---|---|---|
+| V1 | kernels on her nodes | 1e-6 after the exact $c$ and $p(z)$ constants | 11 PASS, 0 FAIL (worst 8.5e-12) |
+| V2 | $C^{hh}$ with her $P(k,z)$ | 1e-8 | 4 PASS (worst 3.9e-10) |
+| V2 | $C^{\Sigma\Sigma}$, $C^{h\Sigma}$ | INFO | 40-94% and up to 6.8% off; see below |
+| V3 | halo shot noise | 1e-12 | 4 PASS (exact) |
+| V3 | shape noise, raw / exact constants removed | 1.2e-2 / 1e-6 | 4 PASS each (raw $-2.76\times10^{-3}$, exact $< 2\times10^{-14}$) |
+| V4 | five terms, her spectra, `ell_range="wu2019"` | 1e-3 of $\sqrt{C_{ii}C_{jj}}$ | 20 PASS (worst 1.3e-5; `shot_shape` 4e-12) |
+| V8 | closed-form `shot_shape` vs physical sample variance | 1e-9 | PASS (4e-16) |
+| V8 | Monte-Carlo stack, 4000 realisations | 3$\sigma$ | PASS (max 1.4$\sigma$) |
+
+The tolerance budgets are measured, not fitted. Both codes evaluate the
+kernels on identical nodes, so after removing two exact constants (her
+$c = 3\times10^5$ km/s against the exact value, which enters the shape noise
+as $\Sigma_{\rm crit}^2 \propto c^4$, and her `arange` normalisation of
+$p(z_s)$, 2.8e-7) the residual is floating point. In V4 the
+spectrum-carrying terms differ by the re-interpolation of her stored spectra
+(every fourth $\ell$ point), about 1e-5; the `shot_shape` term carries no
+spectrum and agrees to 4e-12, which pins the integration grid itself.
+
+### The shape noise convention
+
+Her commit `cddbb2a` defines the shape noise on $\Sigma$ with the
+conditional mean over sources more than 0.1 behind the halo,
+
+$$
+N^\Sigma = \frac{\sigma_\gamma^2}{n_s f_{\rm src}}
+\left[\frac{1}{f_{\rm src}}\int_{z_h+0.1}^{z_s^{\max}} dz_s\,
+p(z_s)\,\Sigma_{\rm crit}(z_s, z_h)\right]^2,
+\qquad
+f_{\rm src} = \int_{z_h+0.1}^{z_s^{\max}} dz_s\, p(z_s),
+$$
+
+where $\sigma_\gamma$ is the shape noise per galaxy and $n_s$ the source
+density per steradian. `LimberProjector.shape_noise_Sigma` now does exactly
+this; before the fix it used the unnormalised mean with a 0.01 cut and was
+12-40% high. The kernels $q_\Sigma$ and
+$\langle\Sigma_{\rm crit}^{-1}\rangle$ keep the 0.01 cut, as hers do.
+
+### Her $\ell$ range is a truncation
+
+Her integrator takes, for each pair of radial bins, the range
+$\ell \in [1/\theta_{\max}, 100/\theta_{\min}]$ with
+$\theta_{\max}$ the larger outer edge of the pair and $\theta_{\min}$ the
+smaller inner edge. At the smallest $r_p$ about 47% of the `lss_lss`
+integral lies below that lower limit (V8, none of it at $\ell < 10$), so
+her `lss_lss` and `cross` there are about half the converged value
+(`--converged`: +89% to +98% at bin 0, under 1.2% at bin 11), and her
+`shot_shape` is 0.9% low in every bin. `clenspy` keeps the converged
+integral as the default; `DeltaSigmaGaussianCovariance(..., ell_range=
+"wu2019")` reproduces her range (0.1 s per 12-bin matrix) for exact
+comparisons.
+
+### The foreground pole in $q_\Sigma$
+
+The remaining disagreement is in $C^{\Sigma\Sigma}$, and it is not a
+disagreement between two implementations. The window is
+
+$$
+F_\Sigma(\chi_{\rm lss}, z_h) = \bar\rho \int_{\chi_{\rm lss}}^{\infty}
+d\chi_s\, p(\chi_s)\,
+\frac{\Sigma_{\rm crit}(z_s, z_h)}{\Sigma_{\rm crit}(z_s, z_{\rm lss})},
+$$
+
+with $\bar\rho$ the comoving mean matter density. For a slab in front of the
+halo, $z_{\rm lss} < z_h$, the source range crosses $z_s = z_h$, where
+$\Sigma_{\rm crit}(z_s, z_h)$ has a simple pole and changes sign. Her code
+and ours both evaluate it signed by trapezoid; the answer then depends on
+where the nodes fall relative to the pole. At $z_h = 0.425$,
+$z_{\rm lss} = 0.153$ it is $-0.03$, $0.44$, $1.24$, $0.68$ with 100, 200,
+400 and 3200 nodes, and $C^{\Sigma\Sigma}$ changes by 4% to $10^6$ when the
+slab width goes from 0.05 to 0.01 (V2, second table). Restricting the
+sources to $z_s > z_h$ removes the pole and converges $C^{\Sigma\Sigma}$ to
+0.3% between those widths, but the paper does not say which restriction is
+meant (0.01 or 0.1 cut, conditional normalisation or not), and the two
+natural choices differ by 3-7% on the diagonal at the largest radial bin,
+where the $C^{\Sigma\Sigma}$ terms are 28-90% of her total. The default is
+unchanged pending that decision; `validation/diagnose_qsigma_pole.py`
+reproduces the numbers.

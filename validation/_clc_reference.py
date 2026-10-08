@@ -178,7 +178,8 @@ def pk_from_snapshot(snap):
 
     Stored as :math:`P(k, 0)` on a dense log grid times :math:`D^2(z)`
     on a z grid -- exact for her Eisenstein-Hu spectrum (no neutrinos, so
-    growth is scale-independent; V0 asserts that to 1e-10 before storing).
+    growth is scale-independent; V0 asserts that to 1e-8, the V2 C_hh
+    tolerance, before storing; measured 5.1e-9).
     Interpolation error is measured in V0 and recorded as ``pk_interp_err``.
     """
     from scipy.interpolate import CubicSpline
