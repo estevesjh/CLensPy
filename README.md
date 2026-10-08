@@ -161,3 +161,33 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 CLensPy builds upon decades of research in weak gravitational lensing. We acknowledge the contributions of the broader weak lensing community to the theoretical foundations implemented in this package.
+
+The covariance modules (`clenspy.covariance`, `clenspy.kernels.limber`) are a
+refactor and an optimized version of the method and code of Hao-Yi Wu and
+collaborators. We are grateful to Hao-Yi Wu for the paper and for making
+[`cluster-lensing-cov`](https://github.com/hywu/cluster-lensing-cov)
+available; the physics, the reference implementation and the validation
+baselines are theirs, while the numerical integration methods and software
+structure are new here. If you use the covariance results, please cite:
+
+```bibtex
+@article{Wu2019,
+    author  = {Wu, Hao-Yi and Weinberg, David H. and Salcedo, Andr{\'e}s N. and
+               Wibking, Benjamin D. and Zu, Ying},
+    title   = {Covariance matrices for galaxy cluster weak lensing: from
+               virial regime to uncorrelated large-scale structure},
+    journal = {MNRAS},
+    volume  = {490},
+    pages   = {2606},
+    year    = {2019},
+    doi     = {10.48550/arXiv.1907.06611},
+    eprint  = {1907.06611},
+    archivePrefix = {arXiv}
+}
+
+@misc{clusterlensingcov,
+    author       = {Wu, Hao-Yi},
+    title        = {cluster-lensing-cov},
+    howpublished = {\url{https://github.com/hywu/cluster-lensing-cov}}
+}
+```

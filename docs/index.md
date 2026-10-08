@@ -29,6 +29,14 @@ two-halo term. It is designed to be:
 - **Validated**: cross-checked against independent codes (`pyccl`,
   `cluster_toolkit`, `CLMM`) in the test suite
 
+## Credits
+
+The covariance modules are a refactor and an optimized version of the
+method and code of Wu et al. (2019,
+[arXiv:1907.06611](https://arxiv.org/abs/1907.06611)) and Hao-Yi Wu's
+[`cluster-lensing-cov`](https://github.com/hywu/cluster-lensing-cov).
+See {doc}`covariance` for what is theirs and what is new here.
+
 ## Installation
 
 CLensPy is not yet published on PyPI; install it from source:

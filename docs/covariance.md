@@ -7,6 +7,38 @@ bar. `clenspy` keeps every contribution separate and sums at the end,
 because the argument an analysis makes is almost always about which term
 dominates where.
 
+## Provenance and credit
+
+The $\Delta\Sigma$ covariance in this package is a **refactor and an
+optimized version** of the method and software of Wu et al. (2019), not an
+independent derivation. The physics — the Gaussian-field bracket, the
+Limber projection of the halo and matter spectra, the radial-bin-averaged
+Bessel kernel, and the intrinsic halo-to-halo term — is theirs, and so is
+the reference implementation we validate against.
+
+> Wu, H.-Y., Weinberg, D. H., Salcedo, A. N., Wibking, B. D., & Zu, Y.
+> 2019, *Covariance matrices for galaxy cluster weak lensing: from virial
+> regime to uncorrelated large-scale structure*, MNRAS 490, 2606
+> ([arXiv:1907.06611](https://arxiv.org/abs/1907.06611)).
+>
+> Code: Hao-Yi Wu, `cluster-lensing-cov`,
+> <https://github.com/hywu/cluster-lensing-cov>.
+
+What this package changes is how the same quantities are computed and
+organized. The numerical integration is ours: the closed-form Hankel
+closure for the shot-noise term, the FFTLog engine for geometric bins
+({doc}`covariance_fftlog_math`), and Gauss–Hermite quadrature for the
+concentration scatter. The software structure is ours too — separate
+modules for cosmology, kernels, selection and covariance, with the five
+Gaussian terms returned individually. Where the two disagree, the
+reference implementation is the baseline we compare against, and
+differences are reported in {doc}`validation` rather than assumed away.
+Her package also carries halo-model code taken from Ying Zu's package
+(`clens/ying/`); credit for that code belongs to its author.
+
+If you use the covariance results, please cite Wu et al. (2019) and the
+`cluster-lensing-cov` repository in addition to CLensPy.
+
 ## Counts covariance: Poisson plus a coherent window mode
 
 Two clusters in the same redshift slice both feel the same long-wavelength
