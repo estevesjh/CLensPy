@@ -247,6 +247,28 @@ def test_f_src_behind_of_a_top_hat_is_the_linear_ramp():
         lo = max(z_h + MIN_LENS_SOURCE_SEPARATION, zs_min)
         expected = max(0.0, (zs_max - lo) / (zs_max - zs_min))
         assert lk.f_src_behind(z_h).item() == pytest.approx(expected, abs=1e-6)
+        # the shape-noise cut of cluster-lensing-cov cddbb2a, same closed form
+        lo = max(z_h + 0.1, zs_min)
+        expected = max(0.0, (zs_max - lo) / (zs_max - zs_min))
+        assert lk.f_src_behind(z_h, min_separation=0.1).item() == \
+            pytest.approx(expected, abs=1e-6)
+
+
+def test_f_src_behind_min_separation_matches_an_independent_trapezoid(kernel):
+    """The explicit cut, against the integral written out by hand."""
+    su = kernel.survey
+    for z_h in (0.2, 0.425, 0.9):
+        zs = np.linspace(max(z_h + 0.1, su.zs_min), su.zs_max, 100)
+        expected = np.trapezoid(su.pz_src(zs), x=zs)
+        got = kernel.f_src_behind(z_h, min_separation=0.1).item()
+        assert got == pytest.approx(expected, rel=1e-12)
+    # the default is unchanged: the 0.01 kernel cut
+    np.testing.assert_array_equal(
+        kernel.f_src_behind(Z_LENS),
+        kernel.f_src_behind(Z_LENS, min_separation=MIN_LENS_SOURCE_SEPARATION))
+    # a wider cut counts fewer sources
+    assert np.all(kernel.f_src_behind(Z_LENS, min_separation=0.1)
+                  < kernel.f_src_behind(Z_LENS))
 
 
 # -- the unity seam ---------------------------------------------------------

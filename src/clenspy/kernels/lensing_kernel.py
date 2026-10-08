@@ -112,6 +112,17 @@ _SIGMA_CRIT_AMPLITUDE = C_LIGHT**2 / (4.0 * np.pi * G_NEWTON)
 #: exist without a convention.
 MIN_LENS_SOURCE_SEPARATION = 0.01
 
+#: Lens-source cut used by the **shape-noise** term of the covariance.
+#:
+#: NOTE: ``cluster-lensing-cov`` commit cddbb2a (2026-09-22, "implement
+#: f_src_behind_lens consistently") moved both
+#: :math:`\langle\Sigma_{\rm crit}\rangle(z_h)` and :math:`f_{\rm src}(z_h)`
+#: to sources behind :math:`z_h + 0.1`, and made the former the conditional
+#: average over those sources. The kernels :math:`q_\Sigma` and
+#: :math:`\langle\Sigma_{\rm crit}^{-1}\rangle` kept the 0.01 of
+#: `MIN_LENS_SOURCE_SEPARATION`. See `LimberProjector.shape_noise_Sigma`.
+MIN_LENS_SOURCE_SEPARATION_NOISE = 0.1
+
 #: Nodes for the :math:`z_s` integrals.
 #:
 #: NOTE: 100, matching the exemplar, and this is **also part of the
@@ -421,12 +432,14 @@ class LensingKernel:
         needed and they are different averages; see errata E.1 item 1. That
         one is convergent, which is the deeper reason to prefer it.
 
-        NOTE: not normalised by `f_src_behind`. It is the average as the
-        covariance defines it -- the integral over the *whole* source
-        distribution, with sources in front contributing zero -- so it
-        carries the behind-fraction implicitly. Dividing by
-        `f_src_behind` would give the average over lensed sources only,
-        which is a different quantity.
+        NOTE: not normalised by `f_src_behind`: the integral over the
+        *whole* source distribution, with sources in front contributing
+        zero, so it carries the behind-fraction implicitly. The covariance
+        shape noise does **not** use this directly any more: since
+        ``cluster-lensing-cov`` cddbb2a it uses the *conditional* average
+        over lensed sources, ``mean_sigma_crit(z, 0.1) / f_src_behind(z,
+        0.1)`` (cut `MIN_LENS_SOURCE_SEPARATION_NOISE`), which
+        `LimberProjector.shape_noise_Sigma` forms from this method.
         """
         z_halo = np.atleast_1d(np.asarray(z_halo, dtype=float))
         out = np.zeros(z_halo.shape)
@@ -440,19 +453,31 @@ class LensingKernel:
             out[i] = np.trapezoid(integrand, x=zs)
         return out
 
-    def f_src_behind(self, z_halo):
+    def f_src_behind(self, z_halo, min_separation=None, n_nodes=None):
         r"""Fraction of sources behind :math:`z_h`, dimensionless.
 
         .. math::
-            f_{\rm src}(z_h) = \int_{z_h}^{z_s^{\max}}\! dz_s\; p(z_s)
+            f_{\rm src}(z_h) = \int_{z_h + \delta}^{z_s^{\max}}\! dz_s\; p(z_s)
 
         Falls to zero at the top of the source distribution and is 1 below
         its bottom, since :math:`p(z_s)` is normalised.
+
+        Parameters
+        ----------
+        z_halo : float or array-like
+            Lens redshift(s).
+        min_separation : float, optional
+            The cut :math:`\delta` (default `MIN_LENS_SOURCE_SEPARATION`,
+            0.01). The covariance shape noise passes
+            `MIN_LENS_SOURCE_SEPARATION_NOISE` (0.1), as
+            ``cluster-lensing-cov`` cddbb2a does.
+        n_nodes : int, optional
+            Trapezoid nodes (default `N_ZS_NODES`).
         """
         z_halo = np.atleast_1d(np.asarray(z_halo, dtype=float))
         out = np.zeros(z_halo.shape)
         for i, zh in enumerate(z_halo):
-            zs = self._zs_nodes(float(zh))
+            zs = self._zs_nodes(float(zh), min_separation, n_nodes)
             if zs.size == 0:
                 continue
             out[i] = np.trapezoid(self.survey.pz_src(zs), x=zs)
