@@ -203,19 +203,21 @@ def test_shape_noise_scales_as_sigma_gamma_squared_over_n_src():
 
 
 def test_shape_noise_carries_the_f_src_deviation_from_the_paper():
-    r"""The paper has :math:`\sigma_\gamma^2/n_s`; this divides by
-    :math:`n_s f_{\rm src}`.
+    r"""The paper has :math:`\sigma_\gamma^2\langle\Sigma_{\rm crit}\rangle^2
+    /n_s`; this uses :math:`n_s f_{\rm src}` and the conditional mean
+    :math:`\langle\Sigma_{\rm crit}\rangle/f_{\rm src}`.
 
-    Passing ``f_src_behind = 1`` must recover the paper's form exactly, and
-    the ratio is :math:`1/f_{\rm src}`.
+    With the same unnormalised mean, the two differ by
+    :math:`f_{\rm src}^3`: one from the source count, two from the
+    conditional normalisation. Passing ``f_src_behind = 1`` is the paper.
     """
     lk = LensingKernel(Survey.from_config("des_y1"), COSMO)
-    f_src = float(np.ravel(lk.f_src_behind(Z_HALO))[0])
+    f_src = lk.f_src_behind(Z_HALO, min_separation=0.1).item()
     assert 0.0 < f_src < 1.0
 
     ours = build().shape_noise_Sigma(Z_HALO)
     paper = build(f_src_behind=lambda z: 1.0).shape_noise_Sigma(Z_HALO)
-    assert ours / paper == pytest.approx(1.0 / f_src, rel=1e-12)
+    assert ours / paper == pytest.approx(f_src**-3, rel=1e-12)
     assert ours > paper  # counting fewer sources raises the noise
 
 
@@ -224,11 +226,65 @@ def test_shape_noise_is_infinite_with_no_sources_behind_the_lens():
     assert np.isinf(build(f_src_behind=lambda z: 0.0).shape_noise_Sigma(Z_HALO))
 
 
+def test_shape_noise_is_the_cddbb2a_conditional_convention():
+    r""":math:`\sigma_\gamma^2/(n_s f)\,(\langle\Sigma_{\rm crit}\rangle/f)^2`
+    with both integrals from :math:`z_h + 0.1`, built independently here
+    by scipy adaptive quadrature (not the Gauss-Legendre the kernel uses)."""
+    from scipy.integrate import quad
+    from clenspy.kernels.lensing_kernel import _SIGMA_CRIT_AMPLITUDE
+
+    survey = Survey.from_config("des_y1")
+    lo, hi = max(Z_HALO + 0.1, survey.zs_min), survey.zs_max
+    chi_h = COSMO.comoving_distance(Z_HALO).value
+
+    def pz(z):
+        return float(survey.pz_src(np.array([z]))[0])
+
+    def sc(z):
+        chi_s = COSMO.comoving_distance(z).value
+        return (_SIGMA_CRIT_AMPLITUDE * chi_s
+                / (chi_h * (chi_s - chi_h) * (1.0 + Z_HALO)))
+
+    opts = dict(epsabs=0.0, epsrel=1e-11, limit=300)
+    f = quad(pz, lo, hi, **opts)[0]
+    mean_cond = quad(lambda z: pz(z) * sc(z), lo, hi, **opts)[0] / f
+    n_sr = 6.28 * f / ARCMIN_TO_RAD**2
+    expected = 0.3**2 / n_sr * mean_cond**2
+    got = build(sigma_gamma=0.3, n_src_arcmin2=6.28).shape_noise_Sigma(Z_HALO)
+    assert got == pytest.approx(expected, rel=1e-8)
+
+
+def test_shape_noise_uses_the_0p1_cut_not_the_kernel_cut():
+    """The kernels keep 0.01; only the noise term moved to 0.1 (cddbb2a)."""
+    from clenspy.kernels.limber import MIN_LENS_SOURCE_SEPARATION_NOISE
+    from clenspy.kernels.lensing_kernel import MIN_LENS_SOURCE_SEPARATION
+
+    assert MIN_LENS_SOURCE_SEPARATION_NOISE == 0.1
+    assert MIN_LENS_SOURCE_SEPARATION == 0.01
+    lk = LensingKernel(Survey.from_config("des_y1"), COSMO)
+    # plain callables of z alone, frozen at the 0.01 cut, give another number
+    at_001 = build(mean_sigma_crit=lambda z: lk.mean_sigma_crit(z),
+                   f_src_behind=lambda z: lk.f_src_behind(z))
+    assert at_001.shape_noise_Sigma(Z_HALO) != pytest.approx(
+        build().shape_noise_Sigma(Z_HALO), rel=1e-3)
+
+
+def test_shape_noise_diverges_when_no_source_is_0p1_behind():
+    """z_h + 0.1 beyond zs_max leaves no sources: infinite noise. Above
+    z_h ~ 0.4 it rises with z_h (fewer sources, larger Sigma_crit); below,
+    the comoving 1/chi_h of Sigma_crit wins, so it is not monotonic."""
+    proj = build()
+    zs_max = Survey.from_config("des_y1").zs_max
+    assert np.isinf(proj.shape_noise_Sigma(zs_max - 0.05))
+    n = [proj.shape_noise_Sigma(zh) for zh in (0.5, 0.65, 0.8, 1.0)]
+    assert np.all(np.diff(n) > 0), n
+
+
 def test_arcmin_conversion_is_the_only_unit_crossing():
     """n_src enters per steradian; the factor is 1/ARCMIN_TO_RAD^2."""
     lk = LensingKernel(Survey.from_config("des_y1"), COSMO)
-    f_src = float(np.ravel(lk.f_src_behind(Z_HALO))[0])
-    sc = float(np.ravel(lk.mean_sigma_crit(Z_HALO))[0])
+    f_src = lk.f_src_behind(Z_HALO, min_separation=0.1).item()
+    sc = lk.mean_sigma_crit(Z_HALO, min_separation=0.1).item() / f_src
     expected = 0.3**2 / (6.28 * f_src / ARCMIN_TO_RAD**2) * sc**2
     got = build(sigma_gamma=0.3, n_src_arcmin2=6.28).shape_noise_Sigma(Z_HALO)
     assert got == pytest.approx(expected, rel=1e-12)

@@ -29,6 +29,27 @@ two-halo term. It is designed to be:
 - **Validated**: cross-checked against independent codes (`pyccl`,
   `cluster_toolkit`, `CLMM`) in the test suite
 
+## Credits
+
+The covariance modules are a refactor and an optimized version of the
+method and code of Wu et al. (2019,
+[arXiv:1907.06611](https://arxiv.org/abs/1907.06611)) and Hao-Yi Wu's
+[`cluster-lensing-cov`](https://github.com/hywu/cluster-lensing-cov).
+See {doc}`covariance` for what is theirs and what is new here.
+
+CLensPy is also developed for and validated against the DES cluster
+cosmology analysis. We thank the DES cluster team, in particular Tom
+McClintock ([`cluster_toolkit`](https://github.com/tmcclintock/cluster_toolkit);
+McClintock et al. 2019, [arXiv:1805.00039](https://arxiv.org/abs/1805.00039))
+and the authors of
+[`y3_cluster_cpp`](https://github.com/estevesjh/y3_cluster_cpp). The cluster
+number-count and lensing forward model follows Aguena et al. 2023
+([arXiv:2309.06593](https://arxiv.org/abs/2309.06593)) and the optical
+selection-bias and projection-lensing model follows Costanzi et al. 2026
+(PhRvD 113, 103508,
+[arXiv:2604.05833](https://arxiv.org/abs/2604.05833)). Full BibTeX is in the
+README.
+
 ## Installation
 
 CLensPy is not yet published on PyPI; install it from source:

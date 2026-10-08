@@ -7,6 +7,38 @@ bar. `clenspy` keeps every contribution separate and sums at the end,
 because the argument an analysis makes is almost always about which term
 dominates where.
 
+## Provenance and credit
+
+The $\Delta\Sigma$ covariance in this package is a **refactor and an
+optimized version** of the method and software of Wu et al. (2019), not an
+independent derivation. The physics — the Gaussian-field bracket, the
+Limber projection of the halo and matter spectra, the radial-bin-averaged
+Bessel kernel, and the intrinsic halo-to-halo term — is theirs, and so is
+the reference implementation we validate against.
+
+> Wu, H.-Y., Weinberg, D. H., Salcedo, A. N., Wibking, B. D., & Zu, Y.
+> 2019, *Covariance matrices for galaxy cluster weak lensing: from virial
+> regime to uncorrelated large-scale structure*, MNRAS 490, 2606
+> ([arXiv:1907.06611](https://arxiv.org/abs/1907.06611)).
+>
+> Code: Hao-Yi Wu, `cluster-lensing-cov`,
+> <https://github.com/hywu/cluster-lensing-cov>.
+
+What this package changes is how the same quantities are computed and
+organized. The numerical integration is ours: the closed-form Hankel
+closure for the shot-noise term, the FFTLog engine for geometric bins
+({doc}`covariance_fftlog_math`), and Gauss–Hermite quadrature for the
+concentration scatter. The software structure is ours too — separate
+modules for cosmology, kernels, selection and covariance, with the five
+Gaussian terms returned individually. Where the two disagree, the
+reference implementation is the baseline we compare against, and
+differences are reported in {doc}`validation` rather than assumed away.
+Her package also carries halo-model code taken from Ying Zu's package
+(`clens/ying/`); credit for that code belongs to its author.
+
+If you use the covariance results, please cite Wu et al. (2019) and the
+`cluster-lensing-cov` repository in addition to CLensPy.
+
 ## Counts covariance: Poisson plus a coherent window mode
 
 Two clusters in the same redshift slice both feel the same long-wavelength
@@ -95,10 +127,14 @@ diagonal noise terms.
 ```{note}
 The `shot_shape` term — dominant at small $r_p$ — is evaluated in
 **closed form**, not by quadrature: its bracket $N_hN_\Sigma$ carries no
-$k$-dependence, so the Hankel closure $\int_0^\infty
-J_2(ka)J_2(kb)\,k\,dk=\delta(a-b)/a$ applies exactly once binned into
-disjoint annuli. The other four terms need a genuine quadrature over $k$,
-which is **truncation-limited** ($\epsilon\sim2.5/k_{\max}$), not
+$\ell$-dependence, so the Hankel closure $\int_0^\infty
+J_2(\ell\theta)J_2(\ell\theta')\,\ell\,d\ell=\delta(\theta-\theta')/\theta$
+applies exactly once binned into disjoint annuli, giving
+$\delta_{ij}/\Omega_{{\rm ann},i}$ with the **solid angle**
+$\Omega_{\rm ann}=\pi(r_{p,\max}^2-r_{p,\min}^2)/\chi_h^2$ (the noises are
+per steradian). The measure is $\ell\,d\ell=\chi_h^2\,k\,dk$; dropping the
+$\chi_h^2$ in the $k$ form was a bug, invisible at $\chi_h=1$. The other four
+terms need a genuine quadrature, which is **truncation-limited** ($\epsilon\sim2.5/k_{\max}$), not
 node-limited — and an FFTLog engine
 (`clenspy.kernels.fftlog_cov.GaussianCovFFTLog`) is ~560x more accurate
 than the quadrature at equal cost on the off-diagonal, for geometric

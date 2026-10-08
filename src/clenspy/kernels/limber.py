@@ -43,6 +43,10 @@ So :math:`F_\Sigma = \bar\rho\, q_\Sigma(z_{\rm lss}, z_h)` exactly, with
 The paper's own range settles a choice that looked arbitrary in the code:
 :math:`q_\Sigma` keys its source range on the lens and therefore keeps a
 sign, and that is Wu et al.'s definition, not an implementation accident.
+It also puts the :math:`z_s = z_h` pole inside the integral for foreground
+slabs, which makes :math:`C_\ell^{\Sigma\Sigma}` depend at O(1) on
+`DZ_SLAB`; see `LensingKernel.q_sigma` for the measurement and the open
+decision.
 
 NOTE: the :math:`\Sigma_{\rm crit}(z_s, z_h)` in the numerator is *not* a
 lensing kernel. It is there because the covariance interprets all
@@ -65,23 +69,41 @@ NOTE: **Limber, with the** :math:`\ell + 1/2` **prescription**
 ``cov_DS``.
 
 NOTE: one deviation from the paper, deliberate. Its shape-noise term is
-:math:`\sigma_\gamma^2/n_{\rm s}^{(2D)}`; `shape_noise_Sigma` divides by
-:math:`n_{\rm s} f_{\rm src}(z_h)` instead, counting only sources behind
-the lens. That is the refinement the `cluster-lensing-cov` implementation
-carries and what the frozen reference was built with. Pass
-``f_src_behind=lambda z: 1.0`` for the paper's form exactly.
+:math:`\sigma_\gamma^2\langle\Sigma_{\rm crit}\rangle^2/n_{\rm s}^{(2D)}`;
+`shape_noise_Sigma` divides by :math:`n_{\rm s} f_{\rm src}(z_h)` instead,
+counting only sources behind :math:`z_h + 0.1`, and uses the conditional
+:math:`\langle\Sigma_{\rm crit}\rangle` averaged over those same sources.
+That is the convention of `cluster-lensing-cov` at commit cddbb2a
+(`MIN_LENS_SOURCE_SEPARATION_NOISE`). Pass ``f_src_behind=lambda z: 1.0``
+for the paper's form.
 """
 
 from __future__ import annotations
 
+import inspect
 from typing import Callable
 
 import numpy as np
 
-__all__ = ["ARCMIN_TO_RAD", "LimberProjector", "limber"]
+from .lensing_kernel import MIN_LENS_SOURCE_SEPARATION_NOISE
+
+__all__ = ["ARCMIN_TO_RAD", "LimberProjector", "limber",
+           "MIN_LENS_SOURCE_SEPARATION_NOISE"]
 
 #: Radians per arcminute. The one unit crossing in this module.
 ARCMIN_TO_RAD = np.pi / (180.0 * 60.0)
+
+
+def _call_with_cut(fn, z, min_separation):
+    """``fn(z, min_separation=...)`` if ``fn`` takes it, else ``fn(z)``."""
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):  # builtins, some C callables
+        return fn(z)
+    if "min_separation" in params or any(
+            p.kind is p.VAR_KEYWORD for p in params.values()):
+        return fn(z, min_separation=min_separation)
+    return fn(z)
 
 #: Redshift width of the slabs the :math:`\chi` integrals are summed over.
 #:
@@ -164,10 +186,12 @@ class LimberProjector:
         :math:`q_\Sigma(z_{\rm lss}, z_h)`, so that
         :math:`F_\Sigma = \bar\rho\, q_\Sigma` -- see the module NOTE.
     mean_sigma_crit : callable
-        :math:`\langle\Sigma_{\rm crit}\rangle(z_h)` [Msun/Mpc^2].
+        :math:`\langle\Sigma_{\rm crit}\rangle(z_h)` [Msun/Mpc^2],
+        unnormalised (`LensingKernel.mean_sigma_crit`). Called with
+        ``min_separation=`` if it accepts it; see `shape_noise_Sigma`.
     f_src_behind : callable
-        Fraction of sources behind :math:`z_h`. See the module's note on
-        the one deviation from the paper.
+        Fraction of sources behind :math:`z_h`, same calling rule. See the
+        module's note on the one deviation from the paper.
     sigma_gamma : float
         Per-galaxy shape noise.
     n_src_arcmin2 : float
@@ -353,20 +377,36 @@ class LimberProjector:
         r"""Shape noise on :math:`\Sigma` [(Msun/Mpc^2)^2], eq. ``cov_DS``.
 
         .. math::
-            N^{\Sigma} = \langle\Sigma_{\rm crit}\rangle^2(z_h)\,
-                \frac{\sigma_\gamma^2}{n_{\rm s}^{(2D)} f_{\rm src}(z_h)}
+            N^{\Sigma} = \frac{\sigma_\gamma^2}{n_{\rm s}^{(2D)}
+                f_{\rm src}(z_h)}
+              \left[\frac{\langle\Sigma_{\rm crit}\rangle(z_h)}
+                         {f_{\rm src}(z_h)}\right]^2
 
-        NOTE: the :math:`f_{\rm src}` is the one deviation from the paper --
-        see the module NOTE. It counts only sources behind the lens, which
-        *raises* the noise relative to eq. ``cov_DS`` by
-        :math:`1/f_{\rm src}`.
+        where :math:`\langle\Sigma_{\rm crit}\rangle` is the unnormalised
+        integral of `LensingKernel.mean_sigma_crit`, so the bracket is the
+        *conditional* average over sources behind the lens. Both integrals
+        start at :math:`z_h + 0.1`
+        (`MIN_LENS_SOURCE_SEPARATION_NOISE`). This is the convention of
+        ``cluster-lensing-cov`` cddbb2a.
+
+        NOTE: the cut is passed as ``min_separation=`` to the
+        ``mean_sigma_crit`` and ``f_src_behind`` callables *when they accept
+        it* (a `LensingKernel` method does). A plain callable of :math:`z`
+        alone is used as given and must already carry the cut it wants.
+
+        NOTE: the :math:`f_{\rm src}` in the denominator is the one deviation
+        from the paper -- see the module NOTE. Passing
+        ``f_src_behind=lambda z: 1.0`` gives the paper's form.
         """
-        f_src = float(np.ravel(self.f_src_behind(z_halo))[0])
+        cut = MIN_LENS_SOURCE_SEPARATION_NOISE
+        f_src = float(np.ravel(_call_with_cut(self.f_src_behind, z_halo,
+                                              cut))[0])
+        if f_src <= 0.0:
+            return np.inf  # no sources behind the lens: infinite noise
         # the one unit crossing: arcmin^-2 -> sr^-1
         n_src_sr = self.n_src_arcmin2 * f_src / ARCMIN_TO_RAD**2
-        if n_src_sr <= 0.0:
-            return np.inf  # no sources behind the lens: infinite noise
-        sigma_crit = float(np.ravel(self.mean_sigma_crit(z_halo))[0])
+        sigma_crit = float(np.ravel(_call_with_cut(self.mean_sigma_crit,
+                                                   z_halo, cut))[0]) / f_src
         return self.sigma_gamma**2 / n_src_sr * sigma_crit**2
 
     # -- deprecated aliases, one release ----------------------------------

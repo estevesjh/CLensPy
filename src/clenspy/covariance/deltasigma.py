@@ -57,25 +57,33 @@ formula at the mean redshift.
 
 NOTE: **the shot_shape term is evaluated in closed form, not by
 quadrature** -- and it is the term that dominates at small :math:`r_p`.
-Its bracket :math:`N_h N_\Sigma` carries no :math:`k`, so Hankel closure,
-:math:`\int_0^\infty J_2(ka)J_2(kb)\,k\,dk = \delta(a-b)/a`, applies
-exactly. Bin-averaging over **disjoint contiguous** annuli collapses it:
+Its bracket :math:`N_h N_\Sigma` carries no :math:`\ell`, so Hankel closure,
+:math:`\int_0^\infty J_2(\ell\theta)J_2(\ell\theta')\,\ell\,d\ell =
+\delta(\theta-\theta')/\theta`, applies exactly. Bin-averaging over
+**disjoint contiguous** annuli collapses it:
 
 .. math::
-    \int_0^\infty \frac{k\,dk}{2\pi}\,
-      \hat J_2(k r_p)\,\hat J_2(k r_p')
-    = \frac{\delta_{ij}}{A_{{\rm ann},i}},
+    \int_0^\infty \frac{\ell\,d\ell}{2\pi}\,
+      \hat J_2(\ell\theta)\,\hat J_2(\ell\theta')
+    = \frac{\delta_{ij}}{\Omega_{{\rm ann},i}},
     \qquad
-    A_{\rm ann} = \pi\left(r_{p,\max}^2 - r_{p,\min}^2\right)
+    \Omega_{\rm ann} = \frac{A_{\rm ann}}{\chi_h^2}
+      = \frac{\pi\left(r_{p,\max}^2 - r_{p,\min}^2\right)}{\chi_h^2}
 
 so that term is exact, diagonal, and free. ``exact_shot_shape=False``
 forces the quadrature instead, which is how the two are cross-checked.
 
-NOTE: :math:`A_{\rm ann}` is in **Mpc^2, not steradians**. The integration
-variable is conjugate to :math:`r_p`, so the closure bin-averages over
-:math:`r_p`; using the angular area is wrong by :math:`\chi_h^2`, a factor
-of :math:`10^6` at :math:`\chi_h = 1100` Mpc. I made exactly that error
-while deriving this, and the test against the closure is what caught it.
+NOTE: **the measure is** :math:`\ell\,d\ell`, **not** :math:`k\,dk`.
+With :math:`\ell = k\chi_h`, :math:`\ell\,d\ell = \chi_h^2\,k\,dk`, and
+:math:`C_\ell` and both noises are per steradian, so the annulus that
+divides them is the solid angle :math:`\Omega_{\rm ann}`, not the area
+:math:`A_{\rm ann}` in Mpc^2. Integrating :math:`k\,dk` without the
+:math:`\chi_h^2` was an earlier bug of exactly :math:`1/\chi_h^2`
+(8e-7 at :math:`\chi_h = 1100` Mpc); it is invisible at :math:`\chi_h = 1`,
+which is why a test at unit distance never saw it. Pinned against the
+physical stack variance in ``tests/test_covariance.py``, and consistent with
+`cluster-lensing-cov`, which integrates :math:`\ell^2/2\pi` over
+:math:`d\ln\ell`.
 
 NOTE: **the surviving quadrature is truncation-limited, not
 node-limited**, measured rather than assumed. Against the closure result
@@ -147,11 +155,100 @@ __all__ = [
     "ALL_TERMS",
     "J2_SERIES_CUTOFF",
     "DeltaSigmaGaussianCovariance",
+    "ELL_RANGES",
+    "integrate_wu2019_pairs",
     "j2_bin",
 ]
 
 #: The five terms of the expanded bracket, in the order they are summed.
 ALL_TERMS = ("lss_lss", "lss_shape", "shot_lss", "shot_shape", "cross")
+
+#: The two :math:`\ell` ranges `DeltaSigmaGaussianCovariance` offers.
+#:
+#: NOTE: ``"converged"`` (default) is one wide :math:`k` grid for every
+#: pair. ``"wu2019"`` reproduces ``cluster-lensing-cov``
+#: ``_calc_C_ell_integration``: per pair of bins,
+#: :math:`\ln\ell` from :math:`\ln(1/\theta_{\max})` (inclusive) to
+#: :math:`\ln(100/\theta_{\min})` (exclusive) in steps of
+#: `WU2019_DLN_ELL`, trapezoid. That range is a *truncation*: at the
+#: smallest :math:`r_p` about half of the ``lss_lss``/``cross`` integral
+#: lies below :math:`1/\theta_{\max}` and ``shot_shape`` comes out ~0.9%
+#: low. Use it only to reproduce her numbers.
+ELL_RANGES = ("converged", "wu2019")
+
+#: :math:`d\ln\ell` of her per-pair grid (her ``dlnell``).
+WU2019_DLN_ELL = 1e-3
+#: Her ``scaling_for_ell_min`` / ``scaling_for_ell_max``:
+#: :math:`\ell \in [s_{\min}/\theta_{\max}, s_{\max}/\theta_{\min}]`.
+WU2019_ELL_SCALING = (1.0, 100.0)
+
+
+def integrate_wu2019_pairs(rp_edges, chi_h, f_sky, spectra, groups):
+    r"""Wu et al.'s per-pair truncated :math:`\ell` integral.
+
+    For bins :math:`i \le j` her range is
+    :math:`\ln\ell \in [\ln(\chi_h/r_{p,j+1}),\, \ln(100\chi_h/r_{p,i}))`
+    on an ``np.arange`` grid of step `WU2019_DLN_ELL` (start inclusive, end
+    exclusive), integrated by trapezoid in :math:`\ln\ell` with measure
+    :math:`\ell^2/2\pi`. All pairs sharing :math:`j` share the start
+    point, hence one grid; pair :math:`(i, j)` is a *prefix* of it, so its
+    trapezoid is read off a cumulative sum. One :math:`\hat J_2` matrix per
+    :math:`j`, no per-pair objects.
+
+    Parameters
+    ----------
+    rp_edges : np.ndarray
+        Radial edges [Mpc], ascending.
+    chi_h : float
+        Comoving distance to the halo slice [Mpc].
+    f_sky : float
+        Sky fraction.
+    spectra : callable
+        ``spectra(ell) -> {term: array}``, the bracket terms on ``ell``.
+    groups : sequence of tuple of str
+        Each tuple is a set of bracket terms whose weights are summed and
+        integrated together.
+
+    Returns
+    -------
+    list of np.ndarray
+        One ``(n_rp, n_rp)`` matrix per group, divided by
+        :math:`4\pi f_{\rm sky}`.
+    """
+    s_min, s_max = WU2019_ELL_SCALING
+    dln = WU2019_DLN_ELL
+    edges = np.asarray(rp_edges, dtype=float)
+    theta_lo = edges[:-1] / chi_h
+    theta_hi = edges[1:] / chi_h
+    # her np.arange end points (exclusive), one per lower bin i
+    ln_end = np.log(s_max / theta_lo)
+    n = theta_lo.size
+    outs = [np.zeros((n, n)) for _ in groups]
+    for j in range(n):
+        ln_start = np.log(s_min / theta_hi[j])
+        # np.arange length: ceil((stop - start) / step)
+        lengths = np.ceil((ln_end[: j + 1] - ln_start) / dln).astype(int)
+        lengths = np.maximum(lengths, 0)
+        n_pts = int(lengths.max())
+        if n_pts == 0:
+            continue
+        ell = np.exp(ln_start + dln * np.arange(n_pts))
+        a = j2_bin(ell[:, None], theta_lo[None, : j + 1],
+                   theta_hi[None, : j + 1])           # (n_pts, j + 1)
+        geometry = a * (a[:, j] * ell**2 / (2.0 * np.pi))[:, None]
+        terms = spectra(ell)
+        cols = np.arange(j + 1)
+        last = np.maximum(lengths - 1, 0)
+        for out, names in zip(outs, groups):
+            f = geometry * sum(terms[t] for t in names)[:, None]
+            csum = np.cumsum(f, axis=0)
+            # trapezoid over the first L points of a uniform grid
+            val = dln * (csum[last, cols]
+                         - 0.5 * f[0, cols] - 0.5 * f[last, cols])
+            val = np.where(lengths >= 2, val, 0.0)
+            out[cols, j] = val
+            out[j, cols] = val
+    return [o / (4.0 * np.pi * f_sky) for o in outs]
 
 
 class DeltaSigmaGaussianCovariance:
@@ -192,13 +289,31 @@ class DeltaSigmaGaussianCovariance:
         Number of log-spaced :math:`k` nodes (default 8192).
     exact_shot_shape : bool, optional
         Use the closed-form Hankel-closure result for the ``shot_shape``
-        term (default True). Set False to evaluate it by the same
-        quadrature as the others, which is how the two are compared.
+        term. Set False to evaluate it by the same quadrature as the
+        others, which is how the two are compared. Default (None): True
+        for ``ell_range="converged"``, False for ``"wu2019"``.
+    ell_range : {"converged", "wu2019"}, optional
+        ``"converged"`` (default) integrates every pair on the one
+        ``k_range``/``n_k`` grid. ``"wu2019"`` reproduces Wu et al.'s
+        per-pair truncated range (see `ELL_RANGES`); ``k_range`` and
+        ``n_k`` are then unused.
+
+        NOTE: with ``"wu2019"`` the ``shot_shape`` term is by default the
+        **quadrature over her range**, not the closed form, because her
+        ~0.9% truncation bias on that term is part of what is being
+        reproduced. Pass ``exact_shot_shape=True`` to combine her range for
+        the other four terms with the exact ``shot_shape``.
     """
 
     def __init__(self, rp_edges, chi_h, f_sky, c_ell_hh, c_ell_SS, c_ell_hS,
                  n_h, shape_noise, k_range=(1e-4, 1e5), n_k=8192,
-                 exact_shot_shape=True):
+                 exact_shot_shape=None, ell_range="converged"):
+        if ell_range not in ELL_RANGES:
+            raise ValueError(f"ell_range must be one of {ELL_RANGES}, "
+                             f"got {ell_range!r}")
+        self.ell_range = ell_range
+        if exact_shot_shape is None:
+            exact_shot_shape = ell_range == "converged"
         self.rp_edges = np.asarray(rp_edges, dtype=float)
         if self.rp_edges.ndim != 1 or self.rp_edges.size < 2:
             raise ValueError("rp_edges must be 1-D with >= 2 entries")
@@ -240,9 +355,10 @@ class DeltaSigmaGaussianCovariance:
         theta_hi = self.rp_edges[None, 1:] / self.chi_h
         return j2_bin(ell, theta_lo, theta_hi)
 
-    def _spectra(self):
-        """The five bracket terms, each as a function of k."""
-        ell = self.k * self.chi_h
+    def _spectra(self, ell=None):
+        """The five bracket terms on ``ell`` (default: the ``k`` grid)."""
+        if ell is None:
+            ell = self.k * self.chi_h
         c_hh = np.asarray(self.c_ell_hh(ell), dtype=float)
         c_ss = np.asarray(self.c_ell_SS(ell), dtype=float)
         c_hs = np.asarray(self.c_ell_hS(ell), dtype=float)
@@ -251,9 +367,14 @@ class DeltaSigmaGaussianCovariance:
             "lss_lss": c_hh * c_ss,
             "lss_shape": c_hh * self.shape_noise,
             "shot_lss": n_h_term * c_ss,
-            "shot_shape": n_h_term * self.shape_noise,
+            "shot_shape": np.full(np.shape(ell), n_h_term * self.shape_noise),
             "cross": c_hs**2,
         }
+
+    def _integrate_wu2019(self, groups):
+        """Her per-pair truncated range; see `integrate_wu2019_pairs`."""
+        return integrate_wu2019_pairs(self.rp_edges, self.chi_h, self.f_sky,
+                                      self._spectra, groups)
 
     def _integrate(self, weight_k):
         r"""``A^T diag(k w / 2pi) A / (4 pi f_sky)``, the bilinear form.
@@ -263,8 +384,9 @@ class DeltaSigmaGaussianCovariance:
         silent factor of :math:`k`.
         """
         a = self._kernel_matrix()
-        # k dk / (2 pi)  ->  k^2 dlnk / (2 pi)
-        measure = self.k**2 * np.asarray(weight_k, dtype=float) / (2.0 * np.pi)
+        # ell dell / (2 pi) = chi^2 k dk / (2 pi) = chi^2 k^2 dlnk / (2 pi)
+        measure = (self.chi_h**2 * self.k**2
+                   * np.asarray(weight_k, dtype=float) / (2.0 * np.pi))
         ln_k = np.log(self.k)
         # trapezoid weights, applied once and visibly
         trapz_w = np.gradient(ln_k)
@@ -281,8 +403,9 @@ class DeltaSigmaGaussianCovariance:
     def annulus_area(self):
         r""":math:`A_{\rm ann} = \pi(r_{p,\max}^2 - r_{p,\min}^2)`, in Mpc^2.
 
-        NOTE: **Mpc^2, not steradians** -- see the module NOTE. Using the
-        angular area is wrong by :math:`\chi_h^2`.
+        NOTE: the area in Mpc^2. The noises are per steradian, so the term
+        divides by the solid angle :math:`A_{\rm ann}/\chi_h^2` -- see the
+        module NOTE.
         """
         return np.pi * (self.rp_edges[1:] ** 2 - self.rp_edges[:-1] ** 2)
 
@@ -292,19 +415,24 @@ class DeltaSigmaGaussianCovariance:
         .. math::
             {\rm Cov}^{\rm shot\_shape}_{ij} =
               \frac{N_h N_\Sigma}{4\pi f_{\rm sky}}\,
-              \frac{\delta_{ij}}{A_{{\rm ann},i}}
+              \frac{\chi_h^2\,\delta_{ij}}{A_{{\rm ann},i}}
 
         Exact: no quadrature, hence no truncation error, in the term that
         dominates at small :math:`r_p`.
         """
         bracket = self.shape_noise / self.n_h
-        return np.diag(bracket / (4.0 * np.pi * self.f_sky)
+        # N_h N_Sigma are per steradian: divide by Omega_ann = A_ann / chi^2
+        return np.diag(bracket * self.chi_h**2 / (4.0 * np.pi * self.f_sky)
                        / self.annulus_area())
 
     def components(self):
         """``{name: matrix}`` for the five bracket terms."""
-        out = {name: self._integrate(w)
-               for name, w in self._spectra().items()}
+        if self.ell_range == "wu2019":
+            mats = self._integrate_wu2019([(t,) for t in ALL_TERMS])
+            out = dict(zip(ALL_TERMS, mats))
+        else:
+            out = {name: self._integrate(w)
+                   for name, w in self._spectra().items()}
         if self.exact_shot_shape:
             out["shot_shape"] = self._shot_shape_exact()
         return out
@@ -325,12 +453,14 @@ class DeltaSigmaGaussianCovariance:
                 f"unknown terms {sorted(unknown)}; choose from "
                 f"{list(ALL_TERMS)}"
             )
-        spectra = self._spectra()
         # the exact term is added separately, not folded into the bracket
         quadrature = [n for n in terms
                       if not (self.exact_shot_shape and n == "shot_shape")]
         total = np.zeros((self.n_rp, self.n_rp))
-        if quadrature:
+        if quadrature and self.ell_range == "wu2019":
+            total += self._integrate_wu2019([tuple(quadrature)])[0]
+        elif quadrature:
+            spectra = self._spectra()
             total += self._integrate(sum(spectra[n] for n in quadrature))
         if self.exact_shot_shape and "shot_shape" in terms:
             total += self._shot_shape_exact()
@@ -345,6 +475,7 @@ class DeltaSigmaGaussianCovariance:
             shape_noise=self.shape_noise,
             exact_shot_shape=self.exact_shot_shape,
             k_range=(self.k[0], self.k[-1]), n_k=self.k.size,
+            ell_range=self.ell_range,
         )
         base.update(kw)
         return DeltaSigmaGaussianCovariance(**base)
@@ -360,7 +491,13 @@ class DeltaSigmaGaussianCovariance:
         axis that matters, and reporting only ``n_k`` is a false
         reassurance. Both are returned so neither can be mistaken for the
         other.
+
+        NOTE: not defined for ``ell_range="wu2019"``, whose grid is fixed
+        by her definition; it raises there.
         """
+        if self.ell_range == "wu2019":
+            raise ValueError("convergence() sweeps k_range/n_k, which "
+                             "ell_range='wu2019' does not use")
         fine = np.diag(self.cov())
         halved = np.diag(self._variant(n_k=self.k.size // 2).cov())
         shorter = np.diag(
@@ -374,7 +511,7 @@ class DeltaSigmaGaussianCovariance:
     def __repr__(self):
         return (f"DeltaSigmaGaussianCovariance(n_rp={self.n_rp}, "
                 f"chi_h={self.chi_h:.1f} Mpc, f_sky={self.f_sky:.4f}, "
-                f"n_k={self.k.size})")
+                f"n_k={self.k.size}, ell_range={self.ell_range!r})")
 
 
 if __name__ == "__main__":

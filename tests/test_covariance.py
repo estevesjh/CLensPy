@@ -440,16 +440,18 @@ def test_the_bilinear_form_uses_the_right_k_measure():
 # left, so neither can silently regress.
 
 
-def closure_reference(rp_edges, f_sky, n_h, shape_noise):
+def closure_reference(rp_edges, chi_h, f_sky, n_h, shape_noise):
     r"""The exact ``shot_shape`` term, from Hankel closure.
 
-    :math:`\int_0^\infty J_2(ka)J_2(kb)\,k\,dk = \delta(a-b)/a`, averaged
-    over disjoint contiguous annuli, gives
-    :math:`\delta_{ij}/A_{{\rm ann},i}` with
-    :math:`A_{\rm ann} = \pi(r_{p,\max}^2 - r_{p,\min}^2)` in **Mpc^2**.
+    :math:`\int_0^\infty J_2(\ell\theta_a)J_2(\ell\theta_b)\,\ell\,d\ell =
+    \delta(\theta_a-\theta_b)/\theta_a`, averaged over disjoint contiguous
+    annuli, gives :math:`\delta_{ij}/\Omega_{{\rm ann},i}` with the **solid
+    angle** :math:`\Omega_{\rm ann} = \pi(r_{p,\max}^2 - r_{p,\min}^2)/\chi_h^2`.
+    The noises are per steradian, so it is the solid angle, not the area in
+    Mpc^2, that divides them.
     """
-    area = np.pi * (rp_edges[1:] ** 2 - rp_edges[:-1] ** 2)
-    return np.diag((shape_noise / n_h) / (4.0 * np.pi * f_sky) / area)
+    omega = np.pi * (rp_edges[1:] ** 2 - rp_edges[:-1] ** 2) / chi_h**2
+    return np.diag((shape_noise / n_h) / (4.0 * np.pi * f_sky) / omega)
 
 
 def test_the_closed_form_shot_shape_is_the_closure_result():
@@ -457,8 +459,43 @@ def test_the_closed_form_shot_shape_is_the_closure_result():
     cov = make_cov()
     np.testing.assert_allclose(
         cov.components()["shot_shape"],
-        closure_reference(RP_EDGES, F_SKY, N_H, SHAPE_NOISE), rtol=1e-14,
+        closure_reference(RP_EDGES, CHI_H, F_SKY, N_H, SHAPE_NOISE), rtol=1e-14,
     )
+
+
+def test_shot_shape_matches_the_physical_stack_variance_at_realistic_distance():
+    r"""Independent of the closure algebra: the variance of a stack.
+
+    :math:`N_{\rm halo} = n_h\,4\pi f_{\rm sky}` haloes, each with
+    :math:`n_s\,\Omega_{\rm ann}` sources in the annulus, give
+    :math:`{\rm Var} = N_\Sigma/(N_{\rm halo}\,\Omega_{\rm ann})` with
+    :math:`N_\Sigma = \langle\Sigma_{\rm crit}\rangle^2\sigma_\gamma^2/n_s`
+    per steradian. A missing :math:`\chi_h^2` (the original bug, invisible at
+    :math:`\chi_h = 1`) makes this fail by :math:`10^6`.
+    """
+    chi = 1100.0
+    cov = make_cov(chi_h=chi)
+    omega = np.pi * (RP_EDGES[1:] ** 2 - RP_EDGES[:-1] ** 2) / chi**2
+    n_halo = N_H * 4.0 * np.pi * F_SKY
+    np.testing.assert_allclose(
+        np.diag(cov.components()["shot_shape"]),
+        SHAPE_NOISE / (n_halo * omega), rtol=1e-12,
+    )
+
+
+def test_the_quadrature_measure_is_ell_dell_not_k_dk():
+    r"""The quadrature must agree with the closed form at any :math:`\chi_h`.
+
+    :math:`\int \ell\,d\ell = \chi_h^2 \int k\,dk`; dropping the
+    :math:`\chi_h^2` is invisible at :math:`\chi_h = 1`.
+    """
+    for chi in (1.0, 300.0, 1100.0):
+        quad = make_cov(chi_h=chi, k_range=(1e-4, 1e4 / chi * 1e0 * chi),
+                        exact_shot_shape=False)
+        exact = np.diag(closure_reference(RP_EDGES, chi, F_SKY, N_H,
+                                          SHAPE_NOISE))
+        got = np.diag(quad.components()["shot_shape"])
+        assert np.max(np.abs(got / exact - 1.0)) < 5e-3
 
 
 def test_the_closed_form_shot_shape_is_strictly_diagonal():
@@ -472,7 +509,7 @@ def test_the_closed_form_shot_shape_is_strictly_diagonal():
 
 def test_the_quadrature_converges_onto_the_closed_form():
     """Both compute the same integral, so they must agree in the limit."""
-    exact = np.diag(closure_reference(RP_EDGES, F_SKY, N_H, SHAPE_NOISE))
+    exact = np.diag(closure_reference(RP_EDGES, CHI_H, F_SKY, N_H, SHAPE_NOISE))
     previous = np.inf
     for k_max in (1e2, 1e3, 1e4):
         got = np.diag(
@@ -493,7 +530,7 @@ def test_the_quadrature_error_is_truncation_limited_not_node_limited():
     diagnostic that varied only ``n_k`` therefore reported 4e-4 when the
     true error was 2.4e-3.
     """
-    exact = np.diag(closure_reference(RP_EDGES, F_SKY, N_H, SHAPE_NOISE))
+    exact = np.diag(closure_reference(RP_EDGES, CHI_H, F_SKY, N_H, SHAPE_NOISE))
 
     def error(k_max, n_k):
         got = np.diag(make_cov(k_range=(1e-4, k_max), n_k=n_k,
@@ -510,20 +547,22 @@ def test_the_quadrature_error_is_truncation_limited_not_node_limited():
         assert error(k_max, 8192) * k_max == pytest.approx(2.5, rel=0.3)
 
 
-def test_the_shot_shape_term_does_not_depend_on_chi_h():
-    r"""The Mpc^2-vs-steradian trap, pinned.
+def test_the_shot_shape_term_scales_as_chi_h_squared():
+    r"""The Mpc^2-vs-steradian trap, pinned the right way round.
 
-    :math:`\ell\theta = k r_p`, so this term is a function of :math:`r_p`
-    alone. If :math:`A_{\rm ann}` were taken in steradians it would pick up
-    a :math:`\chi_h^2` -- a factor of :math:`10^6` at
-    :math:`\chi_h = 1100` Mpc. Both routes must be flat in ``chi_h``.
+    :math:`N_h` and :math:`N_\Sigma` are per steradian, so the annulus that
+    divides them is the solid angle :math:`A_{\rm ann}/\chi_h^2`, and the
+    term grows as :math:`\chi_h^2` at fixed :math:`r_p` and fixed noises.
+    (An earlier version asserted it was flat in ``chi_h``; that was the bug,
+    a factor of :math:`10^6` at :math:`\chi_h = 1100` Mpc.) Both routes.
     """
     for exact in (True, False):
         a = make_cov(chi_h=500.0, exact_shot_shape=exact
                      ).components()["shot_shape"]
         b = make_cov(chi_h=2500.0, exact_shot_shape=exact
                      ).components()["shot_shape"]
-        np.testing.assert_allclose(np.diag(b), np.diag(a), rtol=1e-6), exact
+        np.testing.assert_allclose(np.diag(b), np.diag(a) * (2500.0 / 500.0) ** 2,
+                                   rtol=1e-6), exact
 
 
 def test_the_closed_form_improves_the_total_by_orders_of_magnitude():
@@ -725,3 +764,94 @@ def test_cov_rejects_a_bin_with_no_clusters():
 def test_halo_to_halo_repr_contains_the_class_name():
     iv, _ = _halo_to_halo()
     assert "DeltaSigmaHaloToHaloCovariance" in repr(iv)
+
+
+# -- the optional Wu et al. (2019) per-pair ell range -----------------------
+
+
+def _her_pair_loop(rp_edges, chi_h, terms):
+    """Her _calc_C_ell_integration, transcribed: one np.arange grid per pair."""
+    n = rp_edges.size - 1
+    th_lo, th_hi = rp_edges[:-1] / chi_h, rp_edges[1:] / chi_h
+    out = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            lnell = np.arange(np.log(1.0 / max(th_hi[i], th_hi[j])),
+                              np.log(100.0 / min(th_lo[i], th_lo[j])), 1e-3)
+            ell = np.exp(lnell)
+            geometry = (j2_bin(ell, th_lo[i], th_hi[i])
+                        * j2_bin(ell, th_lo[j], th_hi[j]) * ell**2 / (2 * np.pi))
+            bracket = sum({
+                "lss_lss": c_hh(ell) * c_ss(ell),
+                "lss_shape": c_hh(ell) * SHAPE_NOISE,
+                "shot_lss": c_ss(ell) / N_H,
+                "shot_shape": np.full(ell.shape, SHAPE_NOISE / N_H),
+                "cross": c_hs(ell) ** 2,
+            }[t] for t in terms)
+            out[i, j] = np.trapezoid(bracket * geometry, x=lnell)
+    return out / (4.0 * np.pi * F_SKY)
+
+
+@pytest.mark.parametrize("term", ALL_TERMS)
+def test_wu2019_ell_range_matches_her_per_pair_loop(term):
+    """The vectorised prefix-cumsum equals her per-pair np.trapz, term by term.
+
+    Error scaled by sqrt(C_ii C_jj): the off-diagonal of shot_shape is a
+    near-total cancellation (~1e-7 of the diagonal), where summation order
+    alone moves the last digits.
+    """
+    rp = RP_EDGES[:5]
+    got = make_cov(rp_edges=rp, ell_range="wu2019").components()[term]
+    want = _her_pair_loop(rp, CHI_H, (term,))
+    d = np.sqrt(np.outer(np.diag(want), np.diag(want)))
+    assert np.max(np.abs(got - want) / d) < 1e-12
+
+
+def test_wu2019_cov_is_the_sum_of_its_components():
+    cov = make_cov(ell_range="wu2019")
+    np.testing.assert_allclose(sum(cov.components().values()), cov.cov(),
+                               rtol=1e-12)
+    for name in ALL_TERMS:
+        np.testing.assert_allclose(cov.cov(terms=(name,)),
+                                   cov.components()[name], rtol=1e-12)
+
+
+def test_wu2019_shot_shape_is_her_truncated_quadrature_by_default():
+    """Her range drops part of the closure integral: a ~1% low shot_shape.
+
+    Explicit ``exact_shot_shape=True`` restores the closed form.
+    """
+    exact = np.diag(make_cov().components()["shot_shape"])
+    hers = np.diag(make_cov(ell_range="wu2019").components()["shot_shape"])
+    assert make_cov(ell_range="wu2019").exact_shot_shape is False
+    assert np.all(hers < exact)
+    assert 1e-3 < np.max(1.0 - hers / exact) < 3e-2
+    forced = make_cov(ell_range="wu2019", exact_shot_shape=True)
+    np.testing.assert_array_equal(np.diag(forced.components()["shot_shape"]),
+                                  exact)
+    # the default range is unchanged by the option's existence
+    assert make_cov().exact_shot_shape is True
+
+
+def test_wu2019_truncates_the_lss_terms_at_small_rp():
+    """Her lower limit 1/theta_max drops low-ell power: lss_lss comes out low."""
+    conv = np.diag(make_cov().components()["lss_lss"])
+    hers = np.diag(make_cov(ell_range="wu2019").components()["lss_lss"])
+    assert hers[0] < conv[0]
+
+
+def test_wu2019_is_fast_for_twelve_bins():
+    import time
+
+    rp = np.geomspace(0.05, 50.0, 13)
+    cov = make_cov(rp_edges=rp, ell_range="wu2019")
+    t0 = time.perf_counter()
+    cov.cov()
+    assert time.perf_counter() - t0 < 1.0
+
+
+def test_ell_range_is_validated_and_convergence_refuses_wu2019():
+    with pytest.raises(ValueError, match="ell_range"):
+        make_cov(ell_range="paper")
+    with pytest.raises(ValueError, match="wu2019"):
+        make_cov(ell_range="wu2019").convergence()

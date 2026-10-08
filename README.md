@@ -226,3 +226,94 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 CLensPy builds upon decades of research in weak gravitational lensing. We acknowledge the contributions of the broader weak lensing community to the theoretical foundations implemented in this package.
+
+The covariance modules (`clenspy.covariance`, `clenspy.kernels.limber`) are a
+refactor and an optimized version of the method and code of Hao-Yi Wu and
+collaborators. We are grateful to Hao-Yi Wu for the paper and for making
+[`cluster-lensing-cov`](https://github.com/hywu/cluster-lensing-cov)
+available; the physics, the reference implementation and the validation
+baselines are theirs, while the numerical integration methods and software
+structure are new here. If you use the covariance results, please cite:
+
+```bibtex
+@article{Wu2019,
+    author  = {Wu, Hao-Yi and Weinberg, David H. and Salcedo, Andr{\'e}s N. and
+               Wibking, Benjamin D. and Zu, Ying},
+    title   = {Covariance matrices for galaxy cluster weak lensing: from
+               virial regime to uncorrelated large-scale structure},
+    journal = {MNRAS},
+    volume  = {490},
+    pages   = {2606},
+    year    = {2019},
+    doi     = {10.48550/arXiv.1907.06611},
+    eprint  = {1907.06611},
+    archivePrefix = {arXiv}
+}
+
+@misc{clusterlensingcov,
+    author       = {Wu, Hao-Yi},
+    title        = {cluster-lensing-cov},
+    howpublished = {\url{https://github.com/hywu/cluster-lensing-cov}}
+}
+```
+
+CLensPy is developed for, and cross-checked against, the **DES cluster
+cosmology analysis**. We thank the DES cluster team, in particular
+Tom McClintock for the cluster weak-lensing methodology and for
+[`cluster_toolkit`](https://github.com/tmcclintock/cluster_toolkit), against
+which the two-halo and miscentering terms are validated, and the authors of
+[`y3_cluster_cpp`](https://github.com/estevesjh/y3_cluster_cpp), the
+C++/CosmoSIS cluster-observable prediction engine. The cluster number-count
+and lensing forward model follows Aguena et al. (2023), the optical
+selection-bias and projection-lensing model follows Costanzi et al. (2026),
+and the semi-analytic covariance, mass-richness calibration and
+miscentering conventions follow McClintock et al. (2019). Please cite:
+
+```bibtex
+@article{McClintock2019,
+    author  = {McClintock, T. and Varga, T. N. and Gruen, D. and others},
+    title   = {Dark Energy Survey Year 1 results: weak lensing mass
+               calibration of redMaPPer galaxy clusters},
+    journal = {MNRAS},
+    volume  = {482},
+    pages   = {1352},
+    year    = {2019},
+    doi     = {10.1093/mnras/sty2711},
+    eprint  = {1805.00039},
+    archivePrefix = {arXiv}
+}
+
+@article{Aguena2023,
+    author  = {Aguena, M. and others},
+    title   = {Building an Efficient Cluster Cosmology Software Package for
+               Modeling Cluster Counts and Lensing},
+    year    = {2023},
+    eprint  = {2309.06593},
+    archivePrefix = {arXiv}
+}
+
+@article{Costanzi2026,
+    author  = {Costanzi, M. and Wu, H.-Y. and Esteves, J. H. and
+               Grandis, S. and To, C. and Aguena, M.},
+    title   = {Forward analytical model for the optical selection bias on
+               galaxy cluster lensing profiles},
+    journal = {Phys. Rev. D},
+    volume  = {113},
+    pages   = {103508},
+    year    = {2026},
+    eprint  = {2604.05833},
+    archivePrefix = {arXiv}
+}
+
+@misc{clustertoolkit,
+    author       = {McClintock, Tom},
+    title        = {cluster\_toolkit},
+    howpublished = {\url{https://github.com/tmcclintock/cluster_toolkit}}
+}
+
+@misc{y3clustercpp,
+    title        = {y3\_cluster\_cpp: cluster-observable prediction engine for
+                    the DES cluster cosmology analysis},
+    howpublished = {\url{https://github.com/estevesjh/y3_cluster_cpp}}
+}
+```

@@ -87,6 +87,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..utils.constants import C_LIGHT, G_NEWTON
+from ..utils.integrate import gl_nodes
 
 __all__ = ["LensingKernel", "sigma_crit_comoving"]
 
@@ -112,21 +113,37 @@ _SIGMA_CRIT_AMPLITUDE = C_LIGHT**2 / (4.0 * np.pi * G_NEWTON)
 #: exist without a convention.
 MIN_LENS_SOURCE_SEPARATION = 0.01
 
-#: Nodes for the :math:`z_s` integrals.
+#: Lens-source cut used by the **shape-noise** term of the covariance.
 #:
-#: NOTE: 100, matching the exemplar, and this is **also part of the
-#: definition** for the divergent quantities. With a floor at
-#: `MIN_LENS_SOURCE_SEPARATION` the integral is finite, but the first
-#: trapezoid interval still carries the spike, and its weight is half that
-#: interval's width -- so refining the grid *lowers*
-#: :math:`\langle\Sigma_{\rm crit}\rangle` rather than converging it
-#: (100 -> 200 nodes moves it 4%). Both are arguments on the methods that
-#: need them, so a caller can reproduce the reference or refine
-#: deliberately.
+#: NOTE: ``cluster-lensing-cov`` commit cddbb2a (2026-09-22, "implement
+#: f_src_behind_lens consistently") moved both
+#: :math:`\langle\Sigma_{\rm crit}\rangle(z_h)` and :math:`f_{\rm src}(z_h)`
+#: to sources behind :math:`z_h + 0.1`, and made the former the conditional
+#: average over those sources. The kernels :math:`q_\Sigma` and
+#: :math:`\langle\Sigma_{\rm crit}^{-1}\rangle` kept the 0.01 of
+#: `MIN_LENS_SOURCE_SEPARATION`. See `LimberProjector.shape_noise_Sigma`.
+MIN_LENS_SOURCE_SEPARATION_NOISE = 0.1
+
+#: Gauss-Legendre nodes for the smooth :math:`z_s` integrals
+#: (`f_src_behind`, `mean_sigma_crit`, `mean_inverse_sigma_crit`).
 #:
-#: :math:`\langle\Sigma_{\rm crit}^{-1}\rangle` and
-#: :math:`f_{\rm src}` *are* convergent: 100 -> 800 nodes moves them by
-#: less than 1e-4.
+#: NOTE: measured, not chosen by taste. Against a 2048-node rule, 96 nodes
+#: reach 3e-11 on :math:`\langle\Sigma_{\rm crit}\rangle` even with the 0.01
+#: cut (whose integrand rises steeply at the lower limit) and ~1e-12 or
+#: better on the others; 64 nodes already give 8e-8 on the worst one. The 100-node
+#: trapezoid this replaced was off by 2e-4 on :math:`f_{\rm src}`, 5e-4 to
+#: 2e-3 on :math:`\langle\Sigma_{\rm crit}\rangle` (0.1 cut), and **4-8%** on
+#: :math:`\langle\Sigma_{\rm crit}\rangle` with the 0.01 cut -- the "refining
+#: lowers the answer" behaviour an earlier note here blamed on the cut was
+#: the trapezoid's first interval, not the physics.
+N_ZS_GL = 96
+
+#: Trapezoid nodes for the :math:`z_s` integral of `q_sigma` only.
+#:
+#: NOTE: `q_sigma` keeps the trapezoid because its integrand has a simple
+#: pole at :math:`z_s = z_h` for foreground slabs, which no quadrature rule
+#: converges across; see the report in ``validation/`` and the open decision
+#: on the definition of :math:`q_\Sigma`.
 N_ZS_NODES = 100
 
 #: Nodes for the :math:`z_l` grid the interpolants are built on.
@@ -232,12 +249,12 @@ class LensingKernel:
 
     # -- the source grid, shared by every integral ------------------------
 
-    def _zs_nodes(self, z_from, min_separation=None, n_nodes=None):
-        r"""Source nodes from ``z_from + min_separation`` to :math:`z_s^{\max}`.
+    def _zs_bracket(self, z_from, min_separation=None):
+        r"""``(lo, hi)`` of the source integral behind ``z_from``, or ``None``.
 
-        Returns an empty array if nothing is behind ``z_from``, which is
-        what makes `f_src_behind` go to zero at the top of the source
-        distribution instead of raising.
+        ``None`` when nothing is behind ``z_from``, which is what makes
+        `f_src_behind` go to zero at the top of the source distribution
+        instead of raising.
 
         NOTE: ``min_separation`` is floored at `MIN_LENS_SOURCE_SEPARATION`,
         never below it -- it is a definition of what counts as a
@@ -255,12 +272,29 @@ class LensingKernel:
                 "diverge logarithmically as the separation goes to zero, so "
                 "a smaller value does not converge, it just grows."
             )
-        n_nodes = N_ZS_NODES if n_nodes is None else int(n_nodes)
         lo = max(z_from + min_separation, self.survey.zs_min)
         hi = self.survey.zs_max
-        if not hi > lo:
+        return (lo, hi) if hi > lo else None
+
+    def _zs_nodes(self, z_from, min_separation=None, n_nodes=None):
+        r"""Equally spaced source nodes (trapezoid), for `q_sigma` only."""
+        bracket = self._zs_bracket(z_from, min_separation)
+        if bracket is None:
             return np.empty(0)
-        return np.linspace(lo, hi, n_nodes)
+        n_nodes = N_ZS_NODES if n_nodes is None else int(n_nodes)
+        return np.linspace(*bracket, n_nodes)
+
+    def _zs_rule(self, z_from, min_separation=None, n_nodes=None):
+        r"""Gauss-Legendre ``(nodes, weights)`` over the source bracket.
+
+        Empty arrays if nothing is behind ``z_from``. ``n_nodes`` is the
+        order of the rule (default `N_ZS_GL`).
+        """
+        bracket = self._zs_bracket(z_from, min_separation)
+        if bracket is None:
+            return np.empty(0), np.empty(0)
+        n_nodes = N_ZS_GL if n_nodes is None else int(n_nodes)
+        return gl_nodes(bracket[0], bracket[1], n_nodes)
 
     # -- gamma_t = DeltaSigma * <Sigma_crit^-1> ---------------------------
 
@@ -296,14 +330,14 @@ class LensingKernel:
 
         out = np.zeros(z_lens.shape)
         for i, zl in enumerate(z_lens):
-            zs = self._zs_nodes(float(zl))
+            zs, w = self._zs_rule(float(zl))
             if zs.size == 0:
                 continue
             pz = self.survey.pz_src(zs + delta_z)
             inv = 1.0 / sigma_crit_comoving(float(zl), zs, self.cosmo)
             # clamp: a source in front of the lens contributes nothing, and
             # must not contribute negatively (errata E.1 item 2)
-            out[i] = np.trapezoid(np.maximum(0.0, pz * inv), x=zs)
+            out[i] = np.dot(w, np.maximum(0.0, pz * inv))
         return out
 
     def kernel_z(self, z_lens, delta_z: float = 0.0):
@@ -374,6 +408,15 @@ class LensingKernel:
         is where the :math:`\pm 4` excursions come from. That is inherited
         from the reference definition, not introduced here.
 
+        NOTE: measured consequence: for :math:`z_l < z_h` the value does
+        not converge in ``n_nodes`` (z_h = 0.425, z_l = 0.153: -0.03, 0.44,
+        1.24, 0.68 at 100, 200, 400, 3200 nodes), and
+        :math:`C_\ell^{\Sigma\Sigma}` built from it changes by O(1) with
+        the slab width. Restricting sources to :math:`z_s > z_h` removes
+        both; which restriction is intended is an open decision, see
+        ``validation/covariance_review_REPORT.md`` and
+        ``validation/diagnose_qsigma_pole.py``. Default unchanged.
+
         Parameters
         ----------
         z_lens : float or array-like
@@ -409,53 +452,70 @@ class LensingKernel:
             \langle\Sigma_{\rm crit}\rangle(z_h)
               = \int_{z_h}\! dz_s\; p(z_s)\,\Sigma_{\rm crit}(z_h, z_s)
 
-        NOTE: **cutoff-defined, and formally divergent.** Sources just
-        behind the lens have unbounded :math:`\Sigma_{\rm crit}`, so the
-        true average does not exist; this returns the value under the
-        conventions of `MIN_LENS_SOURCE_SEPARATION` and ``n_nodes``, which
-        are what the frozen covariance reference used. Refining ``n_nodes``
-        *lowers* the answer rather than converging it -- 100 to 200 moves
-        it 4%.
+        NOTE: **cutoff-defined.** Sources just behind the lens have
+        unbounded :math:`\Sigma_{\rm crit}`, so without a floor the average
+        does not exist; this returns the integral from
+        :math:`z_h + \delta`, with :math:`\delta` = ``min_separation``
+        (`MIN_LENS_SOURCE_SEPARATION`, 0.01, by default). For a given
+        :math:`\delta` it **converges** under Gauss-Legendre (96 nodes: 3e-11
+        even at 0.01); an earlier note here said refining the grid lowered the
+        answer, but that was the trapezoid's first interval, not the physics.
+        The value does depend on :math:`\delta` -- 0.1 versus 0.01 changes it
+        by up to a factor 5 -- which is why the covariance pins it.
 
         NOTE: **not** the reciprocal of `mean_inverse_sigma_crit`. Both are
         needed and they are different averages; see errata E.1 item 1. That
         one is convergent, which is the deeper reason to prefer it.
 
-        NOTE: not normalised by `f_src_behind`. It is the average as the
-        covariance defines it -- the integral over the *whole* source
-        distribution, with sources in front contributing zero -- so it
-        carries the behind-fraction implicitly. Dividing by
-        `f_src_behind` would give the average over lensed sources only,
-        which is a different quantity.
+        NOTE: not normalised by `f_src_behind`: the integral over the
+        *whole* source distribution, with sources in front contributing
+        zero, so it carries the behind-fraction implicitly. The covariance
+        shape noise does **not** use this directly any more: since
+        ``cluster-lensing-cov`` cddbb2a it uses the *conditional* average
+        over lensed sources, ``mean_sigma_crit(z, 0.1) / f_src_behind(z,
+        0.1)`` (cut `MIN_LENS_SOURCE_SEPARATION_NOISE`), which
+        `LimberProjector.shape_noise_Sigma` forms from this method.
         """
         z_halo = np.atleast_1d(np.asarray(z_halo, dtype=float))
         out = np.zeros(z_halo.shape)
         for i, zh in enumerate(z_halo):
-            zs = self._zs_nodes(float(zh), min_separation, n_nodes)
+            zs, w = self._zs_rule(float(zh), min_separation, n_nodes)
             if zs.size == 0:
                 continue
             sc = sigma_crit_comoving(float(zh), zs, self.cosmo)
             integrand = np.where(np.isfinite(sc), self.survey.pz_src(zs) * sc,
                                  0.0)
-            out[i] = np.trapezoid(integrand, x=zs)
+            out[i] = np.dot(w, integrand)
         return out
 
-    def f_src_behind(self, z_halo):
+    def f_src_behind(self, z_halo, min_separation=None, n_nodes=None):
         r"""Fraction of sources behind :math:`z_h`, dimensionless.
 
         .. math::
-            f_{\rm src}(z_h) = \int_{z_h}^{z_s^{\max}}\! dz_s\; p(z_s)
+            f_{\rm src}(z_h) = \int_{z_h + \delta}^{z_s^{\max}}\! dz_s\; p(z_s)
 
         Falls to zero at the top of the source distribution and is 1 below
         its bottom, since :math:`p(z_s)` is normalised.
+
+        Parameters
+        ----------
+        z_halo : float or array-like
+            Lens redshift(s).
+        min_separation : float, optional
+            The cut :math:`\delta` (default `MIN_LENS_SOURCE_SEPARATION`,
+            0.01). The covariance shape noise passes
+            `MIN_LENS_SOURCE_SEPARATION_NOISE` (0.1), as
+            ``cluster-lensing-cov`` cddbb2a does.
+        n_nodes : int, optional
+            Gauss-Legendre order (default `N_ZS_GL`).
         """
         z_halo = np.atleast_1d(np.asarray(z_halo, dtype=float))
         out = np.zeros(z_halo.shape)
         for i, zh in enumerate(z_halo):
-            zs = self._zs_nodes(float(zh))
+            zs, w = self._zs_rule(float(zh), min_separation, n_nodes)
             if zs.size == 0:
                 continue
-            out[i] = np.trapezoid(self.survey.pz_src(zs), x=zs)
+            out[i] = np.dot(w, self.survey.pz_src(zs))
         return out
 
     def __repr__(self) -> str:
