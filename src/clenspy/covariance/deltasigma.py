@@ -57,25 +57,33 @@ formula at the mean redshift.
 
 NOTE: **the shot_shape term is evaluated in closed form, not by
 quadrature** -- and it is the term that dominates at small :math:`r_p`.
-Its bracket :math:`N_h N_\Sigma` carries no :math:`k`, so Hankel closure,
-:math:`\int_0^\infty J_2(ka)J_2(kb)\,k\,dk = \delta(a-b)/a`, applies
-exactly. Bin-averaging over **disjoint contiguous** annuli collapses it:
+Its bracket :math:`N_h N_\Sigma` carries no :math:`\ell`, so Hankel closure,
+:math:`\int_0^\infty J_2(\ell\theta)J_2(\ell\theta')\,\ell\,d\ell =
+\delta(\theta-\theta')/\theta`, applies exactly. Bin-averaging over
+**disjoint contiguous** annuli collapses it:
 
 .. math::
-    \int_0^\infty \frac{k\,dk}{2\pi}\,
-      \hat J_2(k r_p)\,\hat J_2(k r_p')
-    = \frac{\delta_{ij}}{A_{{\rm ann},i}},
+    \int_0^\infty \frac{\ell\,d\ell}{2\pi}\,
+      \hat J_2(\ell\theta)\,\hat J_2(\ell\theta')
+    = \frac{\delta_{ij}}{\Omega_{{\rm ann},i}},
     \qquad
-    A_{\rm ann} = \pi\left(r_{p,\max}^2 - r_{p,\min}^2\right)
+    \Omega_{\rm ann} = \frac{A_{\rm ann}}{\chi_h^2}
+      = \frac{\pi\left(r_{p,\max}^2 - r_{p,\min}^2\right)}{\chi_h^2}
 
 so that term is exact, diagonal, and free. ``exact_shot_shape=False``
 forces the quadrature instead, which is how the two are cross-checked.
 
-NOTE: :math:`A_{\rm ann}` is in **Mpc^2, not steradians**. The integration
-variable is conjugate to :math:`r_p`, so the closure bin-averages over
-:math:`r_p`; using the angular area is wrong by :math:`\chi_h^2`, a factor
-of :math:`10^6` at :math:`\chi_h = 1100` Mpc. I made exactly that error
-while deriving this, and the test against the closure is what caught it.
+NOTE: **the measure is** :math:`\ell\,d\ell`, **not** :math:`k\,dk`.
+With :math:`\ell = k\chi_h`, :math:`\ell\,d\ell = \chi_h^2\,k\,dk`, and
+:math:`C_\ell` and both noises are per steradian, so the annulus that
+divides them is the solid angle :math:`\Omega_{\rm ann}`, not the area
+:math:`A_{\rm ann}` in Mpc^2. Integrating :math:`k\,dk` without the
+:math:`\chi_h^2` was an earlier bug of exactly :math:`1/\chi_h^2`
+(8e-7 at :math:`\chi_h = 1100` Mpc); it is invisible at :math:`\chi_h = 1`,
+which is why a test at unit distance never saw it. Pinned against the
+physical stack variance in ``tests/test_covariance.py``, and consistent with
+`cluster-lensing-cov`, which integrates :math:`\ell^2/2\pi` over
+:math:`d\ln\ell`.
 
 NOTE: **the surviving quadrature is truncation-limited, not
 node-limited**, measured rather than assumed. Against the closure result
@@ -263,8 +271,9 @@ class DeltaSigmaGaussianCovariance:
         silent factor of :math:`k`.
         """
         a = self._kernel_matrix()
-        # k dk / (2 pi)  ->  k^2 dlnk / (2 pi)
-        measure = self.k**2 * np.asarray(weight_k, dtype=float) / (2.0 * np.pi)
+        # ell dell / (2 pi) = chi^2 k dk / (2 pi) = chi^2 k^2 dlnk / (2 pi)
+        measure = (self.chi_h**2 * self.k**2
+                   * np.asarray(weight_k, dtype=float) / (2.0 * np.pi))
         ln_k = np.log(self.k)
         # trapezoid weights, applied once and visibly
         trapz_w = np.gradient(ln_k)
@@ -281,8 +290,9 @@ class DeltaSigmaGaussianCovariance:
     def annulus_area(self):
         r""":math:`A_{\rm ann} = \pi(r_{p,\max}^2 - r_{p,\min}^2)`, in Mpc^2.
 
-        NOTE: **Mpc^2, not steradians** -- see the module NOTE. Using the
-        angular area is wrong by :math:`\chi_h^2`.
+        NOTE: the area in Mpc^2. The noises are per steradian, so the term
+        divides by the solid angle :math:`A_{\rm ann}/\chi_h^2` -- see the
+        module NOTE.
         """
         return np.pi * (self.rp_edges[1:] ** 2 - self.rp_edges[:-1] ** 2)
 
@@ -292,13 +302,14 @@ class DeltaSigmaGaussianCovariance:
         .. math::
             {\rm Cov}^{\rm shot\_shape}_{ij} =
               \frac{N_h N_\Sigma}{4\pi f_{\rm sky}}\,
-              \frac{\delta_{ij}}{A_{{\rm ann},i}}
+              \frac{\chi_h^2\,\delta_{ij}}{A_{{\rm ann},i}}
 
         Exact: no quadrature, hence no truncation error, in the term that
         dominates at small :math:`r_p`.
         """
         bracket = self.shape_noise / self.n_h
-        return np.diag(bracket / (4.0 * np.pi * self.f_sky)
+        # N_h N_Sigma are per steradian: divide by Omega_ann = A_ann / chi^2
+        return np.diag(bracket * self.chi_h**2 / (4.0 * np.pi * self.f_sky)
                        / self.annulus_area())
 
     def components(self):

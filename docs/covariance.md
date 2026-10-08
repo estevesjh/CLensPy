@@ -127,10 +127,14 @@ diagonal noise terms.
 ```{note}
 The `shot_shape` term — dominant at small $r_p$ — is evaluated in
 **closed form**, not by quadrature: its bracket $N_hN_\Sigma$ carries no
-$k$-dependence, so the Hankel closure $\int_0^\infty
-J_2(ka)J_2(kb)\,k\,dk=\delta(a-b)/a$ applies exactly once binned into
-disjoint annuli. The other four terms need a genuine quadrature over $k$,
-which is **truncation-limited** ($\epsilon\sim2.5/k_{\max}$), not
+$\ell$-dependence, so the Hankel closure $\int_0^\infty
+J_2(\ell\theta)J_2(\ell\theta')\,\ell\,d\ell=\delta(\theta-\theta')/\theta$
+applies exactly once binned into disjoint annuli, giving
+$\delta_{ij}/\Omega_{{\rm ann},i}$ with the **solid angle**
+$\Omega_{\rm ann}=\pi(r_{p,\max}^2-r_{p,\min}^2)/\chi_h^2$ (the noises are
+per steradian). The measure is $\ell\,d\ell=\chi_h^2\,k\,dk$; dropping the
+$\chi_h^2$ in the $k$ form was a bug, invisible at $\chi_h=1$. The other four
+terms need a genuine quadrature, which is **truncation-limited** ($\epsilon\sim2.5/k_{\max}$), not
 node-limited — and an FFTLog engine
 (`clenspy.kernels.fftlog_cov.GaussianCovFFTLog`) is ~560x more accurate
 than the quadrature at equal cost on the off-diagonal, for geometric
