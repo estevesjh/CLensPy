@@ -44,8 +44,10 @@ from pathlib import Path
 import numpy as np
 from astropy.cosmology import FlatLambdaCDM
 
-from clenspy.kernels import LensingKernel
-from clenspy.survey import Survey
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _clc_reference import trapz_her_nodes  # noqa: E402
+from clenspy.kernels import LensingKernel  # noqa: E402
+from clenspy.survey import Survey  # noqa: E402
 
 DEFAULT_REPO = Path.home() / "Documents/Dev/github/cluster-lensing-cov"
 REPO = Path(os.environ.get("CLUSTER_LENSING_COV_DIR", DEFAULT_REPO))
@@ -66,10 +68,13 @@ REF_SOURCES = dict(z_star=0.74, m=1.68, beta=2.33, sigma_gamma=0.3,
 #: quantity carrying :math:`c^2 / 4\pi G`.
 C_RATIO_SQUARED = (299792.458 / 3.0e5) ** 2
 
-#: Tolerance on the residual *after* removing `C_RATIO_SQUARED`. Set to
-#: catch a real disagreement while allowing the quadrature-layout
-#: differences that remain between two independent implementations.
-TOL = 3e-3
+#: Tolerance on the residual *after* removing `C_RATIO_SQUARED`, with both
+#: sides on the reference's own 100-node trapezoid (`trapz_her_nodes`). The
+#: measured residual is 2.8e-7, the p(z_s) normalisation (her ``arange``
+#: drops the last 0.01); 1e-6 leaves a factor 3.5. The old 3e-3 was set to
+#: absorb the reference's trapezoid error, which compares the *quadrature*,
+#: not the formulas, and is now reported separately as INFO.
+TOL = 1e-6
 
 
 def report(name, mine, ref, c_power=0):
@@ -108,15 +113,32 @@ def main(plot=False):
     lk = LensingKernel(Survey.smail(**REF_SOURCES),
                        FlatLambdaCDM(**REF_COSMO))
 
+    for name, gl, key, power in (
+            ("<Sc^-1>(z_l)", lk.mean_inverse_sigma_crit(zl), "q_plain", -1),
+            ("<Sc>(z_h), 0.01 cut", lk.mean_sigma_crit(zh), "mean_sigma_crit", +1),
+            ("f_src(z_h)", lk.f_src_behind(zh), "f_src", 0)):
+        ref_v = np.ravel(d[key])
+        good = np.abs(ref_v) > 0
+        off = np.max(np.abs(np.ravel(gl)[good] / (ref_v[good] * C_RATIO_SQUARED ** power) - 1.0))
+        print(f"  INFO shipped Gauss-Legendre {name:<22s} vs frozen: {off:.2e}"
+              "  (the reference's 100-node trapezoid error)")
+    print()
+
     results = [
         # <Sigma_crit^-1> and <Sigma_crit> both carry c^2/4piG
         # <Sigma_crit^-1> ~ 4 pi G / c^2, so it carries the INVERSE offset
-        report("q_plain <Sc^-1>(z_l)", lk.mean_inverse_sigma_crit(zl),
-               d["q_plain"], c_power=-1),
-        report("mean_sigma_crit(z_h)", lk.mean_sigma_crit(zh),
-               d["mean_sigma_crit"], c_power=+1),
+        # NOTE: the frozen reference integrates with a 100-node trapezoid, ours
+        # with Gauss-Legendre (converged). The formulas are compared on the
+        # reference's own rule (`trapz_her_nodes`); the shipped kernels' offset
+        # is her quadrature error and is printed below as information.
+        report("q_plain <Sc^-1>(z_l), her rule",
+               trapz_her_nodes(lk, zl, 0.01, "inv"), d["q_plain"], c_power=-1),
+        report("mean_sigma_crit(z_h), her rule",
+               trapz_her_nodes(lk, zh, 0.01, "sc"), d["mean_sigma_crit"],
+               c_power=+1),
         # f_src is a pure probability -- no constants
-        report("f_src(z_h)", lk.f_src_behind(zh), d["f_src"]),
+        report("f_src(z_h), her rule", trapz_her_nodes(lk, zh, 0.01, "f"),
+               d["f_src"]),
         # q_sigma is a ratio of two Sigma_crit, so c^2 cancels
         report("q_sigma(z_l; z_h)",
                np.array([lk.q_sigma(zl, float(z)) for z in zh]),

@@ -229,22 +229,29 @@ def test_shape_noise_is_infinite_with_no_sources_behind_the_lens():
 def test_shape_noise_is_the_cddbb2a_conditional_convention():
     r""":math:`\sigma_\gamma^2/(n_s f)\,(\langle\Sigma_{\rm crit}\rangle/f)^2`
     with both integrals from :math:`z_h + 0.1`, built independently here
-    by trapezoid on the same 100 nodes ``cluster-lensing-cov`` uses."""
+    by scipy adaptive quadrature (not the Gauss-Legendre the kernel uses)."""
+    from scipy.integrate import quad
     from clenspy.kernels.lensing_kernel import _SIGMA_CRIT_AMPLITUDE
 
     survey = Survey.from_config("des_y1")
-    zs = np.linspace(max(Z_HALO + 0.1, survey.zs_min), survey.zs_max, 100)
-    pz = survey.pz_src(zs)
+    lo, hi = max(Z_HALO + 0.1, survey.zs_min), survey.zs_max
     chi_h = COSMO.comoving_distance(Z_HALO).value
-    chi_s = COSMO.comoving_distance(zs).value
-    sc = (_SIGMA_CRIT_AMPLITUDE * chi_s
-          / (chi_h * (chi_s - chi_h) * (1.0 + Z_HALO)))
-    f = np.trapezoid(pz, x=zs)
-    mean_cond = np.trapezoid(pz * sc, x=zs) / f
+
+    def pz(z):
+        return float(survey.pz_src(np.array([z]))[0])
+
+    def sc(z):
+        chi_s = COSMO.comoving_distance(z).value
+        return (_SIGMA_CRIT_AMPLITUDE * chi_s
+                / (chi_h * (chi_s - chi_h) * (1.0 + Z_HALO)))
+
+    opts = dict(epsabs=0.0, epsrel=1e-11, limit=300)
+    f = quad(pz, lo, hi, **opts)[0]
+    mean_cond = quad(lambda z: pz(z) * sc(z), lo, hi, **opts)[0] / f
     n_sr = 6.28 * f / ARCMIN_TO_RAD**2
     expected = 0.3**2 / n_sr * mean_cond**2
     got = build(sigma_gamma=0.3, n_src_arcmin2=6.28).shape_noise_Sigma(Z_HALO)
-    assert got == pytest.approx(expected, rel=1e-12)
+    assert got == pytest.approx(expected, rel=1e-8)
 
 
 def test_shape_noise_uses_the_0p1_cut_not_the_kernel_cut():

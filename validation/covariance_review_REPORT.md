@@ -127,3 +127,23 @@ reachable.
   `mean_sigma_crit` / `f_src_behind` callables when their signature accepts
   it. A plain callable of $z$ alone is used as given, so a frozen table must
   already carry the 0.1 convention.
+
+## Update after the PR #8 review: Gauss–Legendre for the source integrals
+
+Review comment: the source integrals used a trapezoid; use Gauss–Legendre.
+Measured against a 2048-node rule, 128 GL nodes reach 2e-12 on
+$\langle\Sigma_{\rm crit}\rangle$ (0.01 cut) and about 1e-13 on the rest;
+the 100-node trapezoid was off by 2e-4 ($f_{\rm src}$), 5e-4 to 2e-3
+($\langle\Sigma_{\rm crit}\rangle$, 0.1 cut) and 4–8%
+($\langle\Sigma_{\rm crit}\rangle$, 0.01 cut). `f_src_behind`,
+`mean_sigma_crit` and `mean_inverse_sigma_crit` now use `gl_nodes`
+(`N_ZS_GL = 128`). `q_sigma` keeps the trapezoid because of the pole.
+
+Consequences for the numbers above: the earlier statement that
+$\langle\Sigma_{\rm crit}\rangle$ "does not converge when refined" was the
+trapezoid, not the physics. The raw $-2.76\times10^{-3}$ on the shape noise
+was her $c$; with Gauss–Legendre the shipped shape noise differs from hers
+(constants removed) by $-1.6\times10^{-3}$ to $-4.2\times10^{-3}$, which is
+her trapezoid error. V1 and V3 now compare our formulas on her rule
+(floating point) and report the converged-vs-hers difference separately.
+

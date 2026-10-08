@@ -94,8 +94,15 @@ def test_q_sigma_reduces_to_f_src_behind_when_the_redshifts_coincide(
     and it holds only because both integrals key their range on the same
     redshift.
     """
+    # the bookkeeping identity, exactly: q_sigma's own trapezoid nodes
+    zs = kernel._zs_nodes(z_halo)
+    exact = np.trapezoid(kernel.survey.pz_src(zs), x=zs)
     assert kernel.q_sigma(z_halo, z_halo).item() == pytest.approx(
-        kernel.f_src_behind(z_halo).item(), rel=1e-12
+        exact, rel=1e-12)
+    # and against the converged f_src_behind (Gauss-Legendre), to the
+    # trapezoid's own error: measured 2e-4 at 100 nodes
+    assert kernel.q_sigma(z_halo, z_halo).item() == pytest.approx(
+        kernel.f_src_behind(z_halo).item(), rel=1e-3
     )
 
 
@@ -163,9 +170,11 @@ def test_averaging_the_inverse_is_not_inverting_the_average(kernel):
     # renormalised on the truncated range, and mean_sigma_crit is
     # cutoff-defined while its inverse is not. So the product is simply not
     # 1, in either direction -- which is the whole claim.
-    # measured: 1.089, 1.102, 0.893, 0.549 across Z_LENS -- it crosses 1,
-    # so not even the direction of the inequality is fixed
-    assert np.all(np.abs(product - 1.0) > 0.05), product
+    # measured (Gauss-Legendre): 1.067, 1.050, 0.833, 0.506 across Z_LENS --
+    # it crosses 1, so not even the direction of the inequality is fixed
+    # (the old trapezoid values were 1.089, 1.102, 0.893, 0.549: the
+    # trapezoid underestimated <Sigma_crit> by 4-8%)
+    assert np.all(np.abs(product - 1.0) > 0.04), product
     assert product.max() > 1.0 and product.min() < 1.0, product
 
 
@@ -254,14 +263,17 @@ def test_f_src_behind_of_a_top_hat_is_the_linear_ramp():
             pytest.approx(expected, abs=1e-6)
 
 
-def test_f_src_behind_min_separation_matches_an_independent_trapezoid(kernel):
-    """The explicit cut, against the integral written out by hand."""
+def test_f_src_behind_min_separation_matches_an_independent_integral(kernel):
+    """The explicit cut, against scipy's adaptive quadrature of the integral."""
+    from scipy.integrate import quad
+
     su = kernel.survey
     for z_h in (0.2, 0.425, 0.9):
-        zs = np.linspace(max(z_h + 0.1, su.zs_min), su.zs_max, 100)
-        expected = np.trapezoid(su.pz_src(zs), x=zs)
+        lo = max(z_h + 0.1, su.zs_min)
+        expected, _ = quad(lambda z: float(su.pz_src(np.array([z]))[0]),
+                           lo, su.zs_max, epsabs=0.0, epsrel=1e-12, limit=200)
         got = kernel.f_src_behind(z_h, min_separation=0.1).item()
-        assert got == pytest.approx(expected, rel=1e-12)
+        assert got == pytest.approx(expected, rel=1e-9)
     # the default is unchanged: the 0.01 kernel cut
     np.testing.assert_array_equal(
         kernel.f_src_behind(Z_LENS),
@@ -287,32 +299,41 @@ def test_unity_makes_every_consumer_emit_deltasigma():
 # -- numerics and plumbing --------------------------------------------------
 
 
-def test_the_convergent_quantities_converge(kernel, monkeypatch):
-    """<Sigma_crit^-1> and f_src are honest integrals: refining is a no-op."""
+def test_the_gauss_legendre_integrals_are_converged(kernel, monkeypatch):
+    """<Sigma_crit^-1>, f_src and <Sigma_crit> at the default order are done.
+
+    Quadrupling the order is a no-op to 1e-9 (measured 2e-12). The earlier
+    version of this test monkeypatched the trapezoid node count and compared
+    to 1e-3, which also hid a 4-8% trapezoid error on <Sigma_crit>.
+    """
     import clenspy.kernels.lensing_kernel as lk_mod
 
-    coarse_inv = kernel.mean_inverse_sigma_crit(Z_LENS)
-    coarse_f = kernel.f_src_behind(Z_LENS)
-    monkeypatch.setattr(lk_mod, "N_ZS_NODES", 8 * lk_mod.N_ZS_NODES)
+    coarse = [kernel.mean_inverse_sigma_crit(Z_LENS),
+              kernel.f_src_behind(Z_LENS), kernel.mean_sigma_crit(Z_LENS)]
+    monkeypatch.setattr(lk_mod, "N_ZS_GL", 4 * lk_mod.N_ZS_GL)
     fine = LensingKernel(Survey.from_config("des_y1"), COSMO)
-    np.testing.assert_allclose(coarse_inv,
-                               fine.mean_inverse_sigma_crit(Z_LENS), rtol=1e-3)
-    np.testing.assert_allclose(coarse_f, fine.f_src_behind(Z_LENS), rtol=1e-3)
+    refined = [fine.mean_inverse_sigma_crit(Z_LENS),
+               fine.f_src_behind(Z_LENS), fine.mean_sigma_crit(Z_LENS)]
+    for a, b in zip(coarse, refined):
+        np.testing.assert_allclose(a, b, rtol=1e-9)
 
 
-def test_mean_sigma_crit_does_not_converge_and_that_is_the_point(kernel):
-    """It is logarithmically divergent: refining lowers it, not settles it.
+def test_mean_sigma_crit_converges_but_depends_on_the_cut(kernel):
+    """Gauss-Legendre converges it; the cut is a definition, not a tolerance.
 
-    Recorded as a test because it is the reason <Sigma_crit^-1> is the
-    quantity to prefer, and because someone will otherwise "fix" the node
-    count thinking it is a tolerance.
+    An earlier version of this test asserted the opposite ("refining lowers
+    it", 5% from 100 to 800 trapezoid nodes). That was the trapezoid's first
+    interval straddling the near-lens spike, not the physics: for a given
+    cut the integral is finite and the rule converges (64 -> 512 nodes:
+    <1e-6), while 0.01 versus 0.1 changes it by a large factor.
     """
     z_h = 0.35
     values = [kernel.mean_sigma_crit(z_h, n_nodes=n).item()
-              for n in (100, 200, 400, 800)]
-    assert np.all(np.diff(values) < 0), values
-    # 100 -> 800 nodes moves it ~5%: not a tolerance, a definition
-    assert values[0] / values[-1] > 1.04, values
+              for n in (64, 128, 256, 512)]
+    np.testing.assert_allclose(values, values[-1], rtol=1e-6)
+    ratio = (kernel.mean_sigma_crit(z_h, min_separation=0.01).item()
+             / kernel.mean_sigma_crit(z_h, min_separation=0.1).item())
+    assert ratio > 1.5, ratio
 
 
 def test_going_below_the_separation_floor_is_refused(kernel):

@@ -218,12 +218,16 @@ $z_s \to z_l$, so $\langle\Sigma_{\rm crit}\rangle$ and $q_\Sigma$ are
   than that is not treated as a lens-source pair at all. This is a
   definition, and `MIN_LENS_SOURCE_SEPARATION` is a floor — asking for less
   raises rather than silently returning a larger number.
-- the **node count**, through the first trapezoid interval's weight. With
-  the floor in place the integral is finite, but refining the grid *lowers*
-  $\langle\Sigma_{\rm crit}\rangle$ rather than settling it: 100 → 800
-  nodes moves it 5%. `tests/test_lensing_kernel.py` asserts that
-  non-convergence, so nobody "fixes" the node count thinking it is a
-  tolerance.
+- the **quadrature**. With the floor in place the integral is finite, and
+  Gauss–Legendre converges it: 128 nodes reach $2\times10^{-12}$ on
+  $\langle\Sigma_{\rm crit}\rangle$ even at the 0.01 cut. An earlier version
+  of these kernels used a 100-node trapezoid, which misses the near-lens
+  rise: $2\times10^{-4}$ on $f_{\rm src}$, $5\times10^{-4}$ to
+  $2\times10^{-3}$ on $\langle\Sigma_{\rm crit}\rangle$ at the 0.1 cut, and
+  **4–8%** at the 0.01 cut. That is what a note here used to describe as
+  "refining the grid lowers the answer"; it was the trapezoid, not the
+  physics. $q_\Sigma$ still uses the trapezoid because of the pole described
+  below, which no quadrature rule converges across.
 
 $\langle\Sigma_{\rm crit}^{-1}\rangle$ is the one that *is* convergent —
 its integrand vanishes at the edge. That is the deeper reason errata E.1
@@ -282,20 +286,27 @@ code once at the pin; V8 needs no reference at all.
 
 | rung | what is compared | tolerance | result |
 |---|---|---|---|
-| V1 | kernels on her nodes | 1e-6 after the exact $c$ and $p(z)$ constants | 11 PASS, 0 FAIL (worst 8.5e-12) |
+| V1 | our formulas on her rule (100-node trapezoid, her nodes) | 1e-6 after the exact $c$ and $p(z)$ constants | 11 PASS, 0 FAIL (worst 8.5e-12) |
+| V1 | shipped Gauss–Legendre kernels vs hers | INFO | her quadrature error: $f_{\rm src}$ $8.5\times10^{-4}$, $\langle\Sigma_{\rm crit}^{-1}\rangle$ $1.3\times10^{-3}$, $\langle\Sigma_{\rm crit}\rangle$ $3.2\times10^{-3}$ |
 | V2 | $C^{hh}$ with her $P(k,z)$ | 1e-8 | 4 PASS (worst 3.9e-10) |
 | V2 | $C^{\Sigma\Sigma}$, $C^{h\Sigma}$ | INFO | 40-94% and up to 6.8% off; see below |
 | V3 | halo shot noise | 1e-12 | 4 PASS (exact) |
-| V3 | shape noise, raw / exact constants removed | 1.2e-2 / 1e-6 | 4 PASS each (raw $-2.76\times10^{-3}$, exact $< 2\times10^{-14}$) |
+| V3 | shape noise, our formula on her rule, exact constants removed | 1e-6 | 4 PASS ($< 2\times10^{-14}$) |
+| V3 | shipped (Gauss–Legendre) shape noise vs hers, exact constants removed | 1e-2 (her trapezoid error) | 4 PASS ($-1.6\times10^{-3}$ to $-4.2\times10^{-3}$) |
 | V4 | five terms, her spectra, `ell_range="wu2019"` | 1e-3 of $\sqrt{C_{ii}C_{jj}}$ | 20 PASS (worst 1.3e-5; `shot_shape` 4e-12) |
 | V8 | closed-form `shot_shape` vs physical sample variance | 1e-9 | PASS (4e-16) |
 | V8 | Monte-Carlo stack, 4000 realisations | 3$\sigma$ | PASS (max 1.4$\sigma$) |
 
-The tolerance budgets are measured, not fitted. Both codes evaluate the
-kernels on identical nodes, so after removing two exact constants (her
-$c = 3\times10^5$ km/s against the exact value, which enters the shape noise
-as $\Sigma_{\rm crit}^2 \propto c^4$, and her `arange` normalisation of
-$p(z_s)$, 2.8e-7) the residual is floating point. In V4 the
+The tolerance budgets are measured, not fitted. Our kernels integrate with
+Gauss–Legendre, hers with a 100-node trapezoid, so the ladder checks the
+**formulas** by evaluating our integrands with her rule on her nodes
+(`trapz_her_nodes` in `validation/_clc_reference.py`): after removing two
+exact constants (her $c = 3\times10^5$ km/s against the exact value, which
+enters the shape noise as $\Sigma_{\rm crit}^2 \propto c^4$, and her
+`arange` normalisation of $p(z_s)$, 2.8e-7) the residual is floating point.
+The converged kernels then differ from hers by *her* quadrature error, which
+is reported separately and held to a budget set by the measured trapezoid
+errors above. In V4 the
 spectrum-carrying terms differ by the re-interpolation of her stored spectra
 (every fourth $\ell$ point), about 1e-5; the `shot_shape` term carries no
 spectrum and agrees to 4e-12, which pins the integration grid itself.

@@ -200,6 +200,48 @@ def her_rho_mean():
     return RHO_CRIT_H2_HERS * REF_COSMO["h"] ** 2 * REF_COSMO["OmegaM"]
 
 
+def trapz_her_nodes(lk, z, cut, quantity, n=100):
+    r"""Our formulas integrated the way **her** code integrates them.
+
+    Her ``mean_Sigma_crit``, ``fsrc_behind_zh`` and ``kernel_z`` all use a
+    ``np.trapz`` on ``linspace(max(z + cut, zs_min), zs_max, 100)``. Our
+    kernels use Gauss-Legendre (converged to ~1e-12), so the two differ by
+    *her* quadrature error: ~2e-4 on :math:`f_{\rm src}`, 5e-4 to 2e-3 on
+    :math:`\langle\Sigma_{\rm crit}\rangle` (0.1 cut). To check the
+    **formulas** to 1e-6 anyway, this evaluates our integrands (our
+    :math:`\Sigma_{\rm crit}`, our :math:`p(z_s)`) on her nodes with her rule;
+    comparing it with her snapshot isolates everything except quadrature,
+    and comparing the shipped kernels with her snapshot then measures the
+    quadrature alone.
+
+    ``quantity`` is ``"f"`` (:math:`\int p`), ``"sc"``
+    (:math:`\int p\,\Sigma_{\rm crit}`) or ``"inv"``
+    (:math:`\int p\,\max(0, \Sigma_{\rm crit}^{-1})`).
+    """
+    from clenspy.kernels.lensing_kernel import sigma_crit_comoving
+
+    z = np.atleast_1d(np.asarray(z, dtype=float))
+    out = np.zeros(z.shape)
+    for i, zi in enumerate(z):
+        lo = max(zi + cut, lk.survey.zs_min)
+        hi = lk.survey.zs_max
+        if not hi > lo:
+            continue
+        zs = np.linspace(lo, hi, n)
+        pz = lk.survey.pz_src(zs)
+        if quantity == "f":
+            out[i] = np.trapezoid(pz, x=zs)
+            continue
+        sc = sigma_crit_comoving(float(zi), zs, lk.cosmo)
+        if quantity == "sc":
+            out[i] = np.trapezoid(np.where(np.isfinite(sc), pz * sc, 0.0), x=zs)
+        elif quantity == "inv":
+            out[i] = np.trapezoid(np.maximum(0.0, pz / sc), x=zs)
+        else:
+            raise ValueError(quantity)
+    return out
+
+
 class Verdicts:
     """Collect PASS/FAIL/INFO rows; print a table; set the exit status."""
 

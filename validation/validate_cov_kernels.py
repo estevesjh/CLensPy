@@ -86,14 +86,18 @@ def main(plot=False):
 
     # -- <Sigma_crit^-1>(z_l): 0.01 cut on both sides
     zl = snap["kz_zl"]
-    mine = lk.mean_inverse_sigma_crit(zl)
+    mine_gl = lk.mean_inverse_sigma_crit(zl)                # shipped: Gauss-Legendre
+    mine = ref.trapz_her_nodes(lk, zl, 0.01, "inv")         # our formula, her rule
     # her last node z_l = zs_max - 0.01 has an empty source range (both
     # linspace ends at zs_max), so her value is exactly 0: compare the
     # ratio where hers is nonzero and require ours to be exactly 0 there
     nonzero = snap["kz_val"] != 0.0
     dev = np.max(np.abs(mine[nonzero] * c2 / p_ratio / snap["kz_val"][nonzero]
                         - 1.0))
-    v.check("<Sc^-1>(z_l) on her grid (nonzero nodes)", dev, TOL_MATCHED)
+    v.check("<Sc^-1>(z_l) on her grid (nonzero nodes), her rule", dev, TOL_MATCHED)
+    v.info("<Sc^-1>(z_l) shipped GL vs hers: her quadrature error",
+           np.max(np.abs(mine_gl[nonzero] * c2 / p_ratio / snap["kz_val"][nonzero] - 1.0)),
+           "her 100-node trapezoid; ours converged to ~1e-12")
     v.check("<Sc^-1>(z_l) where hers is exactly 0: max|ours|",
             np.max(np.abs(mine[~nonzero]), initial=0.0), 0.0)
 
@@ -116,19 +120,27 @@ def main(plot=False):
     shipped_f = lk.f_src_behind(zh)                       # 0.01
     # what LimberProjector.shape_noise_Sigma uses (MIN_..._NOISE = 0.1)
     cut = MIN_LENS_SOURCE_SEPARATION_NOISE
-    f01 = lk.f_src_behind(zh, min_separation=cut)
-    matched_msc = lk.mean_sigma_crit(zh, min_separation=cut) / f01
+    f01 = ref.trapz_her_nodes(lk, zh, cut, "f")                 # her rule
+    matched_msc = ref.trapz_her_nodes(lk, zh, cut, "sc") / f01  # her rule
+    f01_gl = lk.f_src_behind(zh, min_separation=cut)            # shipped
+    msc_gl = lk.mean_sigma_crit(zh, min_separation=cut) / f01_gl
 
     r = shipped_msc / c2 / msc_her
     v.info("<Sc>(z_h) method default (0.01, unnormalised)/hers, min",
            r.min(), f"spans [{r.min():.3f}, {r.max():.3f}]; not her quantity")
-    v.check("<Sc>(z_h) as used by shape noise (0.1, / f_src)",
+    v.check("<Sc>(z_h) as used by shape noise (0.1, / f_src), her rule",
             np.max(np.abs(matched_msc / c2 / msc_her - 1.0)), TOL_MATCHED)
+    v.info("<Sc>(z_h) shipped GL vs hers: her quadrature error",
+           np.max(np.abs(msc_gl / c2 / msc_her - 1.0)),
+           "her 100-node trapezoid; ours converged to ~1e-12")
     r = shipped_f / p_ratio / fsrc_her
     v.info("f_src(z_h) method default (cut 0.01)/hers, max", r.max(),
            f"spans [{r.min():.3f}, {r.max():.3f}]; kernel cut, not noise cut")
-    v.check("f_src(z_h) as used by shape noise (cut 0.1)",
+    v.check("f_src(z_h) as used by shape noise (cut 0.1), her rule",
             np.max(np.abs(f01 / p_ratio / fsrc_her - 1.0)), TOL_MATCHED)
+    v.info("f_src(z_h) shipped GL vs hers: her quadrature error",
+           np.max(np.abs(f01_gl / p_ratio / fsrc_her - 1.0)),
+           "her 100-node trapezoid; ours converged to ~1e-12")
 
     # -- decompose the as-shipped <Sc> gap into its two causes
     cut_only = lk.mean_sigma_crit(zh, min_separation=0.1) / c2 / msc_her
@@ -142,11 +154,11 @@ def main(plot=False):
     lk5 = LensingKernel(ref.ours_survey(zs_max=5.0), cosmo)
     zh5 = snap["zh_grid"]
     p5 = her_pz_norm(0.0, 5.0) / lk5.survey.norm
-    f5 = lk5.f_src_behind(zh5, min_separation=cut)
-    m5 = lk5.mean_sigma_crit(zh5, min_separation=0.1) / f5
-    v.check("zs_max=5: <Sc> matched", np.max(np.abs(
+    f5 = ref.trapz_her_nodes(lk5, zh5, cut, "f")
+    m5 = ref.trapz_her_nodes(lk5, zh5, 0.1, "sc") / f5
+    v.check("zs_max=5: <Sc> matched, her rule", np.max(np.abs(
         m5 / c2 / snap["mean_sigma_crit_zs5"] - 1.0)), TOL_MATCHED)
-    v.check("zs_max=5: f_src matched", np.max(np.abs(
+    v.check("zs_max=5: f_src matched, her rule", np.max(np.abs(
         f5 / p5 / snap["fsrc_behind_zs5"] - 1.0)), TOL_MATCHED)
     eff_m = snap["mean_sigma_crit_zs5"][sel] / msc_her
     eff_f = snap["fsrc_behind_zs5"][sel] / fsrc_her

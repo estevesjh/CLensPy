@@ -37,15 +37,16 @@ Run::
 Exits nonzero if the shot noise, the matching convention or the shipped
 `shape_noise_Sigma` fails.
 
-Tolerance for the matching convention: same formula on identical nodes
-(both sides use the 100-point linspace trapezoid from :math:`z_h + 0.1`),
-so the raw ratio is set by two exact constants: :math:`c` (hers 3e5 km/s,
+Tolerance for the matching convention: our formula integrated with her
+rule (the 100-point linspace trapezoid from :math:`z_h + 0.1`, see
+``_clc_reference.trapz_her_nodes``), so the raw ratio is set by two exact constants: :math:`c` (hers 3e5 km/s,
 ours 299792.458), which enters as :math:`\Sigma_{\rm crit}^2 \propto c^4`
 and gives the constant -2.77e-3 seen in the raw columns, and the
 :math:`p(z_s)` normalisation (her ``arange`` drops the last 0.01, 2.8e-7).
-The raw rows use a loose tolerance, 3x the 100-vs-800-node quadrature
-spread (a scale for "same convention"); the **exact** rows remove both
-constants analytically, as V1 does, and must agree to 1e-6.
+The **exact** rows remove both constants analytically, as V1 does, and must
+agree to 1e-6. The shipped `shape_noise_Sigma` integrates with Gauss-Legendre
+(converged), so it differs from hers by *her* trapezoid error, which is
+reported and held to a measured budget.
 """
 
 from __future__ import annotations
@@ -61,6 +62,12 @@ from clenspy.kernels.lensing_kernel import LensingKernel  # noqa: E402
 from clenspy.kernels.limber import ARCMIN_TO_RAD, LimberProjector  # noqa: E402
 
 CUT_HERS = 0.1
+
+#: Budget for the shipped (converged) value vs hers: her 100-node trapezoid error
+#: on <Sigma_crit>^2/f_src. Measured 1.6e-3..4.2e-3 across the four cases; the
+#: per-integral trapezoid errors are f: 2e-4, <Sigma_crit>(0.1): 5e-4..2e-3
+#: (kernels/lensing_kernel.py N_ZS_GL note). 1e-2 is 2.4x the worst measured.
+BUDGET_HER_QUADRATURE = 1e-2
 TOL_EXACT = 1e-6
 
 
@@ -89,10 +96,15 @@ def build(snap, n_ell=64):
     return survey, lk, proj
 
 
-def shape_noise(survey, lk, z_h, *, cut, conditional, n_nodes=None):
+def shape_noise(survey, lk, z_h, *, cut, conditional):
+    """Our formula with HER quadrature (100-node trapezoid on her nodes).
+
+    The shipped `LimberProjector.shape_noise_Sigma` uses Gauss-Legendre and
+    differs from this by her quadrature error; see the rows below.
+    """
     n_src_sr = survey.n_src_arcmin / ARCMIN_TO_RAD**2
-    f = float(lk.f_src_behind(z_h, min_separation=cut, n_nodes=n_nodes)[0])
-    mean = float(np.ravel(lk.mean_sigma_crit(z_h, cut, n_nodes))[0])
+    f = float(ref.trapz_her_nodes(lk, z_h, cut, "f")[0])
+    mean = float(ref.trapz_her_nodes(lk, z_h, cut, "sc")[0])
     if conditional:
         mean /= f
     return survey.sigma_gamma**2 / (n_src_sr * f) * mean**2, f, mean
@@ -117,7 +129,6 @@ def main():
     print("\nshape noise on Sigma  [(Msun/Mpc^2)^2 sr]   ours/hers - 1")
     print(f"  {'case':6s} {'z_h':>6s} {'f_src(0.1)':>10s}"
           f" {'old':>10s} {'cut 0.1':>10s} {'cond., 0.1':>11s} {'f_src^2':>9s} {'current':>10s}")
-    spread = 0.0
     rows = []
     for case in snap["case_names"]:
         p = f"{case}_"
@@ -126,39 +137,35 @@ def main():
         cur = shape_noise(survey, lk, z_h, cut=0.01, conditional=False)[0]
         cut = shape_noise(survey, lk, z_h, cut=CUT_HERS, conditional=False)[0]
         con, f, _ = shape_noise(survey, lk, z_h, cut=CUT_HERS, conditional=True)
-        # quadrature spread of the matching convention: 100 vs 800 nodes
-        a = shape_noise(survey, lk, z_h, cut=CUT_HERS, conditional=True, n_nodes=100)[0]
-        b = shape_noise(survey, lk, z_h, cut=CUT_HERS, conditional=True, n_nodes=800)[0]
-        spread = max(spread, abs(a / b - 1.0))
         shipped = proj.shape_noise_Sigma(z_h)
         rows.append((case, con / hers - 1.0, shipped / hers - 1.0))
         print(f"  {case:6s} {z_h:6.3f} {f:10.4f} {cur / hers - 1:10.2%} {cut / hers - 1:10.2%}"
               f" {con / hers - 1:11.2e} {f**2 - 1:9.2%} {shipped / hers - 1:10.2e}")
-    tol = max(3.0 * spread, 1e-3)
-    print(f"\n  quadrature spread of the matching convention (100 vs 800 nodes): {spread:.1e};"
-          f" tolerance {tol:.1e}")
-    for case, err, err_shipped in rows:
-        good = abs(err) < tol
-        if not good:
-            failed.append(("shape", case, err))
-        print(f"  {case:6s} conditional, cut 0.1 vs hers: {err:9.2e}  {'PASS' if good else 'FAIL'}")
-        good = abs(err_shipped) < tol
-        if not good:
-            failed.append(("shipped", case, err_shipped))
-        print(f"  {case:6s} shipped shape_noise_Sigma vs hers: {err_shipped:9.2e}  "
-              f"{'PASS' if good else 'FAIL'}")
+    print("\n  raw ratios below still contain the two exact constants (c^4, p(z) norm);"
+          " the exact rows remove them")
 
     # exact constants removed: c^4 and the p(z) normalisation (1/f_src)
     c4 = (ref.C_OURS / ref.C_HERS) ** 4
     p_ratio = her_pz_norm(ref.REF_SOURCES["zs_min"], ref.REF_SOURCES["zs_max"]) / survey.norm
     print(f"\n  exact: c^4 ratio - 1 = {c4 - 1:.3e}, p(z) norm ratio - 1 = {p_ratio - 1:.2e}"
           f" removed; tolerance {TOL_EXACT:.0e}")
-    for case, _, err_shipped in rows:
-        err = (1.0 + err_shipped) * p_ratio / c4 - 1.0
+    print(f"\n  matching convention (our formula, her 100-node trapezoid) vs hers, exact: "
+          f"tolerance {TOL_EXACT:.0e}")
+    for case, err_match, err_shipped in rows:
+        err = (1.0 + err_match) * p_ratio / c4 - 1.0
         good = abs(err) < TOL_EXACT
         if not good:
             failed.append(("exact", case, err))
-        print(f"  {case:6s} shipped shape_noise_Sigma vs hers, exact: {err:9.2e}  "
+        print(f"  {case:6s} conditional, cut 0.1, her rule vs hers, exact: {err:9.2e}  "
+              f"{'PASS' if good else 'FAIL'}")
+    print(f"\n  shipped shape_noise_Sigma (Gauss-Legendre, converged) vs hers, exact"
+          f"  = her quadrature error; budget {BUDGET_HER_QUADRATURE:.0e}")
+    for case, _, err_shipped in rows:
+        err = (1.0 + err_shipped) * p_ratio / c4 - 1.0
+        good = abs(err) < BUDGET_HER_QUADRATURE
+        if not good:
+            failed.append(("shipped", case, err))
+        print(f"  {case:6s} shipped vs hers, exact: {err:9.2e}  "
               f"{'PASS' if good else 'FAIL'}")
 
     if failed:
