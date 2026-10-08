@@ -219,7 +219,7 @@ $z_s \to z_l$, so $\langle\Sigma_{\rm crit}\rangle$ and $q_\Sigma$ are
   definition, and `MIN_LENS_SOURCE_SEPARATION` is a floor — asking for less
   raises rather than silently returning a larger number.
 - the **quadrature**. With the floor in place the integral is finite, and
-  Gauss–Legendre converges it: 128 nodes reach $2\times10^{-12}$ on
+  Gauss–Legendre converges it: 96 nodes reach $3\times10^{-11}$ on
   $\langle\Sigma_{\rm crit}\rangle$ even at the 0.01 cut. An earlier version
   of these kernels used a 100-node trapezoid, which misses the near-lens
   rise: $2\times10^{-4}$ on $f_{\rm src}$, $5\times10^{-4}$ to

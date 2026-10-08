@@ -131,13 +131,13 @@ reachable.
 ## Update after the PR #8 review: Gauss–Legendre for the source integrals
 
 Review comment: the source integrals used a trapezoid; use Gauss–Legendre.
-Measured against a 2048-node rule, 128 GL nodes reach 2e-12 on
+Measured against a 2048-node rule, 96 GL nodes reach 3e-11 on
 $\langle\Sigma_{\rm crit}\rangle$ (0.01 cut) and about 1e-13 on the rest;
 the 100-node trapezoid was off by 2e-4 ($f_{\rm src}$), 5e-4 to 2e-3
 ($\langle\Sigma_{\rm crit}\rangle$, 0.1 cut) and 4–8%
 ($\langle\Sigma_{\rm crit}\rangle$, 0.01 cut). `f_src_behind`,
 `mean_sigma_crit` and `mean_inverse_sigma_crit` now use `gl_nodes`
-(`N_ZS_GL = 128`). `q_sigma` keeps the trapezoid because of the pole.
+(`N_ZS_GL = 96`). `q_sigma` keeps the trapezoid because of the pole.
 
 Consequences for the numbers above: the earlier statement that
 $\langle\Sigma_{\rm crit}\rangle$ "does not converge when refined" was the

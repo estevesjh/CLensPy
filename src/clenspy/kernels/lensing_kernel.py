@@ -127,16 +127,16 @@ MIN_LENS_SOURCE_SEPARATION_NOISE = 0.1
 #: Gauss-Legendre nodes for the smooth :math:`z_s` integrals
 #: (`f_src_behind`, `mean_sigma_crit`, `mean_inverse_sigma_crit`).
 #:
-#: NOTE: measured, not chosen by taste. Against a 2048-node rule, 128 nodes
-#: reach 2e-12 on :math:`\langle\Sigma_{\rm crit}\rangle` even with the 0.01
-#: cut (whose integrand rises steeply at the lower limit) and ~1e-13 on the
-#: others; 64 nodes already give 1e-7 on the worst one. The 100-node
+#: NOTE: measured, not chosen by taste. Against a 2048-node rule, 96 nodes
+#: reach 3e-11 on :math:`\langle\Sigma_{\rm crit}\rangle` even with the 0.01
+#: cut (whose integrand rises steeply at the lower limit) and ~1e-12 or
+#: better on the others; 64 nodes already give 8e-8 on the worst one. The 100-node
 #: trapezoid this replaced was off by 2e-4 on :math:`f_{\rm src}`, 5e-4 to
 #: 2e-3 on :math:`\langle\Sigma_{\rm crit}\rangle` (0.1 cut), and **4-8%** on
 #: :math:`\langle\Sigma_{\rm crit}\rangle` with the 0.01 cut -- the "refining
 #: lowers the answer" behaviour an earlier note here blamed on the cut was
 #: the trapezoid's first interval, not the physics.
-N_ZS_GL = 128
+N_ZS_GL = 96
 
 #: Trapezoid nodes for the :math:`z_s` integral of `q_sigma` only.
 #:
@@ -457,7 +457,7 @@ class LensingKernel:
         does not exist; this returns the integral from
         :math:`z_h + \delta`, with :math:`\delta` = ``min_separation``
         (`MIN_LENS_SOURCE_SEPARATION`, 0.01, by default). For a given
-        :math:`\delta` it **converges** under Gauss-Legendre (128 nodes: 2e-12
+        :math:`\delta` it **converges** under Gauss-Legendre (96 nodes: 3e-11
         even at 0.01); an earlier note here said refining the grid lowered the
         answer, but that was the trapezoid's first interval, not the physics.
         The value does depend on :math:`\delta` -- 0.1 versus 0.01 changes it
