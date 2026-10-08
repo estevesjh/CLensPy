@@ -42,10 +42,12 @@ cosmology analysis. We thank the DES cluster team, in particular Tom
 McClintock ([`cluster_toolkit`](https://github.com/tmcclintock/cluster_toolkit);
 McClintock et al. 2019, [arXiv:1805.00039](https://arxiv.org/abs/1805.00039))
 and the authors of
-[`y3_cluster_cpp`](https://github.com/arwa-mq/y3_cluster_cpp), whose models
-and numbers this package follows and is tested against; the framework is that
-of the DES Y3 cluster analysis (Abbott et al. 2025,
-[arXiv:2503.13632](https://arxiv.org/abs/2503.13632)). Full BibTeX is in the
+[`y3_cluster_cpp`](https://github.com/estevesjh/y3_cluster_cpp). The cluster
+number-count and lensing forward model follows Aguena et al. 2023
+([arXiv:2309.06593](https://arxiv.org/abs/2309.06593)) and the optical
+selection-bias and projection-lensing model follows Costanzi et al. 2026
+(PhRvD 113, 103508,
+[arXiv:2604.05833](https://arxiv.org/abs/2604.05833)). Full BibTeX is in the
 README.
 
 ## Installation
