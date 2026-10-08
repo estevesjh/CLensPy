@@ -764,3 +764,94 @@ def test_cov_rejects_a_bin_with_no_clusters():
 def test_halo_to_halo_repr_contains_the_class_name():
     iv, _ = _halo_to_halo()
     assert "DeltaSigmaHaloToHaloCovariance" in repr(iv)
+
+
+# -- the optional Wu et al. (2019) per-pair ell range -----------------------
+
+
+def _her_pair_loop(rp_edges, chi_h, terms):
+    """Her _calc_C_ell_integration, transcribed: one np.arange grid per pair."""
+    n = rp_edges.size - 1
+    th_lo, th_hi = rp_edges[:-1] / chi_h, rp_edges[1:] / chi_h
+    out = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            lnell = np.arange(np.log(1.0 / max(th_hi[i], th_hi[j])),
+                              np.log(100.0 / min(th_lo[i], th_lo[j])), 1e-3)
+            ell = np.exp(lnell)
+            geometry = (j2_bin(ell, th_lo[i], th_hi[i])
+                        * j2_bin(ell, th_lo[j], th_hi[j]) * ell**2 / (2 * np.pi))
+            bracket = sum({
+                "lss_lss": c_hh(ell) * c_ss(ell),
+                "lss_shape": c_hh(ell) * SHAPE_NOISE,
+                "shot_lss": c_ss(ell) / N_H,
+                "shot_shape": np.full(ell.shape, SHAPE_NOISE / N_H),
+                "cross": c_hs(ell) ** 2,
+            }[t] for t in terms)
+            out[i, j] = np.trapezoid(bracket * geometry, x=lnell)
+    return out / (4.0 * np.pi * F_SKY)
+
+
+@pytest.mark.parametrize("term", ALL_TERMS)
+def test_wu2019_ell_range_matches_her_per_pair_loop(term):
+    """The vectorised prefix-cumsum equals her per-pair np.trapz, term by term.
+
+    Error scaled by sqrt(C_ii C_jj): the off-diagonal of shot_shape is a
+    near-total cancellation (~1e-7 of the diagonal), where summation order
+    alone moves the last digits.
+    """
+    rp = RP_EDGES[:5]
+    got = make_cov(rp_edges=rp, ell_range="wu2019").components()[term]
+    want = _her_pair_loop(rp, CHI_H, (term,))
+    d = np.sqrt(np.outer(np.diag(want), np.diag(want)))
+    assert np.max(np.abs(got - want) / d) < 1e-12
+
+
+def test_wu2019_cov_is_the_sum_of_its_components():
+    cov = make_cov(ell_range="wu2019")
+    np.testing.assert_allclose(sum(cov.components().values()), cov.cov(),
+                               rtol=1e-12)
+    for name in ALL_TERMS:
+        np.testing.assert_allclose(cov.cov(terms=(name,)),
+                                   cov.components()[name], rtol=1e-12)
+
+
+def test_wu2019_shot_shape_is_her_truncated_quadrature_by_default():
+    """Her range drops part of the closure integral: a ~1% low shot_shape.
+
+    Explicit ``exact_shot_shape=True`` restores the closed form.
+    """
+    exact = np.diag(make_cov().components()["shot_shape"])
+    hers = np.diag(make_cov(ell_range="wu2019").components()["shot_shape"])
+    assert make_cov(ell_range="wu2019").exact_shot_shape is False
+    assert np.all(hers < exact)
+    assert 1e-3 < np.max(1.0 - hers / exact) < 3e-2
+    forced = make_cov(ell_range="wu2019", exact_shot_shape=True)
+    np.testing.assert_array_equal(np.diag(forced.components()["shot_shape"]),
+                                  exact)
+    # the default range is unchanged by the option's existence
+    assert make_cov().exact_shot_shape is True
+
+
+def test_wu2019_truncates_the_lss_terms_at_small_rp():
+    """Her lower limit 1/theta_max drops low-ell power: lss_lss comes out low."""
+    conv = np.diag(make_cov().components()["lss_lss"])
+    hers = np.diag(make_cov(ell_range="wu2019").components()["lss_lss"])
+    assert hers[0] < conv[0]
+
+
+def test_wu2019_is_fast_for_twelve_bins():
+    import time
+
+    rp = np.geomspace(0.05, 50.0, 13)
+    cov = make_cov(rp_edges=rp, ell_range="wu2019")
+    t0 = time.perf_counter()
+    cov.cov()
+    assert time.perf_counter() - t0 < 1.0
+
+
+def test_ell_range_is_validated_and_convergence_refuses_wu2019():
+    with pytest.raises(ValueError, match="ell_range"):
+        make_cov(ell_range="paper")
+    with pytest.raises(ValueError, match="wu2019"):
+        make_cov(ell_range="wu2019").convergence()
