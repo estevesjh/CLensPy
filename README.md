@@ -191,3 +191,55 @@ structure are new here. If you use the covariance results, please cite:
     howpublished = {\url{https://github.com/hywu/cluster-lensing-cov}}
 }
 ```
+
+CLensPy is developed for, and cross-checked against, the **DES cluster
+cosmology analysis**. We thank the DES cluster team, in particular
+Tom McClintock for the cluster weak-lensing methodology and for
+[`cluster_toolkit`](https://github.com/tmcclintock/cluster_toolkit), against
+which the two-halo and miscentering terms are validated, and the authors of
+[`y3_cluster_cpp`](https://github.com/arwa-mq/y3_cluster_cpp), the C++/CosmoSIS
+cluster-observable prediction engine that the selection, projection and
+lensing models here follow and are tested against. The semi-analytic
+covariance, mass-richness calibration and miscentering conventions follow
+McClintock et al. (2019), and the cluster-cosmology framework is that of the
+DES Y3 analysis (Abbott et al. 2025). Please cite:
+
+```bibtex
+@article{McClintock2019,
+    author  = {McClintock, T. and Varga, T. N. and Gruen, D. and others},
+    title   = {Dark Energy Survey Year 1 results: weak lensing mass
+               calibration of redMaPPer galaxy clusters},
+    journal = {MNRAS},
+    volume  = {482},
+    pages   = {1352},
+    year    = {2019},
+    doi     = {10.1093/mnras/sty2711},
+    eprint  = {1805.00039},
+    archivePrefix = {arXiv}
+}
+
+@article{DESY3Clusters2025,
+    author  = {{DES Collaboration} and Abbott, T. M. C. and others},
+    title   = {Dark Energy Survey Year 3 results: cosmological constraints
+               from cluster abundances, weak lensing, and galaxy clustering},
+    journal = {Phys. Rev. D},
+    volume  = {112},
+    pages   = {083535},
+    year    = {2025},
+    doi     = {10.1103/3dzh-d8f5},
+    eprint  = {2503.13632},
+    archivePrefix = {arXiv}
+}
+
+@misc{clustertoolkit,
+    author       = {McClintock, Tom},
+    title        = {cluster\_toolkit},
+    howpublished = {\url{https://github.com/tmcclintock/cluster_toolkit}}
+}
+
+@misc{y3clustercpp,
+    title        = {y3\_cluster\_cpp: cluster-observable prediction engine for
+                    the DES cluster cosmology analysis},
+    howpublished = {\url{https://github.com/arwa-mq/y3_cluster_cpp}}
+}
+```

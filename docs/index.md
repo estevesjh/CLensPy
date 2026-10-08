@@ -37,6 +37,17 @@ method and code of Wu et al. (2019,
 [`cluster-lensing-cov`](https://github.com/hywu/cluster-lensing-cov).
 See {doc}`covariance` for what is theirs and what is new here.
 
+CLensPy is also developed for and validated against the DES cluster
+cosmology analysis. We thank the DES cluster team, in particular Tom
+McClintock ([`cluster_toolkit`](https://github.com/tmcclintock/cluster_toolkit);
+McClintock et al. 2019, [arXiv:1805.00039](https://arxiv.org/abs/1805.00039))
+and the authors of
+[`y3_cluster_cpp`](https://github.com/arwa-mq/y3_cluster_cpp), whose models
+and numbers this package follows and is tested against; the framework is that
+of the DES Y3 cluster analysis (Abbott et al. 2025,
+[arXiv:2503.13632](https://arxiv.org/abs/2503.13632)). Full BibTeX is in the
+README.
+
 ## Installation
 
 CLensPy is not yet published on PyPI; install it from source:
