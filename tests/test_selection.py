@@ -582,16 +582,35 @@ def test_selection_function_repr_contains_class_name():
 # -- the calibrated parameter sets ------------------------------------------
 
 
-def test_the_two_hod_parameter_sets_differ_only_in_the_evolution():
-    """des_y1 keeps epsilon = 0; buzzard carries the epsilon fix."""
+def test_the_two_hod_parameter_sets_differ_mainly_in_the_evolution():
+    """des_y1 keeps epsilon = 0; buzzard carries the evolution.
+
+    buzzard is now fitted on the delivered mock catalogue rather than
+    transcribed from the generator's ini, so the shared parameters are no
+    longer bit-identical to des_y1 -- but they agree to well under a
+    percent, and epsilon and z_pivot remain the differences that matter.
+    """
     a, b = HodMor.des_y1(), HodMor.buzzard()
-    assert a.log10_Mmin == b.log10_Mmin
-    assert a.log10_M1 == b.log10_M1
-    assert a.alpha == b.alpha
-    assert a.sigma_intr == b.sigma_intr
+    assert a.log10_Mmin == b.log10_Mmin                   # not fitted, held fixed
+    assert a.log10_M1 == pytest.approx(b.log10_M1, rel=1e-3)
+    assert a.alpha == pytest.approx(b.alpha, rel=5e-3)
+    assert a.sigma_intr == pytest.approx(b.sigma_intr, rel=1e-2)
     assert a.epsilon == 0.0
-    assert b.epsilon == pytest.approx(0.283887020)
+    assert b.epsilon == pytest.approx(0.28259468519339787)
     assert b.z_pivot == pytest.approx(0.4544)
+
+
+def test_the_fitted_buzzard_set_recovers_the_generator_inputs():
+    """The fit is a re-measurement, not a correction: every parameter lands
+    within 0.5 sigma of the value the mock was generated with."""
+    b = HodMor.buzzard()
+    generator = dict(log10_M1=12.6964410, alpha=0.858693714,
+                     epsilon=0.283887020, sigma_intr=0.180949022)
+    sigma = dict(log10_M1=0.0036216841708424786, alpha=0.002008874307442977,
+                 epsilon=0.003754337506562313, sigma_intr=0.008975349820705072)
+    for name, truth in generator.items():
+        pull = (getattr(b, name) - truth) / sigma[name]
+        assert abs(pull) < 0.5, f"{name}: {pull:+.2f} sigma from the generator"
 
 
 def test_the_buzzard_set_tilts_the_evolution_not_the_amplitude():
@@ -619,7 +638,9 @@ def test_the_parameter_sets_stay_in_hinv_msun():
     fewer place for an h to be applied twice.
     """
     assert HodMor.buzzard().log10_Mmin == pytest.approx(11.3852818)
-    assert HodMor.buzzard().log10_M1 == pytest.approx(12.6964410)
+    assert HodMor.des_y1().log10_M1 == pytest.approx(12.6964410)
+    # buzzard's M_1 is fitted, so it is checked against the ini only loosely
+    assert HodMor.buzzard().log10_M1 == pytest.approx(12.6964410, abs=5e-3)
 
 
 # -- the EMG density and the production coefficient table ------------------
