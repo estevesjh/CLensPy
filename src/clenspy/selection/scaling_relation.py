@@ -278,28 +278,54 @@ class HodMor:
 
     @classmethod
     def buzzard(cls):
-        r"""The exact constants the Buzzard mock data vectors were made with.
+        r"""The Buzzard occupation, measured on the delivered mock catalogue.
 
-        From ``des-nersc-cluster-scripts/cosmosis-models/
-        mock_mcmc_buzzard_values.ini`` (Tan Xing). Differs from `des_y1` in
-        two places, both of which matter for a mock comparison:
-        :math:`\epsilon = 0.283887020` rather than 0, and
-        :math:`z_\star = 0.4544` rather than 0.45.
+        These are **fitted**, not transcribed. The generator's own inputs
+        were ``des-nersc-cluster-scripts/cosmosis-models/
+        mock_mcmc_buzzard_values.ini`` (Tan Xing) ---
+        :math:`\log_{10}M_1 = 12.6964410`,
+        :math:`\alpha = 0.858693714`,
+        :math:`\epsilon = 0.283887020`,
+        :math:`\sigma_{\rm intr} = 0.180949022` --- and the values below
+        come from fitting this class back to ``mock_lob_sigma_catalog.fits``
+        (1.2M halos, 129 log-mass bins x 8 redshift bins, 2026-09-19). They
+        agree with the generator's inputs to under :math:`0.5\sigma` on
+        every parameter, so the difference is a re-measurement, not a
+        correction; the fit is the value the catalogue actually realises.
 
-        NOTE: any Buzzard comparison must use **this** set. Measured, the
-        :math:`\epsilon` difference tilts
-        :math:`\langle\lambda^{\rm sat}\rangle` from **0.947x** at
-        :math:`z = 0.2` to **1.036x** at :math:`z = 0.65` -- a 9% swing
+        :math:`\log_{10}M_{\min}` is **not** fitted. It sits a factor 40
+        below the catalogue's mass floor, where it is a 2.4% curvature at
+        :math:`10^{13}` and 0.02% at :math:`10^{15}`, so it is held at the
+        generator's value.
+
+        NOTE: the fit must carry the catalogue's
+        :math:`\lambda^{\rm tr} \ge 5` threshold. The delivered file only
+        holds halos the mock's target loop walked, so a binned mean of
+        :math:`\lambda^{\rm tr}` is a *tail* mean. Fitting
+        :math:`1 + \langle\lambda^{\rm sat}\rangle` straight to it returns
+        :math:`\alpha = 0.482` --- 44% too shallow.
+
+        NOTE: any Buzzard comparison must use **this** set rather than
+        `des_y1`. Measured, the :math:`\epsilon` difference tilts
+        :math:`\langle\lambda^{\rm sat}\rangle` from **0.946x** at
+        :math:`z = 0.2` to **1.035x** at :math:`z = 0.65` -- a 9% swing
         across the DES Y1 range, and a *tilt* rather than an offset, so it
         does not absorb into the amplitude. That is a redshift-dependent
         mass shift, not a rounding difference.
+
+        NOTE: `pdf` is a continuous shifted-Poisson *interpolation*. The
+        mock itself draws
+        :math:`\lambda^{\rm tr} = 1 + {\rm Pois}(\mu) +
+        {\cal N}(0, \sigma_{\rm intr}\mu)` unclipped, which is a different
+        law; do not use `pdf` as the mock's
+        :math:`p(\lambda^{\rm tr}\mid M)`.
         """
         return cls(
             log10_Mmin=11.3852818,
-            log10_M1=12.6964410,
-            alpha=0.858693714,
-            epsilon=0.283887020,
-            sigma_intr=0.180949022,
+            log10_M1=12.695280502022719,
+            alpha=0.8578995827055931,
+            epsilon=0.28259468519339787,
+            sigma_intr=0.17998670823033044,
             z_pivot=0.4544,
         )
 
