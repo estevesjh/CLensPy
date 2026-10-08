@@ -43,6 +43,10 @@ So :math:`F_\Sigma = \bar\rho\, q_\Sigma(z_{\rm lss}, z_h)` exactly, with
 The paper's own range settles a choice that looked arbitrary in the code:
 :math:`q_\Sigma` keys its source range on the lens and therefore keeps a
 sign, and that is Wu et al.'s definition, not an implementation accident.
+It also puts the :math:`z_s = z_h` pole inside the integral for foreground
+slabs, which makes :math:`C_\ell^{\Sigma\Sigma}` depend at O(1) on
+`DZ_SLAB`; see `LensingKernel.q_sigma` for the measurement and the open
+decision.
 
 NOTE: the :math:`\Sigma_{\rm crit}(z_s, z_h)` in the numerator is *not* a
 lensing kernel. It is there because the covariance interprets all

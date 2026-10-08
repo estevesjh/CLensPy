@@ -385,6 +385,15 @@ class LensingKernel:
         is where the :math:`\pm 4` excursions come from. That is inherited
         from the reference definition, not introduced here.
 
+        NOTE: measured consequence: for :math:`z_l < z_h` the value does
+        not converge in ``n_nodes`` (z_h = 0.425, z_l = 0.153: -0.03, 0.44,
+        1.24, 0.68 at 100, 200, 400, 3200 nodes), and
+        :math:`C_\ell^{\Sigma\Sigma}` built from it changes by O(1) with
+        the slab width. Restricting sources to :math:`z_s > z_h` removes
+        both; which restriction is intended is an open decision, see
+        ``validation/covariance_review_REPORT.md`` and
+        ``validation/diagnose_qsigma_pole.py``. Default unchanged.
+
         Parameters
         ----------
         z_lens : float or array-like
