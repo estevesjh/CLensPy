@@ -1,5 +1,18 @@
 """
-A class that holds the integration methods for cluster lensing observables.
+The integration methods for cluster lensing observables.
+
+The package's quadrature toolbox -- use these instead of hand-rolled
+``np.trapz`` on linspace grids:
+
+- `pk_to_xi_fftlog`: the oscillatory P(k) -> xi(r) transform, via FFTLog.
+- `compute_sigma_grid` (-> `compute_sigma_leggauss` /
+  `compute_sigma_trapz_vectorized` / `compute_sigma_quadvec`): the
+  line-of-sight Abel projection xi(r, z) -> Sigma(R, z), on a
+  cosh-substituted grid, never a naive linear-r grid.
+- `gl_nodes` / `gl_nodes_batched` / `mass_nodes`: cached Gauss-Legendre
+  rules for smooth window/selection integrals.
+- `sigma_to_deltasigma_cumtrapz`: cumulative Sigma-bar(<R) post-processing
+  of an already-tabulated Sigma grid (see its accuracy caveats).
 """
 
 from __future__ import annotations
@@ -31,6 +44,14 @@ def compute_sigma_grid(
     """
     Dispatch and run the chosen integration method for Sigma(R, z).
     Returns grid of shape (nR, nz).
+
+    The single entry point for the line-of-sight Abel projection of
+    xi(r, z): "leggauss" (Gauss-Legendre, the fast smooth-integrand
+    choice), "trapz" (vectorized trapezoid on the cosh-substituted grid,
+    the robust default), or "quad_vec" (adaptive, the accuracy reference).
+    All three integrate in the substituted variable t = u/(1+u),
+    r = R cosh(u) -- do not replace this with np.trapz over a linear
+    r grid, which under-resolves the integrable 1/sqrt(r^2 - R^2) edge.
     """
     method = method.lower()
     if method == "leggauss":
@@ -93,8 +114,13 @@ def pk_to_xi_fftlog(
     lowring: bool = True,
     **mcfit_kwargs,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
+    r"""
     Compute xi(r) from P(k) using FFTLog via mcfit.
+
+    WARNING: the integrand :math:`k^2 P(k)\sin(kr)/(kr)` is oscillatory;
+    FFTLog is the correct machinery for it. Do not replace this with
+    trapezoidal (or any fixed-grid) integration of the oscillatory
+    integrand -- that is the failure mode this function exists to prevent.
 
     Parameters
     ----------
@@ -111,10 +137,9 @@ def pk_to_xi_fftlog(
 
     Returns
     -------
-    r_fftlog : np.ndarray
-        Radial grid output by mcfit (may differ from rvals).
     xi_r : np.ndarray
-        xi(r) evaluated at r_fftlog.
+        xi(r) evaluated at ``rvals`` (the FFTLog output is computed on
+        mcfit's own r grid and log-interpolated onto ``rvals``).
     """
     r_fftlog, xi_r = mcfit.P2xi(kvec, lowring=lowring, **mcfit_kwargs)(Pk)
     interp = make_log_interpolation(r_fftlog, xi_r)
@@ -150,24 +175,24 @@ def compute_sigma_trapz_vectorized(
     sigma : np.ndarray
         Surface density Σ(R, z) with shape (nR, nz).
     """
-    # Setup integration limits for each R (u ∈ [0, umax(R)])
     # ---- define limits in t ----
     u_max = max(np.arccosh(r_max / Rvec))  # finite thanks to r_max
     u_max = np.clip(u_max, None, 40)  # cosh(40) ~ 1.1e17, still in float64 range
     t_max = u_max / (1.0 + u_max)  # < 1
     assert 0.0 < t_max < 1.0
 
-    # Create a grid for t ∈ [0, t_max] with n_grid points
-    t_grid = np.linspace(0.0, t_max, n_grid)  # Integration grid for u
+    t_grid = np.linspace(0.0, t_max, n_grid)
+    u = t_grid / (1.0 - t_grid)
+    rA = Rvec[:, None] * np.cosh(u)[None, :]            # (nR, nt)
+    pref = np.cosh(u) / (1.0 - t_grid) ** 2             # (nt,)
 
-    # Create a meshgrid for R, z, u
-    zA, RA, tA = np.meshgrid(zvec, Rvec, t_grid, indexing="ij")  # (nz, nR, nu)
-    uA = tA / (1.0 - tA)  # u(t)
-    rA = RA * np.cosh(uA)  # r = R * cosh(u)
-    xiA = xi_func(rA.ravel(), zA.ravel()).reshape(rA.shape)
-    integrand = xiA * np.cosh(uA) / (1.0 - tA) ** 2
-    sigma = trapz(integrand, t_grid, axis=2)
-    return 2 * Rvec * sigma
+    # one z at a time: xi(r_vec, z_scalar) is a grid query (no pairs)
+    zvec = np.atleast_1d(zvec)
+    sigma = np.empty((zvec.size, Rvec.size))
+    for iz, zi in enumerate(zvec):
+        xiA = np.asarray(xi_func(rA.ravel(), zi)).reshape(rA.shape)
+        sigma[iz] = trapz(xiA * pref[None, :], t_grid, axis=1)
+    return 2 * Rvec * sigma                              # (nz, nR)
 
 
 def compute_sigma_leggauss(
@@ -195,27 +220,26 @@ def compute_sigma_leggauss(
         Surface density Σ(R, z) with shape (nR, nz).
     """
 
-    def integrand(t: np.array, R: np.array, z: np.array) -> np.array:
-        """Vectorised integrand in t ∈ [0,1)."""
-        u = t / (1.0 - t)  # u(t)
-        r = R * np.cosh(u)  # argument for ρ
-        prefac = np.cosh(u) / (1.0 - t) ** 2  # cosh(u) / (1-t)^2
-        return prefac * xi_func(r, z)
-
     # set integration limits
     tmin, tmax = 0, 1 - 1 / r_max
 
-    # setup leggaus weights and nodes
+    # setup leggauss weights and nodes
     t_nodes, t_weights = leggauss(N)
     tvec = 0.5 * (tmax - tmin) * t_nodes + 0.5 * (tmax + tmin)
-    dt = 0.5 * (tmax - tmin)  # Half-width of the l interval
+    dt = 0.5 * (tmax - tmin)  # Half-width of the t interval
 
-    # make grid for z, R, t
-    zz, RR, tt = np.meshgrid(zvec, Rvec, tvec, indexing="ij")
-    fx = integrand(tt.ravel(), RR.ravel(), zz.ravel()).reshape(tt.shape)
-    weighted = fx * t_weights
-    sigma = 2 * Rvec * np.nansum(weighted, axis=2) * dt  # sum over l-axis
-    return sigma
+    u = tvec / (1.0 - tvec)
+    rA = Rvec[:, None] * np.cosh(u)[None, :]            # (nR, nt)
+    pref = np.cosh(u) / (1.0 - tvec) ** 2               # (nt,)
+
+    # one z at a time: xi(r_vec, z_scalar) is a grid query (no pairs)
+    zvec = np.atleast_1d(zvec)
+    sigma = np.empty((zvec.size, Rvec.size))
+    for iz, zi in enumerate(zvec):
+        xiA = np.asarray(xi_func(rA.ravel(), zi)).reshape(rA.shape)
+        sigma[iz] = 2 * Rvec * np.nansum(
+            xiA * pref[None, :] * t_weights[None, :], axis=1) * dt
+    return sigma                                         # (nz, nR)
 
 
 def compute_sigma_quadvec(
@@ -240,23 +264,23 @@ def compute_sigma_quadvec(
     sigma : np.ndarray
         Surface density Σ(R, z) with shape (nR, nz).
     """
-    R_grid, z_grid = np.meshgrid(Rvec, zvec, indexing="ij")
-    R_flat = R_grid.ravel()
-    z_flat = z_grid.ravel()
-
     # ---- define limits in t ----
     u_max = max(np.arccosh(r_max / Rvec))  # finite thanks to r_max
     u_max = np.clip(u_max, None, 40)  # cosh(40) ~ 1.1e17, still in float64 range
     t_max = u_max / (1.0 + u_max)  # < 1
     assert 0.0 < t_max < 1.0
 
-    def integrand(t: float, R: np.ndarray, z: np.ndarray) -> np.ndarray:
-        u = t / (1.0 - t)
-        r = R * np.cosh(u)
-        return xi_func(r, z) * np.cosh(u) / (1.0 - t) ** 2
+    # one z at a time: xi(r_vec, z_scalar) is a grid query (no pairs)
+    zvec = np.atleast_1d(zvec)
+    sigma = np.empty((Rvec.size, zvec.size))
+    for iz, zi in enumerate(zvec):
+        def integrand(t: float) -> np.ndarray:
+            u = t / (1.0 - t)
+            r = Rvec * np.cosh(u)
+            return (np.asarray(xi_func(r, zi))
+                    * np.cosh(u) / (1.0 - t) ** 2)
 
-    sigma_flat, _ = quad_vec(integrand, 0, t_max, args=(R_flat, z_flat))
-    sigma = sigma_flat.reshape(R_grid.shape)
+        sigma[:, iz], _ = quad_vec(integrand, 0, t_max)
     return 2 * sigma * Rvec[:, None]  # shape (len(Rvec), len(zvec))
 
 
@@ -293,6 +317,28 @@ def gl_nodes(a: float, b: float, n: int):
     t, w = _leggauss_cached(n)
     half = 0.5 * (b - a)
     return half * t + 0.5 * (a + b), half * w
+
+
+def gl_nodes_batched(a, b, n: int):
+    r"""`gl_nodes` over one interval per row: ``a``/``b`` arrays of shape
+    ``(m,)`` give nodes and weights of shape ``(m, n)``. Inverted intervals
+    (``b < a``) integrate to zero rather than changing sign."""
+    t, w = _leggauss_cached(n)
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    half = 0.5 * np.maximum(b - a, 0.0)
+    mid = 0.5 * (a + b)
+    return (mid[:, None] + half[:, None] * t[None, :],
+            half[:, None] * w[None, :])
+
+
+def mass_nodes(m_min: float, m_max: float, n: int):
+    r"""Gauss--Legendre nodes in :math:`\ln M`: ``(Ms, M_weight)`` with
+    ``M_weight = w_lnM * M``, so a :math:`dn/dM` integrand needs no extra
+    Jacobian: :math:`\int dM\,f = \sum_i M\_weight_i\, f(M_i)`."""
+    lnMs, wM = gl_nodes(np.log(m_min), np.log(m_max), n)
+    Ms = np.exp(lnMs)
+    return Ms, wM * Ms
 
 
 if __name__ == "__main__":

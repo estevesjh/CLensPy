@@ -17,6 +17,8 @@ NOTE: ``h`` is the Einasto scale radius, not :math:`H_0/100` -- see
 `clenspy.halo.einasto`.
 """
 
+from __future__ import annotations
+
 import numpy as np
 from scipy.special import gammaln, loggamma, roots_genlaguerre
 
@@ -327,8 +329,6 @@ def _pk_asym_eval(n, kt, Mmax=2000):
 
 
 if __name__ == "__main__":
-    import numpy as np
-
     print("Einasto series evaluators -- the internals einasto.py selects")
     print("between. __all__ is deliberately empty: nothing here is public.\n")
     names = sorted(n for n in dir() if n.startswith("_pk_"))

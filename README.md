@@ -61,6 +61,71 @@ bias = BiasModel(k, Pk).bias(M200)
 See `examples/getting_started.ipynb` for the full runnable notebook — one
 section per physical effect, from the cosmology through the covariance.
 
+## Using CLensPy from your own project
+
+The canonical consumer workflow — cosmology object in, everything else
+computed internally (verified to run as-is):
+
+```python
+import numpy as np
+from clenspy.cosmology import (BiasModel, PkGrid, TinkerMassFunction,
+                               fiducial_cosmology)
+from clenspy.halo import TwoHaloTerm
+from clenspy.utils.integrate import gl_nodes
+
+# 1. Cosmology: configure this object only -- CLensPy drives CAMB internally.
+cosmo = fiducial_cosmology(H0=70.0, Om0=0.286)  # Buzzard-like flat LCDM
+
+# 2. P(k): CAMB runs inside PkGrid (disk-cached); h-free units throughout
+#    (k in 1/Mpc, P in Mpc^3, M in Msun, R in Mpc).
+pk_nl = PkGrid(cosmo=cosmo, nonlinear=True)      # halofit P(k, z)
+
+# 3. xi_NL(r, z): FFTLog transform of P(k) -- never trapz the sin(kr) kernel.
+z = 0.3
+two_halo = TwoHaloTerm(pk_nl.k, pk_nl(pk_nl.k, z=z), zvec=z)
+r = np.logspace(-0.5, 2.0, 40)                   # Mpc
+xi_nl = two_halo.xi(r, z)                        # (40,), vectorized
+
+# 4. sigma(M, z), Tinker bias, Tinker mass function -- all array-in, array-out.
+M = np.logspace(13.0, 15.0, 30)                  # Msun
+bias_model = BiasModel(cosmo=cosmo)
+sigma_M = bias_model.sigma_tophat(M, z=z)        # sigma(M, z), shape (30,)
+b_M = bias_model.bias(M, z=z)                    # Tinker (2010) bias
+hmf = TinkerMassFunction(cosmo=cosmo)
+dndlnm = hmf.dndlnm(M, z=z)                      # Mpc^-3, shape (30,)
+
+# 5. Quadrature from clenspy.utils.integrate: cluster number density
+#    n(>1e14) = int dlnM dn/dlnM with cached Gauss-Legendre nodes.
+lnM, w = gl_nodes(np.log(1e14), np.log(1e15), 32)
+n_cl = np.sum(w * hmf.dndlnm(np.exp(lnM), z=z))  # Mpc^-3
+```
+
+### Anti-patterns
+
+1. **Don't `import camb`.** CLensPy wraps CAMB inside `PkGrid` (with the
+   h-unit conversion, sigma8 renormalization, and disk caching). Configure
+   the astropy cosmology object and let CLensPy call the Boltzmann solver.
+2. **Never `np.trapz` these integrals.** The P(k) → ξ(r) and Σ-from-ξ
+   transforms are oscillatory/singular; use the FFTLog and quadrature
+   machinery in `clenspy.utils.integrate` (`pk_to_xi_fftlog`,
+   `compute_sigma_grid`, `gl_nodes`/`mass_nodes`) or the classes that call
+   it (`TwoHaloTerm`, `LensingProfile`). Naive trapezoids on linspace grids
+   are the failure mode this package exists to prevent.
+3. **Don't loop over array inputs.** The API is vectorized:
+   `hmf.dndlnm(Mvec, zvec)`, `bias_model.bias(Mvec, zvec)`,
+   `nfw.sigma(Rvec)`, `two_halo.xi(Rvec, zvec)` all take whole arrays,
+   and the interpolator-backed evaluators (`dndlnm`, `bias`, `xi`,
+   `sigma`, `deltasigma`) return the outer `(nx, nz)` grid for vector +
+   vector input. Two verified exceptions: `PkGrid.__call__` follows NumPy
+   broadcasting instead (`pk(kvec, zvec)` with different lengths raises;
+   use `pk(kvec[:, None], zvec)` for the `(nk, nz)` grid), and low-level
+   `SigmaGrid.sigma/sigma2` take scalar R — use `sigma2_fftlog` or the
+   mass-function/bias wrappers for arrays.
+
+Task-oriented recipes (ΔΣ(R), selection bias, etc.):
+[docs/llm_quickstart.md](docs/llm_quickstart.md) or the "LLM/agent
+quickstart" page on Read the Docs.
+
 ## Examples
 
 The `examples/` directory contains detailed demonstrations:

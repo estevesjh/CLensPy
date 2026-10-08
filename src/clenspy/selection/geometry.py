@@ -49,13 +49,20 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["r_lambda", "theta_lambda", "area_overlap", "sigmoid_theta"]
+__all__ = ["r_excl", "r_lambda", "theta_lambda", "area_overlap",
+           "sigmoid_theta"]
 
 
 def r_lambda(lam, h: float):
     r"""Richness radius :math:`R_\lambda` in physical Mpc."""
     lam = np.asarray(lam, dtype=float)
     return (lam / 100.0) ** 0.2 / h
+
+
+def r_excl(lob: float, zob: float, h: float) -> float:
+    r"""Halo-exclusion radius :math:`R_{\rm excl} =
+    R_\lambda(\lambda^{\rm ob})(1 + z^{\rm ob})` [comoving Mpc]."""
+    return float(r_lambda(lob, h) * (1.0 + zob))
 
 
 def theta_lambda(lam, z, chi, h: float):

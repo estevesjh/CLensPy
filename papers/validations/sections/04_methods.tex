@@ -1,0 +1,60 @@
+\section{Numerical methods}
+\label{sec:methods}
+
+This section cross-references, rather than re-derives, the numerical
+machinery underlying \S\ref{sec:fig6}--\S\ref{sec:mock}; full derivations
+live in \pyfile{docs/selection\_bias.md},
+\pyfile{docs/projection\_lensing.md}, and
+\pyfile{docs/plan-bsel-stable-closure.md}.
+
+\paragraph{Shared line-of-sight machinery.} Both \modname{SigmaPrj} and
+\modname{SelBiasEngine} use one recipe
+(\pyfile{clenspy/utils/los\_integrals.py}: \modname{LosGeometry} /
+\modname{integrate\_los}): a cosh--Abel substitution along the line of
+sight, with halo exclusion as an exact interval boundary, never a mask or
+a per-redshift grid split. $\xinl$ is clipped at zero (discards the BAO
+trough, $O(10^{-4})$ in a photo-$z$-suppressed region), which keeps the
+operators sign-definite.
+
+\paragraph{The $\bsel$ closure.} Writing $P_1=\mathcal P[1]$,
+$I_2=\mathcal P[b\,\xinl]$, $I_1=\mathcal P[b\,\xinl\,\sigma(\theta)]$,
+$D=I_2-I_1$, and $\DRND=P_1+\beff I_2$, the closure reduces exactly to a
+one-parameter linear response in
+$\delta=\langle\lob-\ltr\rangle/\DRND-1$:
+\begin{equation}
+\blarge = \beff(1+0.13\,\delta), \qquad
+\bsmall = \beff + \delta\,\Asel, \qquad
+\Asel = \frac{\DRND - 0.13\,\beff I_1}{D}.
+\end{equation}
+$D$ is quadratured directly (never by float subtraction) and is
+well-conditioned on its own; $\Asel$ (typically 18--40) is the closure's
+\emph{gain}, not a cancellation risk. $\delta$ is estimated from the
+model's own operators --- a first-order Eddington tilt of the correlated
+part of the projection variance, $\delta=\gamma\,\beff
+I_2^{(2)}/\DRND$, with $\gamma=-d\ln n(\ltr)/d\ltr|_\lob$ --- rather than
+marginalized over an externally calibrated $P(\lob\mid\ltr)$ kernel. The
+earlier version of this engine did the latter and overestimated
+$\langle\lob-\ltr\rangle$ by 1.5--2.2$\times$, which the gain $\Asel$
+turned into the $\sim$50\% median error quoted in \S\ref{sec:fig6}; the
+full derivation, including why the $\lambda^{\rm tr}$ quadrature this
+replaced was mathematically inert (both plateaus are affine in
+$\lambda^{\rm tr}$), is in
+\pyfile{docs/plan-bsel-stable-closure.md}.
+
+\paragraph{$b_{\rm eff}$.} $\beff=N[b]/N[1]$ from the number-counts
+operator (\modname{ClusterCounts.average}), evaluated at each bin's own
+\modname{HodMor.buzzard()} mass-observable relation --- the same MOR the
+mock's own richness was generated with (confirmed via
+\pyfile{make\_mock\_lob\_sigma\_catalog.py}'s \texttt{Config} class in
+the mock's own repository).
+
+\paragraph{Cosmology.} Buzzard v1.1 ($\Omega_m=0.286$, $h=0.7$,
+$\sigma_8=0.82$, $n_s=0.96$), used throughout \S\ref{sec:fig6} and
+\S\ref{sec:mock} for both the model and the halo model it shares with the
+mock. This was a real bug fixed this session: the validation harness
+previously assumed an unconfirmed ``Planck 2018'' cosmology
+($\Omega_m=0.3153$, $h=0.6736$), 10\% off in $\Omega_m$. \S\ref{sec:cosmo}
+shows this particular discrepancy would not, on its own, explain the
+Fig.~6/mock residuals that motivated the closure fix above --- the
+selected/RND ratio is not very sensitive to $(\Omega_m,\sigma_8)$ --- but
+it is fixed regardless, since it is simply wrong.

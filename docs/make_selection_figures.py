@@ -12,11 +12,11 @@ import seaborn as sns
 
 from clenspy.cosmology import fiducial_cosmology
 from clenspy.kernels import LensingKernel, sigma_critical
+from clenspy.lensing import SigmaPrj
 from clenspy.selection import (
     EmgParams,
     HodMor,
     LogNormalMor,
-    PhysicalMassMor,
     SelBiasEngine,
     SelectionFunction,
     boost_factor_nfw,
@@ -89,25 +89,13 @@ def fig_selection_function():
 def fig_selection_bias():
     """b_sel(theta): the sigmoid between b_small and b_large.
 
-    Analytic hmf/bias/xi_nl stand-ins, as in SelBiasEngine's own __main__
-    demo -- avoids needing CAMB or a sigma grid just for the *shape*.
+    Shares its halo model with SigmaPrj (Tinker(2008) mass function,
+    Tinker(2010) bias, CAMB halofit xi_NL), as in SelBiasEngine's own
+    __main__ demo -- PkGrid disk-caches the CAMB call.
     """
     cosmo = fiducial_cosmology()
-
-    def hmf(mass, z):
-        m, zz = np.broadcast_arrays(np.asarray(mass, float), np.asarray(z, float))
-        return 1e-19 * (m / 1e14) ** -2.0 * np.exp(-m / 5e14) / (1.0 + zz)
-
-    def bias_toy(mass, z):
-        m, zz = np.broadcast_arrays(np.asarray(mass, float), np.asarray(z, float))
-        return 1.0 + 0.9 * (m / 3e14) ** 0.3 * (1.0 + zz) ** 0.5
-
-    def xi_nl(r, zob):
-        return np.maximum((np.maximum(np.asarray(r, float), 1e-3) / 5.0) ** -1.8, 0.0)
-
     engine = SelBiasEngine(
-        cosmology=cosmo, xi_nl=xi_nl, hmf=hmf, bias=bias_toy,
-        mor=PhysicalMassMor(HodMor.des_y1(), cosmo.h),
+        sigma_prj=SigmaPrj(cosmology=cosmo).build(), mor=HodMor.des_y1(),
         n_z=32, n_M=16, n_theta=8, n_ltr=40, ltr_grid_size=10,
     )
     lob, zob = 40.0, 0.4

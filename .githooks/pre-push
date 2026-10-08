@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Mirrors .github/workflows/tests.yml exactly, against a clean git worktree
+# of what's about to be pushed -- not the dirty working tree -- so a file
+# that's only gitignored-but-present locally, or a stale uv.lock, fails here
+# instead of on GitHub. See docs/development.md.
+set -euo pipefail
+
+ref=$(git rev-parse HEAD)
+worktree_dir=$(mktemp -d)
+cleanup() { git worktree remove --force "$worktree_dir" >/dev/null 2>&1 || true; rm -rf "$worktree_dir"; }
+trap cleanup EXIT
+
+echo "pre-push: checking $ref in a clean worktree (mirrors CI exactly)..."
+git worktree add --quiet --detach "$worktree_dir" "$ref"
+cd "$worktree_dir"
+
+uv sync --locked --extra dev
+
+echo "-- flake8 (build-breaking gate, matches CI) --"
+uv run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=.venv
+
+echo "-- ruff check (advisory -- pre-existing issues won't block, but don't add new ones) --"
+uv run ruff check . --exclude .venv || echo "ruff: issues found above (non-blocking for now)"
+
+echo "-- pytest (matches CI) --"
+uv run pytest tests/ -q --no-cov
+
+echo "pre-push checks passed."

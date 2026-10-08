@@ -288,13 +288,10 @@ def tophat_dw(x):
 
 
 if __name__ == "__main__":
-    import numpy as np
-
     print(f"EULER_GAMMA   = {EULER_GAMMA:.15f}")
     print(f"NTERMS_ASYMP  = {NTERMS_ASYMP}")
 
     print("\nexpn_fast(nu, x) against scipy.special.expn for integer nu:")
-    from scipy.special import expn
 
     for nu in (1, 2, 3):
         x = np.array([0.5, 1.0, 5.0, 20.0])

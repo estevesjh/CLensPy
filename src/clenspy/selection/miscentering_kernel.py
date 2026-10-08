@@ -62,6 +62,8 @@ gives exactly zero), and the population average
 dR_{\rm mis} \to 0` relies on the negative lobe -- do not clamp it to zero.
 """
 
+from __future__ import annotations
+
 from functools import lru_cache
 from typing import Callable, Union
 

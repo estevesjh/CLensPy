@@ -333,7 +333,7 @@ def load_config(name):
             "rather than reconstructing them -- add a config file rather "
             "than hardcoding edges at a call site."
         )
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
 

@@ -18,6 +18,7 @@ with `clenspy` -- `load_boost_factor_data` needs a path to them.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Union
 
 import numpy as np
@@ -160,7 +161,9 @@ def load_boost_factor_data(
         The loaded, scale-cut data with its inverse covariance.
     """
     config = BoostFactorData(None, None, None, None, None, lbin, zbin)
-    stem = f"{path}/full-unblind-v2-mcal-zmix_y1clust_l{lbin}_z{zbin}_zpdf_boost"
+    stem = str(
+        Path(path) / f"full-unblind-v2-mcal-zmix_y1clust_l{lbin}_z{zbin}_zpdf_boost"
+    )
     data_file = f"{stem}.dat"
     cov_file = f"{stem}_cov.dat"
     
@@ -259,8 +262,6 @@ __all__ = [
 
 
 if __name__ == "__main__":
-    import numpy as np
-
     R = np.array([0.1, 0.3, 1.0, 3.0, 10.0])
     rs = 0.35  # Mpc, an NFW scale radius for M ~ 1e14
     print("boost factor B(R), McClintock et al. 2019 eq. 27")

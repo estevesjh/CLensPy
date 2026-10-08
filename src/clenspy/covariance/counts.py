@@ -179,7 +179,7 @@ class CountsCovariance:
 
 if __name__ == "__main__":
     from ..cosmology.growth import growth_factor
-    from ..cosmology.sigma import LinearPk, SigmaGrid
+    from ..cosmology.sigma import SigmaGrid
 
     # a DES-Y1-like set of counts and biases
     counts = np.array([[2500.0, 3100.0, 2700.0],
@@ -200,9 +200,9 @@ if __name__ == "__main__":
     # sigma_8: rescale so sigma(8 Mpc/h) = 0.8.
     k = np.logspace(-4.0, 2.0, 500)
     shape = k**-1.5 * np.exp(-((k / 30.0) ** 2))
-    unnormalised = SigmaGrid(LinearPk(k, shape))
+    unnormalised = SigmaGrid(k, shape)
     amplitude = (0.8 / unnormalised.sigma(8.0, truncate=False)) ** 2
-    grid = SigmaGrid(LinearPk(k, amplitude * shape))
+    grid = SigmaGrid(k, amplitude * shape)
     print(f"toy P(k) normalised to sigma_8 = "
           f"{grid.sigma(8.0, truncate=False):.4f}")
 

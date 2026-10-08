@@ -159,6 +159,7 @@ def main(plot=False):
         FIG_DIR.mkdir(parents=True, exist_ok=True)
         out = FIG_DIR / "nfw_vs_pyccl.png"
         fig.savefig(out, dpi=140)
+        plt.close(fig)
         print(f"  wrote {out}")
 
     ok = all(r[0] for r in results)

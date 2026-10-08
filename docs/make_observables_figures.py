@@ -1,4 +1,5 @@
-"""Generate the figures embedded in observables.md.
+"""Generate the figures embedded in stacked_shear.md, covariance.md, and
+covariance_halo_to_halo.md.
 
     uv run python docs/make_observables_figures.py
 """
