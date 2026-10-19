@@ -73,6 +73,7 @@ from .richness_kernel import (
     emg_pdf,
     richness_bin_first_moment,
     richness_bin_probability,
+    richness_edge_steps,
     richness_pdf,
 )
 from .scaling_relation import HodMor, LogNormalMor
@@ -97,6 +98,7 @@ __all__ = [
     "emg_pdf",
     "richness_bin_first_moment",
     "richness_bin_probability",
+    "richness_edge_steps",
     "richness_pdf",
     "Y3_PRJ_PARAMS_FILE",
     "LogNormalMor",

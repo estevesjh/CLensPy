@@ -22,8 +22,10 @@ from clenspy.selection import (
     SelectionFunction,
     emg_cdf,
     richness_bin_probability,
+    richness_edge_steps,
 )
 from clenspy.selection.geometry import area_overlap
+from clenspy.selection.selection_function import EDGE_WIDTH, N_QUAD
 
 LAM_EDGES = np.array([20.0, 30.0, 45.0, 60.0, 200.0])   # DES Y1
 Z_EDGES = np.array([0.20, 0.35, 0.50, 0.65])
@@ -517,9 +519,190 @@ def test_the_residual_predicts_the_shortfall():
 
 
 def test_the_quadrature_is_converged_at_the_default_order():
-    lm = np.log(1e14)
-    a, b = _selection(n_quad=64), _selection(n_quad=192)
-    np.testing.assert_allclose(a.S_i(lm, 0.3), b.S_i(lm, 0.3), rtol=1e-6)
+    r"""Default panels against three times the nodes, over the masses where
+    one 64-node rule across the whole bracket rippled by 1% of the
+    :math:`[60, 200)` peak."""
+    lm = np.log(np.geomspace(1e14, 10**15.5, 41))
+    a = _selection().S_i(lm, 0.4)
+    b = _selection(n_quad=3 * N_QUAD).S_i(lm, 0.4)
+    assert np.max(np.abs(a - b) / b.max(axis=0)) < 1e-8
+
+
+@pytest.mark.parametrize("mor, params", [
+    (LogNormalMor(), PARAMS),
+    (HodMor.buzzard(), PARAMS),
+    (HodMor.buzzard(), EmgParams.from_y3_table()),
+])
+def test_S_i_converges_exponentially_in_the_panel_order(mor, params):
+    r"""Every four nodes per panel buy two orders of magnitude -- the
+    signature of an integrand that is smooth on every panel.
+
+    A rule straddling a step resolves it only once the nodes are dense on
+    the step's own scale, and one straddling a jump (the HOD density at
+    :math:`\lambda^{\rm cen}`) gains a factor of two per doubling at best.
+    """
+    sel = SelectionFunction(LAM_EDGES, Z_EDGES, mor, params, sigma_z=0.01,
+                            n_quad=96)
+    lm = np.log(np.geomspace(1e13, 10**15.5, 61))
+    ref = sel.S_i(lm, 0.4)
+    err = []
+    for n in (4, 8, 12):
+        s = SelectionFunction(LAM_EDGES, Z_EDGES, mor, params, sigma_z=0.01,
+                              n_quad=n).S_i(lm, 0.4)
+        err.append(np.max(np.abs(s - ref) / ref.max(axis=0)))
+    assert err[0] / err[1] > 30.0
+    assert err[1] / err[2] > 30.0
+
+
+def test_S_i_matches_adaptive_quadrature_where_one_rule_rippled():
+    r"""Independent of the panel layout: `scipy.integrate.quad_vec`, told
+    only where the steps are, at the masses where one 64-node rule missed
+    :math:`S_i` of the :math:`[60, 200)` bin by up to 1.3% of its peak."""
+    from scipy.integrate import quad_vec
+
+    sel, z = _selection(), 0.4
+    for m in (8e14, 1.14e15, 1.5e15):
+        lm = np.log(m)
+        a, b = (float(np.ravel(v)[0]) for v in sel.bracket(lm, z))
+        # this kernel steps at lambda_tr = edge - delta_mu
+        points = [e + 1.5 for e in LAM_EDGES if a < e + 1.5 < b]
+        reference, _ = quad_vec(
+            lambda lam: sel.mor.pdf(lam, lm, z) * richness_bin_probability(
+                LAM_EDGES, lam, z, PARAMS),
+            a, b, points=points, epsabs=1e-14, epsrel=1e-12, limit=2000,
+        )
+        np.testing.assert_allclose(sel.S_i(lm, z), np.ravel(reference),
+                                   rtol=0.0, atol=1e-9)
+
+
+def test_the_production_setup_matches_adaptive_quadrature():
+    r"""`HodMor.buzzard` with the Y3 kernel, the mock-validation setup."""
+    from scipy.integrate import quad_vec
+
+    params, z = EmgParams.from_y3_table(), 0.4
+    sel = SelectionFunction(LAM_EDGES, Z_EDGES, HodMor.buzzard(), params,
+                            sigma_z=0.01)
+    centre, _ = richness_edge_steps(LAM_EDGES, z, params)
+    for m in (3e13, 3e14, 1e15):
+        lm = np.log(m)
+        a, b = (float(np.ravel(v)[0]) for v in sel.bracket(lm, z))
+        points = sorted(x for x in [*centre, 1.0] if a < x < b)
+        reference, _ = quad_vec(
+            lambda lam: sel.mor.pdf(lam, lm, z) * richness_bin_probability(
+                LAM_EDGES, lam, z, params),
+            a, b, points=points, epsabs=1e-14, epsrel=1e-12, limit=2000,
+        )
+        np.testing.assert_allclose(sel.S_i(lm, z), np.ravel(reference),
+                                   rtol=0.0, atol=1e-12)
+
+
+def test_first_moment_i_converges_at_the_default_order():
+    r"""The same rule, contracted against :math:`M_i` -- with the Y3 kernel,
+    whose own :math:`\lambda^{\rm ob}` rule is converged in these bins."""
+    params = EmgParams.from_y3_table()
+    lm = np.log(np.geomspace(1e13, 10**15.5, 41))
+    a = SelectionFunction(LAM_EDGES, Z_EDGES, HodMor.buzzard(), params,
+                          sigma_z=0.01).first_moment_i(lm, 0.4)
+    b = SelectionFunction(LAM_EDGES, Z_EDGES, HodMor.buzzard(), params,
+                          sigma_z=0.01, n_quad=3 * N_QUAD).first_moment_i(
+                              lm, 0.4)
+    assert np.max(np.abs(a - b) / b.max(axis=0)) < 1e-10
+
+
+def test_the_panels_tile_the_bracket():
+    """Ascending from a to b, with every break inside the bracket a panel
+    boundary: both ends of each edge's step panel, and the relation's
+    mean."""
+    sel, z = _selection(), 0.4
+    lm = np.log(np.geomspace(1e13, 10**15.5, 7))
+    edges = sel.panel_edges(lm, z)
+    a, b = sel.bracket(lm, z)
+    np.testing.assert_array_equal(edges[:, 0], a)
+    np.testing.assert_array_equal(edges[:, -1], b)
+    assert np.all(np.diff(edges, axis=-1) >= 0.0)
+    centre, width = richness_edge_steps(LAM_EDGES, z, PARAMS)
+    breaks = np.concatenate([centre - EDGE_WIDTH * width,
+                             centre + EDGE_WIDTH * width])
+    for row, lo, hi, mu in zip(edges, a, b, sel.mor.mean(lm, z)):
+        for x in (*breaks, mu):
+            if lo < x < hi:
+                assert np.min(np.abs(row - x)) < 1e-12
+
+
+def test_the_hod_jump_is_a_panel_boundary():
+    r""":math:`\lambda^{\rm cen} = 1` is a panel edge whenever the bracket
+    reaches below it -- the HOD density jumps there."""
+    sel = SelectionFunction(LAM_EDGES, Z_EDGES, HodMor.buzzard(), PARAMS,
+                            sigma_z=0.01)
+    lm = np.log(3e13)
+    assert sel.bracket(lm, 0.4)[0] < 1.0
+    assert 1.0 in sel.panel_edges(lm, 0.4)
+
+
+def test_hod_support_min_is_where_the_density_jumps():
+    mor = HodMor.buzzard()
+    m_min = 10.0**mor.log10_Mmin
+    np.testing.assert_array_equal(
+        mor.support_min(np.log([0.5 * m_min, 2.0 * m_min, 1e14]), 0.4),
+        [0.0, 1.0, 1.0],
+    )
+    # <lambda_sat> = 1.8 at 1e13: a jump of 0.16 per unit richness
+    lm = np.log(1e13)
+    assert mor.pdf(1.0 - 1e-9, lm, 0.4).item() == 0.0
+    assert mor.pdf(1.0, lm, 0.4).item() > 0.1
+
+
+def test_richness_edge_steps_sit_where_the_kernel_centre_crosses_the_edge():
+    r""":math:`\mu(\lambda^{\rm tr}_e) = \lambda_e`, and the width is
+    :math:`\sigma/b_\mu` -- with the production fit, whose :math:`b_\mu`
+    is not 1."""
+    params = EmgParams.from_y3_table()
+    for z in (0.2, 0.5, 0.8):
+        centre, width = richness_edge_steps(LAM_EDGES, z, params)
+        mu, sigma, _, _ = params.at(centre, z)
+        np.testing.assert_allclose(mu, LAM_EDGES, rtol=1e-12)
+        np.testing.assert_allclose(
+            width, sigma / params.mu_slope(centre, z), rtol=1e-12
+        )
+    centre, width = richness_edge_steps(LAM_EDGES, np.array([0.2, 0.5]),
+                                        params)
+    assert centre.shape == width.shape == (2, LAM_EDGES.size)
+
+
+def test_without_projection_an_edge_step_is_half_way_at_its_centre():
+    """The Gaussian kernel puts exactly half its probability above the edge
+    at the step's centre."""
+    gauss = EmgParams(delta_mu=-1.5, sigma=3.0, f_prj=0.0, tau=0.12)
+    centre, width = richness_edge_steps(LAM_EDGES, 0.3, gauss)
+    np.testing.assert_allclose(centre, LAM_EDGES + 1.5)
+    np.testing.assert_allclose(width, 3.0)
+    for edge, c in zip(LAM_EDGES, centre):
+        above = richness_bin_probability([edge, 1e6], c, 0.3, gauss)
+        assert above.item() == pytest.approx(0.5, abs=1e-12)
+
+
+def test_a_degenerate_bracket_integrates_to_zero():
+    r"""`HodMor` below :math:`M_{\min}`: mean and width both zero, so every
+    panel is empty and the kernel is never evaluated -- at
+    :math:`\lambda^{\rm tr} = 0` the Y3 :math:`\sigma` vanishes and
+    `emg_cdf` would refuse it."""
+    sel = SelectionFunction(LAM_EDGES, Z_EDGES, HodMor.buzzard(),
+                            EmgParams.from_y3_table(), sigma_z=0.01)
+    lm = np.log(1e11)
+    np.testing.assert_array_equal(sel.S_i(lm, 0.4), 0.0)
+    np.testing.assert_array_equal(sel.first_moment_i(lm, 0.4), 0.0)
+    assert sel.residual(lm, 0.4) == 1.0
+    # and alongside a live cell, without disturbing it
+    both = sel.S_i(np.log([1e11, 1e14]), 0.4)
+    np.testing.assert_array_equal(both[0], 0.0)
+    np.testing.assert_allclose(both[1], sel.S_i(np.log(1e14), 0.4),
+                               rtol=1e-14)
+
+
+def test_n_quad_must_be_a_positive_integer():
+    for bad in (0, -3, 2.5):
+        with pytest.raises(ValueError, match="n_quad"):
+            _selection(n_quad=bad)
 
 
 def test_selection_function_is_vectorised_over_mass():
