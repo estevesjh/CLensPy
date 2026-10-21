@@ -14,13 +14,18 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.11", "3.12", "3.13"]
 
+    # uv takes its interpreter from UV_PYTHON. setup-uv@v3 has no
+    # python-version input, so without this every job ran the runner's own
+    # Python (3.12 on ubuntu, Homebrew 3.15 on macos, where scipy has no
+    # wheel and fails to build).
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+
     steps:
     - uses: actions/checkout@v3
 
     - name: Install uv
       uses: astral-sh/setup-uv@v3
-      with:
-        python-version: ${{ matrix.python-version }}
 
     - name: Install dependencies
       run: uv sync --locked --extra dev

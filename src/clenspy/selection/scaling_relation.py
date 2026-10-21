@@ -16,7 +16,10 @@ Both expose the same three things, and that is the whole interface:
 `clenspy.selection.selection_function` can place its quadrature bracket
 without knowing which relation it holds --
 :math:`[\mu_{\rm eff} - L\sigma_{\rm eff},\;\mu_{\rm eff} +
-L\sigma_{\rm eff}]`, clipped at zero.
+L\sigma_{\rm eff}]`, clipped at zero. `HodMor` has one optional fourth,
+``support_min(ln_mass, z)``, because its density *jumps* at the lower edge
+of its support and the selection function's quadrature must restart there;
+`LogNormalMor`'s density vanishes continuously at zero and needs none.
 
 **The HOD law.** The exact Poisson-plus-scatter distribution has no closed
 form. Costanzi et al. (2019b) used a lookup-table skew-normal; this module
@@ -336,6 +339,25 @@ class HodMor:
         (\sigma_{\rm intr}\mu_{\rm sat})^2}`, the HOD width."""
         mu = self.mu_sat(ln_mass, z)
         return np.sqrt(mu + (self.sigma_intr * mu) ** 2)
+
+    def support_min(self, ln_mass, z):
+        r"""Lower edge of the density's support, :math:`\lambda^{\rm cen}`.
+
+        NOTE: the density **jumps** there, from zero to
+        :math:`e^{-\nu}\nu^{\delta}/\Gamma(1+\delta)` -- 0.14 per unit
+        richness at :math:`\langle\lambda^{\rm sat}\rangle = 2`. A
+        quadrature rule straddling a jump converges only as :math:`O(1/n)`,
+        so `clenspy.selection.SelectionFunction` restarts its
+        :math:`\lambda^{\rm tr}` rule here; that is the only reason this
+        method exists. `LogNormalMor` has none: its density vanishes
+        continuously at zero.
+
+        Returns shape ``np.broadcast(ln_mass, z).shape``.
+        """
+        ln_mass, _ = np.broadcast_arrays(
+            np.asarray(ln_mass, dtype=float), np.asarray(z, dtype=float)
+        )
+        return self.lambda_central(ln_mass)
 
     def pdf(self, lambda_true, ln_mass, z):
         r"""The continuous shifted-Poisson density (module docstring)."""

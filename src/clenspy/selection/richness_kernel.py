@@ -98,6 +98,7 @@ __all__ = [
     "emg_pdf",
     "richness_bin_first_moment",
     "richness_bin_probability",
+    "richness_edge_steps",
     "richness_pdf",
 ]
 
@@ -526,6 +527,75 @@ def richness_bin_probability(lambda_edges, lambda_true, z, params):
         axis=-1,
     )
     return np.diff(cdf, axis=-1)
+
+
+def richness_edge_steps(lambda_edges, z, params):
+    r"""Where, in :math:`\lambda^{\rm tr}`, each edge switches
+    `richness_bin_probability` on or off, and over what width.
+
+    At a fixed edge :math:`\lambda_e` both CDFs are functions of
+    :math:`(\lambda_e - \mu)/\sigma`, and
+    :math:`\mu = b_\mu\lambda^{\rm tr} + \Delta\mu` is linear in
+    :math:`\lambda^{\rm tr}`. So as :math:`\lambda^{\rm tr}` rises every bin
+    probability steps where :math:`\mu` crosses an edge,
+
+    .. math::
+        \lambda^{\rm tr}_e = \frac{\lambda_e - \Delta\mu}{b_\mu},
+        \qquad
+        w_e = \frac{\sigma(\lambda^{\rm tr}_e, z)}{b_\mu},
+
+    over a width :math:`w_e`: the kernel's :math:`\sigma`, converted from
+    :math:`\lambda^{\rm ob}` to :math:`\lambda^{\rm tr}` units.
+
+    NOTE: this is the structure `clenspy.selection.SelectionFunction`
+    restarts its :math:`\lambda^{\rm tr}` rule around. It is the Gaussian
+    step only. Below :math:`\lambda^{\rm tr}_e` the projection tail adds an
+    exponential of scale :math:`1/(b_\mu\tau)`, which is smooth and needs
+    no panel of its own.
+
+    NOTE: exact for every kernel this package builds --
+    :math:`b_\mu` and :math:`\Delta\mu` are constants, or (the Y3 fit)
+    functions of :math:`z` alone. Were either to depend on
+    :math:`\lambda^{\rm tr}`, it is evaluated at
+    :math:`\lambda^{\rm tr} = \lambda_e` and the centre is a first
+    approximation. A panel break placed with it is still a correct rule,
+    only a slower one.
+
+    NOTE: :math:`\sigma` is evaluated at the centre clipped to
+    :math:`\lambda^{\rm tr} \ge 0`, the domain of the Y3 power law
+    :math:`b_\sigma(\lambda^{\rm tr})^{a_\sigma}`. A centre below zero lies
+    outside every quadrature bracket anyway.
+
+    Parameters
+    ----------
+    lambda_edges : array-like, shape (n_bins + 1,)
+        Observed-richness bin edges, strictly ascending.
+    z : float or array-like
+        True redshift, any shape.
+    params : EmgParams
+        The four kernel parameters.
+
+    Returns
+    -------
+    centre, width : np.ndarray
+        :math:`\lambda^{\rm tr}_e` and :math:`w_e`, each of shape
+        ``(*np.shape(z), n_bins + 1)``, in richness units.
+    """
+    edges = np.asarray(lambda_edges, dtype=float)
+    if edges.ndim != 1 or edges.size < 2:
+        raise ValueError("lambda_edges must be 1-D with at least two edges")
+    if np.any(np.diff(edges) <= 0.0):
+        raise ValueError("lambda_edges must be strictly ascending")
+
+    z = np.asarray(z, dtype=float)[..., None]
+    shape = np.broadcast_shapes(z.shape, edges.shape)
+    slope = EmgParams._evaluate(params.mu_slope, edges, z)
+    centre = np.broadcast_to(
+        (edges - EmgParams._evaluate(params.delta_mu, edges, z)) / slope,
+        shape,
+    )
+    sigma = EmgParams._evaluate(params.sigma, np.maximum(centre, 0.0), z)
+    return centre, np.broadcast_to(sigma / slope, shape)
 
 
 def richness_bin_first_moment(lambda_edges, lambda_true, z, params,
